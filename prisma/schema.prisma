@@ -1,0 +1,314 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ ENUMS (as String constants) ============
+
+// ============ USER & AUTH ============
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String
+  avatar        String?
+  phone         String?
+  bio           String?
+  role          String    @default("PUBLIC") // SUPER_ADMIN, ORGANIZER, STAFF, PUBLIC
+  isActive      Boolean   @default(true)
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  ownedEvents       Event[]         @relation("EventOwner")
+  staffAssignments  StaffAssignment[]
+  bookings          Booking[]
+  reviews           Review[]
+  subscriptions     Subscription[]
+  notifications     Notification[]
+  payments          Payment[]
+}
+
+model StaffAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  role      String   @default("CHECKIN") // CHECKIN, SECURITY, SUPPORT
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+}
+
+// ============ CATEGORIES & TAGS ============
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  icon        String?
+  color       String   @default("#6366f1")
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  events Event[]
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  events EventTag[]
+}
+
+// ============ SUBSCRIPTIONS ============
+
+model SubscriptionPlan {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  price       Float    @default(0)
+  interval    String   @default("MONTHLY") // MONTHLY, YEARLY
+  maxEvents   Int      @default(5)
+  maxTickets  Int      @default(100)
+  features    String   @default("[]") // JSON array
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id                String    @id @default(cuid())
+  userId            String
+  planId            String
+  status            String    @default("ACTIVE") // ACTIVE, EXPIRED, CANCELLED
+  startDate         DateTime  @default(now())
+  endDate           DateTime?
+  autoRenew         Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+}
+
+// ============ EVENTS ============
+
+model Event {
+  id              String    @id @default(cuid())
+  title           String
+  slug            String    @unique
+  description     String
+  shortDescription String?
+  coverImage      String?
+  startDate       DateTime
+  endDate         DateTime?
+  startTime       String?
+  endTime         String?
+  timezone        String    @default("UTC")
+  venueName       String?
+  venueAddress    String?
+  venueCity       String?
+  venueState      String?
+  venueCountry    String    @default("US")
+  venueLat        Float?
+  venueLng        Float?
+  isVirtual       Boolean   @default(false)
+  virtualUrl      String?
+  capacity        Int?
+  status          String    @default("DRAFT") // DRAFT, PENDING, PUBLISHED, CANCELLED, COMPLETED
+  isFeatured      Boolean   @default(false)
+  isPaid          Boolean   @default(false)
+  currency        String    @default("USD")
+  organizerId     String
+  categoryId      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  organizer         User              @relation("EventOwner", fields: [organizerId], references: [id])
+  category          Category?         @relation(fields: [categoryId], references: [id])
+  tags              EventTag[]
+  ticketTypes       TicketType[]
+  bookings          Booking[]
+  reviews           Review[]
+  staffAssignments  StaffAssignment[]
+  analytics         EventAnalytics[]
+  advertisements    Advertisement[]
+}
+
+model EventTag {
+  id        String   @id @default(cuid())
+  eventId   String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, tagId])
+}
+
+// ============ TICKETING ============
+
+model TicketType {
+  id          String   @id @default(cuid())
+  eventId     String
+  name        String
+  description String?
+  price       Float    @default(0)
+  currency    String   @default("USD")
+  quantity    Int      // total available
+  soldCount   Int      @default(0)
+  minPerOrder Int      @default(1)
+  maxPerOrder Int      @default(10)
+  saleStart   DateTime?
+  saleEnd     DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tickets Ticket[]
+}
+
+model Ticket {
+  id            String   @id @default(cuid())
+  ticketTypeId  String
+  bookingId     String
+  qrCode        String   @unique
+  status        String   @default("VALID") // VALID, USED, CANCELLED, EXPIRED
+  checkedInAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id])
+  booking    Booking    @relation(fields: [bookingId], references: [id])
+}
+
+model Booking {
+  id              String   @id @default(cuid())
+  userId          String
+  eventId         String
+  totalAmount     Float    @default(0)
+  currency        String   @default("USD")
+  status          String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, REFUNDED
+  bookingRef      String   @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id])
+  event   Event   @relation(fields: [eventId], references: [id])
+  tickets Ticket[]
+  payment Payment?
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  bookingId       String   @unique
+  userId          String
+  amount          Float
+  currency        String   @default("USD")
+  method          String   @default("STRIPE") // STRIPE, PAYPAL, BANK_TRANSFER
+  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED, REFUNDED
+  transactionId   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+}
+
+// ============ REVIEWS ============
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  rating    Int      // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+}
+
+// ============ NOTIFICATIONS ============
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, BOOKING, PAYMENT, EVENT_UPDATE, SYSTEM
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============ ADVERTISEMENTS ============
+
+model Advertisement {
+  id          String   @id @default(cuid())
+  title       String
+  imageUrl    String?
+  linkUrl     String?
+  position    String   @default("SIDEBAR") // SIDEBAR, BANNER, POPUP
+  status      String   @default("ACTIVE") // ACTIVE, PAUSED, EXPIRED
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  startDate   DateTime?
+  endDate     DateTime?
+  eventId     String?
+  advertiserId String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  event Event? @relation(fields: [eventId], references: [id])
+}
+
+// ============ ANALYTICS ============
+
+model EventAnalytics {
+  id        String   @id @default(cuid())
+  eventId   String
+  date      String   // YYYY-MM-DD
+  views     Int      @default(0)
+  clicks    Int      @default(0)
+  bookings  Int      @default(0)
+  revenue   Float    @default(0)
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, date])
+}
+
+model SystemSetting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

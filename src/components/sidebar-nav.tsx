@@ -147,7 +147,7 @@ export function SidebarNav() {
       <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 bg-zinc-900 flex-col z-30">
         <div className="p-4">
           <h2 className="text-lg font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
-            ApoCalendar
+            AppleCalendar
           </h2>
         </div>
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -162,7 +162,7 @@ export function SidebarNav() {
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             <div className="p-4">
               <h2 className="text-lg font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
-                ApoCalendar
+                AppleCalendar
               </h2>
             </div>
             <div className="flex-1 flex flex-col overflow-hidden h-[calc(100%-4rem)]">

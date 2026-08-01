@@ -85,7 +85,7 @@ export default function HomePage() {
         </main>
       </div>
       <footer className='mt-auto border-t py-4 px-6 text-center text-sm text-muted-foreground bg-background'>
-        © 2025 ApoCalendar. All rights reserved.
+        © 2025 AppleCalendar. All rights reserved.
       </footer>
     </div>
   );

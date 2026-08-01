@@ -97,7 +97,7 @@ export const useAppStore = create<AppState>()(
       setSelectedDateFilter: (filter) => set({ selectedDateFilter: filter }),
     }),
     {
-      name: 'apocalendar-store',
+      name: 'applecalendar-store',
       partialize: (state) => ({ user: state.user, token: state.token }),
     }
   )

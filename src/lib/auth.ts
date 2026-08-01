@@ -2,7 +2,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'apocalendar-secret-key-2025');
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'applecalendar-secret-key-2025');
 
 class AuthError extends Error {
   statusCode: number;

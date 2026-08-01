@@ -69,7 +69,7 @@ export async function POST(
     // Generate booking reference
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const bookingRef = `APO-${timestamp}-${random}`;
+    const bookingRef = `APC-${timestamp}-${random}`;
 
     // Calculate total
     const totalAmount = ticketType.price * quantity;

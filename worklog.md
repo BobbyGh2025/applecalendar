@@ -1,10 +1,39 @@
-# ApoCalendar Worklog
+# AppleCalendar Worklog
+
+## Task 1: Project Rename — ApoCalendar → AppleCalendar
+
+**Date:** 2025
+**Task ID:** 1
+**Description:** Rename all references from ApoCalendar to AppleCalendar across the entire project.
+
+### Changes Made:
+
+**UI Branding (5 files):**
+- `src/components/header.tsx` — Logo text → AppleCalendar
+- `src/components/sidebar-nav.tsx` — Desktop & mobile sidebar headings → AppleCalendar
+- `src/components/auth-view.tsx` — Auth card logo → AppleCalendar
+- `src/components/my-tickets.tsx` — Ticket branded header → AppleCalendar
+- `src/app/page.tsx` — Footer copyright → AppleCalendar
+
+**Backend (2 files):**
+- `src/lib/auth.ts` — JWT fallback secret → applecalendar-secret-key-2025
+- `src/app/api/events/[id]/book/route.ts` — Booking ref prefix → APC-
+
+**State Management (1 file):**
+- `src/stores/app-store.ts` — Zustand persist name → applecalendar-store
+
+**Database Seed (1 file):**
+- `prisma/seed.ts` — Admin email → admin@applecalendar.com, support email → support@applecalendar.com, platform_name → AppleCalendar, booking refs → APC-
+
+**Database:** Reset and re-seeded with updated data.
+
+---
 
 ## Task 3: Create All API Route Files
 
 **Date:** 2025
 **Task ID:** 3
-**Description:** Create all backend API route files for the ApoCalendar SaaS event platform.
+**Description:** Create all backend API route files for the AppleCalendar SaaS event platform.
 
 ### Files Created (18 API routes):
 
@@ -27,7 +56,7 @@
 4. **`src/app/api/events/[id]/book/route.ts`** — POST /api/events/:id/book
    - Book tickets with availability check, min/max per order validation
    - Creates booking, tickets with QR codes, payment record, and notification
-   - Booking ref format: APO-{timestamp}-{random}, QR code format: QR-{bookingRef}-{randomString}
+   - Booking ref format: APC-{timestamp}-{random}, QR code format: QR-{bookingRef}-{randomString}
 
 5. **`src/app/api/admin/route.ts`** — GET /api/admin?type=stats|users
    - Stats: totalUsers, totalEvents, totalBookings, totalRevenue, recentUsers, recentEvents, eventsByStatus, revenueByMonth
@@ -92,7 +121,7 @@
 
 **Date:** 2025
 **Task ID:** 4
-**Description:** Build the complete single-page application frontend for ApoCalendar, a SaaS event management platform.
+**Description:** Build the complete single-page application frontend for AppleCalendar, a SaaS event management platform.
 
 ### Files Created (19 files):
 
@@ -182,7 +211,7 @@
    - Roles: PUBLIC, ORGANIZER, STAFF, SUPER_ADMIN each have unique nav items
 
 18. **`src/components/header.tsx`** — Top header bar
-   - Hamburger menu (mobile), ApoCalendar gradient logo
+   - Hamburger menu (mobile), AppleCalendar gradient logo
    - Search input (on discover view), notification bell
    - User avatar dropdown (My Bookings, Notifications, Logout)
    - Login/Register buttons when unauthenticated

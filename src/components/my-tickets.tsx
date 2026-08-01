@@ -76,7 +76,7 @@ export function MyTickets() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Ticket className="h-5 w-5" />
-                    <span className="font-semibold">ApoCalendar</span>
+                    <span className="font-semibold">AppleCalendar</span>
                   </div>
                   <Badge variant="secondary" className="bg-white/20 text-white border-0">{t.status}</Badge>
                 </div>

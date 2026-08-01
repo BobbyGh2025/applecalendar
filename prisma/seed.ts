@@ -13,10 +13,10 @@ async function main() {
   // 1. Create Super Admin
   const superAdminPassword = await hashPassword('admin123');
   const superAdmin = await prisma.user.upsert({
-    where: { email: 'admin@apocalendar.com' },
+    where: { email: 'admin@applecalendar.com' },
     update: {},
     create: {
-      email: 'admin@apocalendar.com',
+      email: 'admin@applecalendar.com',
       password: superAdminPassword,
       name: 'Super Admin',
       role: 'SUPER_ADMIN',
@@ -392,7 +392,7 @@ async function main() {
 
   for (let i = 0; i < bookingsData.length; i++) {
     const b = bookingsData[i];
-    const bookingRef = `APO-${Date.now()}-${i}`;
+    const bookingRef = `APC-${Date.now()}-${i}`;
     const booking = await prisma.booking.create({
       data: { userId: b.userId, eventId: b.eventId, totalAmount: b.amount, currency: 'USD', status: b.status, bookingRef },
     });
@@ -452,10 +452,10 @@ async function main() {
 
   // 14. System settings
   const settings = [
-    { key: 'platform_name', value: 'ApoCalendar' },
+    { key: 'platform_name', value: 'AppleCalendar' },
     { key: 'platform_fee_percent', value: '5' },
     { key: 'default_currency', value: 'USD' },
-    { key: 'support_email', value: 'support@apocalendar.com' },
+    { key: 'support_email', value: 'support@applecalendar.com' },
   ];
   for (const s of settings) { try { await prisma.systemSetting.create({ data: s }); } catch {} }
   console.log('✅ System settings created');

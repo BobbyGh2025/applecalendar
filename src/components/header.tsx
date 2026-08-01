@@ -23,7 +23,7 @@ export function Header() {
           className="flex items-center gap-1.5 font-bold text-lg bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
         >
           <CalendarDays className="h-5 w-5 text-emerald-500" />
-          <span className="hidden sm:inline">ApoCalendar</span>
+          <span className="hidden sm:inline">AppleCalendar</span>
         </button>
       </div>
 

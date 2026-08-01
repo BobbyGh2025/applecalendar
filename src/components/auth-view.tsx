@@ -82,7 +82,7 @@ export function AuthView({ defaultTab = 'login' }: AuthViewProps) {
           <div className="flex items-center justify-center gap-2 mb-2">
             <CalendarDays className="h-8 w-8 text-emerald-500" />
             <span className="text-2xl font-bold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">
-              ApoCalendar
+              AppleCalendar
             </span>
           </div>
           <CardTitle className="text-xl">Welcome</CardTitle>

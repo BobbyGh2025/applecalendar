@@ -46,6 +46,8 @@ model StaffAssignment {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@unique([userId, eventId])
+  @@index([userId])
+  @@index([eventId])
 }
 
 // ============ CATEGORIES & TAGS ============
@@ -106,6 +108,9 @@ model Subscription {
 
   user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId])
+  @@index([planId])
 }
 
 // ============ EVENTS ============
@@ -132,7 +137,7 @@ model Event {
   isVirtual       Boolean   @default(false)
   virtualUrl      String?
   capacity        Int?
-  status          String    @default("DRAFT") // DRAFT, PENDING, PUBLISHED, CANCELLED, COMPLETED
+  status          String    @default("DRAFT") // DRAFT, PENDING, PUBLISHED, CANCELLED, COMPLETED, REJECTED
   isFeatured      Boolean   @default(false)
   isPaid          Boolean   @default(false)
   currency        String    @default("USD")
@@ -151,6 +156,11 @@ model Event {
   staffAssignments  StaffAssignment[]
   analytics         EventAnalytics[]
   advertisements    Advertisement[]
+
+  @@index([organizerId])
+  @@index([status])
+  @@index([categoryId])
+  @@index([startDate])
 }
 
 model EventTag {
@@ -163,6 +173,8 @@ model EventTag {
   tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, tagId])
+  @@index([eventId])
+  @@index([tagId])
 }
 
 // ============ TICKETING ============
@@ -200,6 +212,10 @@ model Ticket {
 
   ticketType TicketType @relation(fields: [ticketTypeId], references: [id])
   booking    Booking    @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+  @@index([ticketTypeId])
+  @@index([status])
 }
 
 model Booking {
@@ -217,6 +233,10 @@ model Booking {
   event   Event   @relation(fields: [eventId], references: [id])
   tickets Ticket[]
   payment Payment?
+
+  @@index([userId])
+  @@index([eventId])
+  @@index([status])
 }
 
 model Payment {
@@ -265,6 +285,8 @@ model Notification {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // ============ ADVERTISEMENTS ============
@@ -303,6 +325,7 @@ model EventAnalytics {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, date])
+  @@index([eventId, date])
 }
 
 model SystemSetting {

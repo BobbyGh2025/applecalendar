@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { createEventSchema, eventQuerySchema } from '@/lib/validations';
 
 function slugify(text: string): string {
   return text
@@ -38,13 +40,13 @@ function getDateFilter(dateFilter: string | null) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const search = searchParams.get('search') || '';
-    const category = searchParams.get('category') || '';
-    const dateFilter = searchParams.get('date');
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = parseInt(searchParams.get('limit') || '12', 10);
-    const featured = searchParams.get('featured');
-    const status = searchParams.get('status');
+
+    const parsed = eventQuerySchema.safeParse(searchParams);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
+    const { page, limit, search = '', category, date, featured, status } = parsed.data;
 
     // Check if user is authenticated (optional)
     let authUser = null;
@@ -74,14 +76,14 @@ export async function GET(request: NextRequest) {
       where.category = { slug: category };
     }
 
-    if (dateFilter) {
-      const dateRange = getDateFilter(dateFilter);
+    if (date) {
+      const dateRange = getDateFilter(date);
       if (dateRange) {
         where.startDate = dateRange;
       }
     }
 
-    if (featured === 'true') {
+    if (featured === true) {
       where.isFeatured = true;
     }
 
@@ -115,8 +117,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Events GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
@@ -126,6 +127,12 @@ export async function POST(request: NextRequest) {
     requireRole('ORGANIZER', 'SUPER_ADMIN')(user);
 
     const body = await request.json();
+
+    const parsed = createEventSchema.safeParse(body);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
     const {
       title,
       description,
@@ -152,14 +159,7 @@ export async function POST(request: NextRequest) {
       currency,
       tags,
       ticketTypes,
-    } = body;
-
-    if (!title || !description || !startDate || !venueName) {
-      return NextResponse.json(
-        { error: 'Missing required fields: title, description, startDate, venueName' },
-        { status: 400 }
-      );
-    }
+    } = parsed.data;
 
     let slug = slugify(title);
     // Ensure slug is unique
@@ -249,10 +249,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ event: fullEvent }, { status: 201 });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Events POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

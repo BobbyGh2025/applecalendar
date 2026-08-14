@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { createAdSchema, adsQuerySchema } from '@/lib/validations';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const position = searchParams.get('position') || '';
 
-    const where: Record<string, unknown> = { status: 'ACTIVE' };
+    const parsed = adsQuerySchema.safeParse(searchParams);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
+    const { position, status } = parsed.data;
+
+    const where: Record<string, unknown> = { status: status || 'ACTIVE' };
     if (position) {
       where.position = position;
     }
@@ -19,8 +27,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ ads });
   } catch (error) {
-    console.error('Ads GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
@@ -30,6 +37,12 @@ export async function POST(request: NextRequest) {
     requireRole('ORGANIZER', 'SUPER_ADMIN')(user);
 
     const body = await request.json();
+
+    const parsed = createAdSchema.safeParse(body);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
     const {
       title,
       imageUrl,
@@ -38,11 +51,7 @@ export async function POST(request: NextRequest) {
       startDate,
       endDate,
       eventId,
-    } = body;
-
-    if (!title) {
-      return NextResponse.json({ error: 'Title is required' }, { status: 400 });
-    }
+    } = parsed.data;
 
     const ad = await db.advertisement.create({
       data: {
@@ -60,10 +69,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ad }, { status: 201 });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Ads POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

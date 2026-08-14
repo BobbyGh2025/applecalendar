@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { updateUserSchema } from '@/lib/validations';
 
 export async function PATCH(
   request: NextRequest,
@@ -17,14 +19,20 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { isActive, role } = body;
+
+    const parsed = updateUserSchema.safeParse(body);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
+    const { isActive, role } = parsed.data;
 
     const updateData: Record<string, unknown> = {};
     if (isActive !== undefined) updateData.isActive = isActive;
     if (role !== undefined) {
-      const validRoles = ['PUBLIC', 'ORGANIZER', 'STAFF', 'SUPER_ADMIN'];
-      if (!validRoles.includes(role)) {
-        return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+      // Prevent granting SUPER_ADMIN to users who don't already have it
+      if (role === 'SUPER_ADMIN' && existingUser.role !== 'SUPER_ADMIN') {
+        return NextResponse.json({ error: 'Cannot grant SUPER_ADMIN role' }, { status: 403 });
       }
       updateData.role = role;
     }
@@ -47,11 +55,7 @@ export async function PATCH(
 
     return NextResponse.json({ user: updatedUser });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Admin User PATCH error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
@@ -81,10 +85,6 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'User deactivated successfully' });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Admin User DELETE error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

@@ -53,18 +53,18 @@ export function AdminUsers() {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: '1', limit: '50' });
+      const params = new URLSearchParams({ page: String(page), limit: '50' });
       if (search) params.set('search', search);
       if (roleFilter) params.set('role', roleFilter);
-      const data = await apiFetch<{ users: User[]; totalPages: number }>(`/api/admin?type=users&${params.toString()}`);
+      const data = await apiFetch<{ users: User[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(`/api/admin?type=users&${params.toString()}`);
       setUsers(data.users || []);
-      setTotalPages(data.totalPages || 1);
+      setTotalPages(data.pagination?.totalPages || 1);
     } catch {
       toast.error('Failed to load users');
     } finally {
       setLoading(false);
     }
-  }, [search, roleFilter]);
+  }, [search, roleFilter, page]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 

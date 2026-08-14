@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { usersQuerySchema, paginationSchema } from '@/lib/validations';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,6 +14,11 @@ export async function GET(request: NextRequest) {
 
     // Dashboard stats endpoint
     if (type === 'stats') {
+      const parsed = paginationSchema.safeParse(searchParams);
+      if (!parsed.success) {
+        return ApiError.fromZodError(parsed.error).toResponse();
+      }
+
       const [
         totalUsers,
         totalEvents,
@@ -85,10 +92,12 @@ export async function GET(request: NextRequest) {
 
     // Users list endpoint
     if (type === 'users') {
-      const page = parseInt(searchParams.get('page') || '1', 10);
-      const limit = parseInt(searchParams.get('limit') || '20', 10);
-      const search = searchParams.get('search') || '';
-      const role = searchParams.get('role') || '';
+      const parsed = usersQuerySchema.safeParse(searchParams);
+      if (!parsed.success) {
+        return ApiError.fromZodError(parsed.error).toResponse();
+      }
+
+      const { page, limit, search = '', role } = parsed.data;
 
       const where: Record<string, unknown> = {};
       if (search) {
@@ -138,10 +147,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ error: 'Invalid type parameter. Use "stats" or "users"' }, { status: 400 });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Admin GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

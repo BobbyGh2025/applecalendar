@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { updateEventSchema } from '@/lib/validations';
 
 function slugify(text: string): string {
   return text
@@ -16,6 +18,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+
+    // Try to authenticate (optional — may fail for public users)
+    let authenticatedUser: { id: string; role: string } | null = null;
+    try {
+      authenticatedUser = await authenticate(request);
+    } catch {
+      // User is unauthenticated — that's fine for GET
+    }
 
     const event = await db.event.findUnique({
       where: { id },
@@ -51,10 +61,14 @@ export async function GET(
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
 
+    // Public/unauthenticated users can only see PUBLISHED events
+    if ((!authenticatedUser || authenticatedUser.role === 'PUBLIC') && event.status !== 'PUBLISHED') {
+      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+    }
+
     return NextResponse.json({ event });
   } catch (error) {
-    console.error('Event GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
@@ -77,6 +91,12 @@ export async function PATCH(
     }
 
     const body = await request.json();
+
+    const parsed = updateEventSchema.safeParse(body);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
     const {
       title,
       description,
@@ -103,7 +123,7 @@ export async function PATCH(
       currency,
       status,
       tags,
-    } = body;
+    } = parsed.data;
 
     const updateData: Record<string, unknown> = {};
 
@@ -130,7 +150,7 @@ export async function PATCH(
     if (virtualUrl !== undefined) updateData.virtualUrl = virtualUrl;
     if (capacity !== undefined) updateData.capacity = capacity;
     if (categoryId !== undefined) updateData.categoryId = categoryId;
-    if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
+    if (isFeatured !== undefined && user.role === 'SUPER_ADMIN') updateData.isFeatured = isFeatured;
     if (isPaid !== undefined) updateData.isPaid = isPaid;
     if (currency !== undefined) updateData.currency = currency;
     if (status !== undefined && (user.role === 'SUPER_ADMIN' || user.id === existingEvent.organizerId)) {
@@ -188,11 +208,7 @@ export async function PATCH(
 
     return NextResponse.json({ event: fullEvent });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Event PATCH error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
@@ -217,10 +233,6 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Event deleted successfully' });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Event DELETE error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError } from '@/lib/errors';
+
+const VALID_ACTIONS = ['approve', 'reject'] as const;
 
 export async function PATCH(
   request: NextRequest,
@@ -19,7 +22,7 @@ export async function PATCH(
     const body = await request.json();
     const { action } = body;
 
-    if (!action || !['approve', 'reject'].includes(action)) {
+    if (!action || !VALID_ACTIONS.includes(action)) {
       return NextResponse.json({ error: 'Action must be "approve" or "reject"' }, { status: 400 });
     }
 
@@ -50,10 +53,6 @@ export async function PATCH(
       message: `Event ${action === 'approve' ? 'approved' : 'rejected'} successfully`,
     });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Moderate PATCH error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

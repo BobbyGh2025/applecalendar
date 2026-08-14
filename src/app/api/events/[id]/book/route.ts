@@ -1,21 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { db } from '@/lib/db';
-import { authenticate, AuthError } from '@/lib/auth';
+import { authenticate } from '@/lib/auth';
+import { ApiError, handleApiError } from '@/lib/errors';
+import { rateLimit, RateLimitError } from '@/lib/rate-limit';
+import { createBookingSchema } from '@/lib/validations';
+
+const bookingLimiter = rateLimit({ windowMs: 60_000, maxRequests: 10 });
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rl = bookingLimiter(request);
+    if (!rl.success) {
+      throw new RateLimitError(rl.remaining, rl.resetAt);
+    }
+
     const user = await authenticate(request);
     const { id } = await params;
 
     const body = await request.json();
-    const { ticketTypeId, quantity } = body;
 
-    if (!ticketTypeId || !quantity || quantity < 1) {
-      return NextResponse.json({ error: 'ticketTypeId and quantity (>= 1) are required' }, { status: 400 });
+    const parsed = createBookingSchema.safeParse(body);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
     }
+
+    const { ticketTypeId, quantity } = parsed.data;
 
     // Find the event
     const event = await db.event.findUnique({
@@ -43,16 +56,7 @@ export async function POST(
       return NextResponse.json({ error: 'This ticket type is no longer available' }, { status: 400 });
     }
 
-    // Check availability
-    const available = ticketType.quantity - ticketType.soldCount;
-    if (available < quantity) {
-      return NextResponse.json(
-        { error: `Not enough tickets available. Only ${available} tickets remaining.` },
-        { status: 400 }
-      );
-    }
-
-    // Check min/max per order
+    // Check min/max per order (outside transaction, just validation)
     if (quantity < ticketType.minPerOrder) {
       return NextResponse.json(
         { error: `Minimum ${ticketType.minPerOrder} tickets per order` },
@@ -68,14 +72,29 @@ export async function POST(
 
     // Generate booking reference
     const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const random = crypto.randomBytes(4).toString('hex').toUpperCase();
     const bookingRef = `APC-${timestamp}-${random}`;
 
     // Calculate total
     const totalAmount = ticketType.price * quantity;
 
-    // Create booking, tickets, and payment in a transaction
+    // Create booking, tickets, and payment in a transaction with atomic availability check
     const result = await db.$transaction(async (tx) => {
+      // Atomic availability check: increment soldCount only if enough remain
+      const updateResult = await tx.ticketType.updateMany({
+        where: {
+          id: ticketTypeId,
+          soldCount: { lte: ticketType.quantity - quantity },
+        },
+        data: {
+          soldCount: { increment: quantity },
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ApiError(409, 'TICKETS_SOLD_OUT', 'Not enough tickets available. They may have been claimed by another user.');
+      }
+
       // Create booking
       const booking = await tx.booking.create({
         data: {
@@ -100,10 +119,10 @@ export async function POST(
         },
       });
 
-      // Create tickets
+      // Create tickets with crypto-strong QR codes
       const tickets = [];
       for (let i = 0; i < quantity; i++) {
-        const ticketRandom = Math.random().toString(36).substring(2, 10).toUpperCase();
+        const ticketRandom = crypto.randomBytes(16).toString('hex').toUpperCase();
         const qrCode = `QR-${bookingRef}-${ticketRandom}`;
         const ticket = await tx.ticket.create({
           data: {
@@ -115,12 +134,6 @@ export async function POST(
         });
         tickets.push(ticket);
       }
-
-      // Update sold count
-      await tx.ticketType.update({
-        where: { id: ticketTypeId },
-        data: { soldCount: { increment: quantity } },
-      });
 
       // Create notification
       await tx.notification.create({
@@ -142,10 +155,6 @@ export async function POST(
       message: 'Booking created successfully',
     }, { status: 201 });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Booking POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

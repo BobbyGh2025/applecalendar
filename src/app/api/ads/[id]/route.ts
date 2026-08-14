@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { updateAdSchema } from '@/lib/validations';
 
 export async function PATCH(
   request: NextRequest,
@@ -16,8 +18,18 @@ export async function PATCH(
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
     }
 
+    if (user.role !== 'SUPER_ADMIN' && existingAd.advertiserId !== user.id) {
+      return NextResponse.json({ error: 'You do not have permission to update this ad' }, { status: 403 });
+    }
+
     const body = await request.json();
-    const { title, imageUrl, linkUrl, position, status, startDate, endDate } = body;
+
+    const parsed = updateAdSchema.safeParse(body);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
+    const { title, imageUrl, linkUrl, position, status, startDate, endDate } = parsed.data;
 
     const updateData: Record<string, unknown> = {};
     if (title !== undefined) updateData.title = title;
@@ -35,11 +47,7 @@ export async function PATCH(
 
     return NextResponse.json({ ad });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Ad PATCH error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
@@ -57,14 +65,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
     }
 
+    if (user.role !== 'SUPER_ADMIN' && existingAd.advertiserId !== user.id) {
+      return NextResponse.json({ error: 'You do not have permission to delete this ad' }, { status: 403 });
+    }
+
     await db.advertisement.delete({ where: { id } });
 
     return NextResponse.json({ message: 'Ad deleted successfully' });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Ad DELETE error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

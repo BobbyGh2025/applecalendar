@@ -2,20 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { generateToken } from '@/lib/auth';
 import { hash, compare } from 'bcryptjs';
+import { rateLimit, RateLimitError } from '@/lib/rate-limit';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { authSchema } from '@/lib/validations';
+
+const loginLimiter = rateLimit({ windowMs: 60_000, maxRequests: 5 });
+const registerLimiter = rateLimit({ windowMs: 60_000, maxRequests: 3 });
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action, email, password, name } = body;
 
-    if (!action || !email || !password) {
-      return NextResponse.json({ error: 'Missing required fields: action, email, password' }, { status: 400 });
+    const parsed = authSchema.safeParse(body);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
     }
 
+    const { action, email, password } = parsed.data;
+
     if (action === 'register') {
-      if (!name) {
-        return NextResponse.json({ error: 'Name is required for registration' }, { status: 400 });
+      const rl = registerLimiter(request);
+      if (!rl.success) {
+        throw new RateLimitError(rl.remaining, rl.resetAt);
       }
+
+      const { name } = parsed.data;
 
       const existingUser = await db.user.findUnique({ where: { email } });
       if (existingUser) {
@@ -50,6 +61,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'login') {
+      const rl = loginLimiter(request);
+      if (!rl.success) {
+        throw new RateLimitError(rl.remaining, rl.resetAt);
+      }
+
       const user = await db.user.findUnique({ where: { email } });
       if (!user) {
         return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
@@ -82,7 +98,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: 'Invalid action. Use "login" or "register"' }, { status: 400 });
   } catch (error) {
-    console.error('Auth error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

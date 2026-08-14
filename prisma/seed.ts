@@ -7,11 +7,26 @@ async function hashPassword(password: string): Promise<string> {
   return hash(password, 12);
 }
 
+// ─── Development-only credentials (DO NOT use in production) ───
+// admin@applecalendar.com  →  AdminPass2025!
+// organizer@events.com      →  OrgPass2025!
+// tech@events.com           →  OrgPass2025!
+// staff@events.com          →  StaffPass2025!
+// user@test.com             →  UserPass2025!
+// ───────────────────────────────────────────────────────────────
+
+const DEV_CREDENTIALS = {
+  superAdmin: 'AdminPass2025!',
+  organizer: 'OrgPass2025!',
+  staff: 'StaffPass2025!',
+  public: 'UserPass2025!',
+} as const;
+
 async function main() {
   console.log('🌱 Seeding database...');
 
   // 1. Create Super Admin
-  const superAdminPassword = await hashPassword('admin123');
+  const superAdminPassword = await hashPassword(DEV_CREDENTIALS.superAdmin);
   const superAdmin = await prisma.user.upsert({
     where: { email: 'admin@applecalendar.com' },
     update: {},
@@ -27,7 +42,7 @@ async function main() {
   console.log('✅ Super Admin created:', superAdmin.email);
 
   // 2. Create Organizer users
-  const orgPassword = await hashPassword('org123');
+  const orgPassword = await hashPassword(DEV_CREDENTIALS.organizer);
   const organizer1 = await prisma.user.upsert({
     where: { email: 'organizer@events.com' },
     update: {},
@@ -58,7 +73,7 @@ async function main() {
     },
   });
 
-  const staffPassword = await hashPassword('staff123');
+  const staffPassword = await hashPassword(DEV_CREDENTIALS.staff);
   const staffUser = await prisma.user.upsert({
     where: { email: 'staff@events.com' },
     update: {},
@@ -73,7 +88,7 @@ async function main() {
     },
   });
 
-  const publicPassword = await hashPassword('user123');
+  const publicPassword = await hashPassword(DEV_CREDENTIALS.public);
   const publicUser = await prisma.user.upsert({
     where: { email: 'user@test.com' },
     update: {},

@@ -358,3 +358,42 @@ All 9 route handler files updated with:
 ### 10. Recommended Next Phase
 
 **PHASE 2 — Authentication & Users:** Complete the auth system with password reset, email verification, user profiles, and remaining security hardening (CORS restriction, security headers, account lockout).
+
+---
+
+## Phase 2: Identity, Authentication & User Architecture — PLAN
+
+**Date:** 2025
+**Task ID:** P2-PLAN
+**Description:** Comprehensive audit of existing auth architecture and detailed implementation plan for Phase 2.
+
+### Audit Findings
+
+14 weaknesses identified (W-1 through W-14). Critical: 7-day JWT with no rotation/revocation, token in localStorage, no server-side logout, no email verification, no password reset, no account lockout, CORS wildcard.
+
+### Plan Produced
+
+11-section plan covering:
+1. Current auth architecture audit
+2. Recommended identity architecture (dual-token, organizer profiles, membership-based staff)
+3. Role/permission model (code-defined permissions, 4 roles, centralized authorization functions)
+4. Organizer/tenant model (OrganizerProfile 1:1 with User, Event.organizerProfileId migration)
+5. Staff membership model (OrganizerMembership with JSON permissions, OrganizerInvitation flow)
+6. Session/token architecture (15min access token + 7-day httpOnly refresh cookie with rotation)
+7. Database changes (6 new models, 2 modified models, 1 deprecated, migration script)
+8. API endpoints (10 modified, 21 new)
+9. Security improvements (session architecture, account lockout, email verification, password reset, CORS, security headers, password policy, Next.js middleware)
+10. Testing strategy (~70 new tests across ~10 files, including security-specific cross-organizer tests)
+11. Implementation sequence (15 ordered steps)
+
+### Key Design Decisions
+- Keep jose JWT library (no new auth framework)
+- Dual-token system: 15min access (memory) + 7-day refresh (httpOnly cookie)
+- Code-defined permissions (no Permission/RolePermission DB tables)
+- Rename STAFF → ORGANIZER_STAFF, staff identity via OrganizerMembership not User.role
+- OrganizerProfile as separate model from User (onboarding flow)
+- Event.organizerId → Event.organizerProfileId (breaking migration)
+- All new mutation endpoints use Zod, all protected endpoints enforce server-side authorization
+- Anti-enumeration on email verification and password reset
+
+**Status:** PLAN COMPLETE — Awaiting user approval to begin implementation.

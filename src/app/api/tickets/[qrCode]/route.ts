@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { rateLimit, RateLimitError } from '@/lib/rate-limit';
+
+const ticketLookupLimiter = rateLimit({ windowMs: 60_000, maxRequests: 30 });
+const ticketCheckinLimiter = rateLimit({ windowMs: 60_000, maxRequests: 15 });
 
 async function verifyTicketAccess(userId: string, eventId: string, organizerId: string): Promise<boolean> {
   if (userId === organizerId) return true;
@@ -15,6 +20,11 @@ export async function GET(
   { params }: { params: Promise<{ qrCode: string }> }
 ) {
   try {
+    const rl = ticketLookupLimiter(request);
+    if (!rl.success) {
+      throw new RateLimitError(rl.remaining, rl.resetAt);
+    }
+
     const user = await authenticate(request);
     requireRole('ORGANIZER', 'STAFF', 'SUPER_ADMIN')(user);
     const { qrCode } = await params;
@@ -51,22 +61,18 @@ export async function GET(
     });
 
     if (!ticket) {
-      return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Ticket not found');
     }
 
     const eventId = ticket.ticketType.event.id;
     const organizerId = ticket.ticketType.event.organizerId;
     if (user.role !== 'SUPER_ADMIN' && !(await verifyTicketAccess(user.id, eventId, organizerId))) {
-      return NextResponse.json({ error: 'You do not have permission to access this ticket' }, { status: 403 });
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to access this ticket');
     }
 
     return NextResponse.json({ ticket });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Ticket GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
@@ -75,6 +81,11 @@ export async function PATCH(
   { params }: { params: Promise<{ qrCode: string }> }
 ) {
   try {
+    const rl = ticketCheckinLimiter(request);
+    if (!rl.success) {
+      throw new RateLimitError(rl.remaining, rl.resetAt);
+    }
+
     const user = await authenticate(request);
     requireRole('ORGANIZER', 'STAFF', 'SUPER_ADMIN')(user);
     const { qrCode } = await params;
@@ -92,25 +103,25 @@ export async function PATCH(
       },
     });
     if (!ticket) {
-      return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Ticket not found');
     }
 
     const eventId = ticket.ticketType.event.id;
     const organizerId = ticket.ticketType.event.organizerId;
     if (user.role !== 'SUPER_ADMIN' && !(await verifyTicketAccess(user.id, eventId, organizerId))) {
-      return NextResponse.json({ error: 'You do not have permission to check in this ticket' }, { status: 403 });
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to check in this ticket');
     }
 
     if (ticket.status === 'USED') {
-      return NextResponse.json({ error: 'Ticket has already been used' }, { status: 400 });
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket has already been used');
     }
 
     if (ticket.status === 'CANCELLED') {
-      return NextResponse.json({ error: 'Ticket has been cancelled' }, { status: 400 });
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket has been cancelled');
     }
 
     if (ticket.status === 'EXPIRED') {
-      return NextResponse.json({ error: 'Ticket has expired' }, { status: 400 });
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket has expired');
     }
 
     const updatedTicket = await db.ticket.update({
@@ -137,10 +148,6 @@ export async function PATCH(
       message: 'Ticket checked in successfully',
     });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Ticket PATCH error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

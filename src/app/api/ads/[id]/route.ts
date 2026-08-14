@@ -15,11 +15,11 @@ export async function PATCH(
 
     const existingAd = await db.advertisement.findUnique({ where: { id } });
     if (!existingAd) {
-      return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Ad not found');
     }
 
     if (user.role !== 'SUPER_ADMIN' && existingAd.advertiserId !== user.id) {
-      return NextResponse.json({ error: 'You do not have permission to update this ad' }, { status: 403 });
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to update this ad');
     }
 
     const body = await request.json();
@@ -62,16 +62,16 @@ export async function DELETE(
 
     const existingAd = await db.advertisement.findUnique({ where: { id } });
     if (!existingAd) {
-      return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Ad not found');
     }
 
     if (user.role !== 'SUPER_ADMIN' && existingAd.advertiserId !== user.id) {
-      return NextResponse.json({ error: 'You do not have permission to delete this ad' }, { status: 403 });
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to delete this ad');
     }
 
     await db.advertisement.delete({ where: { id } });
 
-    return NextResponse.json({ message: 'Ad deleted successfully' });
+    return NextResponse.json({ success: true, message: 'Ad deleted successfully' });
   } catch (error) {
     return handleApiError(error);
   }

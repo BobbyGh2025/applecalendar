@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
 
       const existingUser = await db.user.findUnique({ where: { email } });
       if (existingUser) {
-        return NextResponse.json({ error: 'Email already registered' }, { status: 400 });
+        throw new ApiError(409, 'CONFLICT', 'Email already registered');
       }
 
       const hashedPassword = await hash(password, 12);
@@ -68,16 +68,16 @@ export async function POST(request: NextRequest) {
 
       const user = await db.user.findUnique({ where: { email } });
       if (!user) {
-        return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+        throw new ApiError(401, 'UNAUTHORIZED', 'Invalid email or password');
       }
 
       const isPasswordValid = await compare(password, user.password);
       if (!isPasswordValid) {
-        return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+        throw new ApiError(401, 'UNAUTHORIZED', 'Invalid email or password');
       }
 
       if (!user.isActive) {
-        return NextResponse.json({ error: 'Account is deactivated' }, { status: 401 });
+        throw new ApiError(403, 'FORBIDDEN', 'Account is deactivated');
       }
 
       const token = await generateToken({ userId: user.id, email: user.email, role: user.role });
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: 'Invalid action. Use "login" or "register"' }, { status: 400 });
+    throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid action. Use "login" or "register"');
   } catch (error) {
     return handleApiError(error);
   }

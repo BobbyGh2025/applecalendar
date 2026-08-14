@@ -86,7 +86,7 @@ describe('ApiError', () => {
     expect(apiErr.code).toBe('VALIDATION_ERROR');
     expect(apiErr.message).toBe('Validation failed');
     expect(Array.isArray(apiErr.details)).toBe(true);
-    expect(apiErr.details!.length).toBeGreaterThan(0);
+    expect((apiErr.details as unknown[]).length).toBeGreaterThan(0);
   });
 });
 

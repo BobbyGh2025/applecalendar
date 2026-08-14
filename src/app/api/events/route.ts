@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     const { page, limit, search = '', category, date, featured, status } = parsed.data;
 
     // Check if user is authenticated (optional)
-    let authUser = null;
+    let authUser: { id: string; role: string } | null = null;
     try {
       authUser = await authenticate(request);
     } catch {
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
             name: tt.name,
             description: tt.description,
             price: tt.price || 0,
-            currency: tt.currency || 'USD',
+            currency: currency || 'USD',
             quantity: tt.quantity || 100,
             minPerOrder: tt.minPerOrder || 1,
             maxPerOrder: tt.maxPerOrder || 10,

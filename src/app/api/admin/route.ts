@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
             bio: true,
             isActive: true,
             createdAt: true,
-            _count: { select: { events: true, bookings: true } },
+            _count: { select: { bookings: true } },
           },
         }),
         db.user.count({ where }),
@@ -145,7 +145,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: 'Invalid type parameter. Use "stats" or "users"' }, { status: 400 });
+    throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid type parameter. Use "stats" or "users"');
   } catch (error) {
     return handleApiError(error);
   }

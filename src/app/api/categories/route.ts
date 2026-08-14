@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { handleApiError } from '@/lib/errors';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +14,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ categories });
   } catch (error) {
-    console.error('Categories GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

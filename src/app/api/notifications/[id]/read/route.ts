@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, AuthError } from '@/lib/auth';
+import { authenticate } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
 
 export async function PATCH(
   request: NextRequest,
@@ -12,11 +13,11 @@ export async function PATCH(
 
     const notification = await db.notification.findUnique({ where: { id } });
     if (!notification) {
-      return NextResponse.json({ error: 'Notification not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Notification not found');
     }
 
     if (notification.userId !== user.id) {
-      return NextResponse.json({ error: 'You do not have permission to update this notification' }, { status: 403 });
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to update this notification');
     }
 
     const updatedNotification = await db.notification.update({
@@ -26,10 +27,6 @@ export async function PATCH(
 
     return NextResponse.json({ notification: updatedNotification });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Notification PATCH error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

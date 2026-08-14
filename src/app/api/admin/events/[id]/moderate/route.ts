@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
-import { handleApiError } from '@/lib/errors';
+import { handleApiError, ApiError } from '@/lib/errors';
 
 const VALID_ACTIONS = ['approve', 'reject'] as const;
 
@@ -16,14 +16,14 @@ export async function PATCH(
 
     const event = await db.event.findUnique({ where: { id } });
     if (!event) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
     const body = await request.json();
     const { action } = body;
 
     if (!action || !VALID_ACTIONS.includes(action)) {
-      return NextResponse.json({ error: 'Action must be "approve" or "reject"' }, { status: 400 });
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Action must be "approve" or "reject"');
     }
 
     const newStatus = action === 'approve' ? 'PUBLISHED' : 'CANCELLED';

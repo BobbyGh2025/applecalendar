@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
 
 export async function GET(
   request: NextRequest,
@@ -16,11 +17,11 @@ export async function GET(
     });
 
     if (!event) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
     if (event.organizerId !== user.id && user.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'You do not have permission to view this event\'s analytics' }, { status: 403 });
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to view this event\'s analytics');
     }
 
     // Get last 30 days of analytics
@@ -90,10 +91,6 @@ export async function GET(
       ticketSummary,
     });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Event Analytics GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

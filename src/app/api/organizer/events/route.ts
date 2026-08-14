@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { paginationSchema, eventStatusField } from '@/lib/validations/common';
+import { z } from 'zod';
+
+const organizerEventsQuerySchema = z.object({
+  page: paginationSchema.shape.page,
+  limit: paginationSchema.shape.limit,
+  status: eventStatusField.optional(),
+});
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,9 +17,13 @@ export async function GET(request: NextRequest) {
     requireRole('ORGANIZER', 'SUPER_ADMIN')(user);
 
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = parseInt(searchParams.get('limit') || '12', 10);
-    const status = searchParams.get('status') || '';
+
+    const parsed = organizerEventsQuerySchema.safeParse(searchParams);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
+    const { page, limit, status } = parsed.data;
 
     const where: Record<string, unknown> = { organizerId: user.id };
     if (status) {
@@ -53,10 +66,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Organizer Events GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

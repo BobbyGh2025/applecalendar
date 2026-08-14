@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, AuthError } from '@/lib/auth';
+import { authenticate } from '@/lib/auth';
+import { handleApiError } from '@/lib/errors';
 
 export async function GET(request: NextRequest) {
   try {
@@ -42,10 +43,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ bookings });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Bookings GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

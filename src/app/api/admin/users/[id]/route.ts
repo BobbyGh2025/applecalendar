@@ -15,7 +15,7 @@ export async function PATCH(
 
     const existingUser = await db.user.findUnique({ where: { id } });
     if (!existingUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'User not found');
     }
 
     const body = await request.json();
@@ -32,7 +32,7 @@ export async function PATCH(
     if (role !== undefined) {
       // Prevent granting SUPER_ADMIN to users who don't already have it
       if (role === 'SUPER_ADMIN' && existingUser.role !== 'SUPER_ADMIN') {
-        return NextResponse.json({ error: 'Cannot grant SUPER_ADMIN role' }, { status: 403 });
+        throw new ApiError(403, 'FORBIDDEN', 'Cannot grant SUPER_ADMIN role');
       }
       updateData.role = role;
     }
@@ -70,11 +70,11 @@ export async function DELETE(
 
     const existingUser = await db.user.findUnique({ where: { id } });
     if (!existingUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'User not found');
     }
 
     if (existingUser.id === user.id) {
-      return NextResponse.json({ error: 'You cannot deactivate your own account' }, { status: 400 });
+      throw new ApiError(400, 'VALIDATION_ERROR', 'You cannot deactivate your own account');
     }
 
     // Soft delete — set isActive to false
@@ -83,7 +83,7 @@ export async function DELETE(
       data: { isActive: false },
     });
 
-    return NextResponse.json({ message: 'User deactivated successfully' });
+    return NextResponse.json({ success: true, message: 'User deactivated successfully' });
   } catch (error) {
     return handleApiError(error);
   }

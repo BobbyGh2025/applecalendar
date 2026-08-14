@@ -58,12 +58,12 @@ export async function GET(
     });
 
     if (!event) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
     // Public/unauthenticated users can only see PUBLISHED events
     if ((!authenticatedUser || authenticatedUser.role === 'PUBLIC') && event.status !== 'PUBLISHED') {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
     return NextResponse.json({ event });
@@ -82,12 +82,12 @@ export async function PATCH(
 
     const existingEvent = await db.event.findUnique({ where: { id } });
     if (!existingEvent) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
     // Only owner or admin can update
     if (existingEvent.organizerId !== user.id && user.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'You do not have permission to update this event' }, { status: 403 });
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to update this event');
     }
 
     const body = await request.json();
@@ -222,16 +222,16 @@ export async function DELETE(
 
     const existingEvent = await db.event.findUnique({ where: { id } });
     if (!existingEvent) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
     if (existingEvent.organizerId !== user.id && user.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'You do not have permission to delete this event' }, { status: 403 });
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to delete this event');
     }
 
     await db.event.delete({ where: { id } });
 
-    return NextResponse.json({ message: 'Event deleted successfully' });
+    return NextResponse.json({ success: true, message: 'Event deleted successfully' });
   } catch (error) {
     return handleApiError(error);
   }

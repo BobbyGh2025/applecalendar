@@ -40,34 +40,28 @@ export async function POST(
     });
 
     if (!event) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
     if (event.status !== 'PUBLISHED') {
-      return NextResponse.json({ error: 'Event is not available for booking' }, { status: 400 });
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Event is not available for booking');
     }
 
     const ticketType = event.ticketTypes[0];
     if (!ticketType) {
-      return NextResponse.json({ error: 'Ticket type not found' }, { status: 404 });
+      throw new ApiError(404, 'NOT_FOUND', 'Ticket type not found');
     }
 
     if (!ticketType.isActive) {
-      return NextResponse.json({ error: 'This ticket type is no longer available' }, { status: 400 });
+      throw new ApiError(400, 'VALIDATION_ERROR', 'This ticket type is no longer available');
     }
 
     // Check min/max per order (outside transaction, just validation)
     if (quantity < ticketType.minPerOrder) {
-      return NextResponse.json(
-        { error: `Minimum ${ticketType.minPerOrder} tickets per order` },
-        { status: 400 }
-      );
+      throw new ApiError(400, 'VALIDATION_ERROR', `Minimum ${ticketType.minPerOrder} tickets per order`);
     }
     if (quantity > ticketType.maxPerOrder) {
-      return NextResponse.json(
-        { error: `Maximum ${ticketType.maxPerOrder} tickets per order` },
-        { status: 400 }
-      );
+      throw new ApiError(400, 'VALIDATION_ERROR', `Maximum ${ticketType.maxPerOrder} tickets per order`);
     }
 
     // Generate booking reference
@@ -120,7 +114,7 @@ export async function POST(
       });
 
       // Create tickets with crypto-strong QR codes
-      const tickets = [];
+      const tickets: Array<{ id: string; qrCode: string; status: string; ticketTypeId: string; bookingId: string; createdAt: Date; updatedAt: Date; checkedInAt: Date | null }> = [];
       for (let i = 0; i < quantity; i++) {
         const ticketRandom = crypto.randomBytes(16).toString('hex').toUpperCase();
         const qrCode = `QR-${bookingRef}-${ticketRandom}`;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole, AuthError } from '@/lib/auth';
+import { authenticate, requireRole } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
 
 export async function GET(request: NextRequest) {
   try {
@@ -77,12 +78,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: 'Invalid type parameter. Use "dashboard"' }, { status: 400 });
+    throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid type parameter. Use "dashboard"');
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
-    }
-    console.error('Organizer GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

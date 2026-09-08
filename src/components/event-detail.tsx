@@ -7,12 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { ArrowLeft, MapPin, CalendarDays, Clock, Globe, Star, Users, Ticket, Minus, Plus, Loader2, Tag, User } from 'lucide-react';
+import { ArrowLeft, MapPin, CalendarDays, Clock, Globe, Star, Users, Ticket, Minus, Plus, Loader2, Tag, User, MessageSquarePlus } from 'lucide-react';
 
 interface Review {
   id: string;
@@ -67,15 +69,26 @@ export function EventDetail() {
   const [quantity, setQuantity] = useState(1);
   const [booking, setBooking] = useState(false);
   const [relatedEvents, setRelatedEvents] = useState<any[]>([]);
+  const [reviewDialog, setReviewDialog] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [userHasReviewed, setUserHasReviewed] = useState(false);
 
   useEffect(() => {
     if (!selectedEventId) return;
     setLoading(true);
     apiFetch<{ event: Event }>(`/api/events/${selectedEventId}`)
-      .then(data => setEvent(data.event))
+      .then(data => {
+        setEvent(data.event);
+        // Check if current user has already reviewed
+        if (user && data.event.reviews) {
+          setUserHasReviewed(data.event.reviews.some((r: Review) => r.user?.id === user.id));
+        }
+      })
       .catch(() => toast.error('Failed to load event'))
       .finally(() => setLoading(false));
-  }, [selectedEventId]);
+  }, [selectedEventId, user?.id]);
 
   useEffect(() => {
     if (!event?.category?.slug) return;
@@ -118,6 +131,29 @@ export function EventDetail() {
   const avgRating = event?.reviews?.length
     ? event.reviews.reduce((s, r) => s + r.rating, 0) / event.reviews.length
     : 0;
+
+  const submitReview = async () => {
+    if (!selectedEventId) return;
+    setSubmittingReview(true);
+    try {
+      await apiFetch(`/api/events/${selectedEventId}/reviews`, {
+        method: 'POST',
+        body: JSON.stringify({ rating: reviewRating, comment: reviewComment || undefined }),
+      });
+      toast.success('Review submitted!');
+      setReviewDialog(false);
+      setReviewRating(5);
+      setReviewComment('');
+      setUserHasReviewed(true);
+      // Refresh event to show new review
+      const data = await apiFetch<{ event: Event }>(`/api/events/${selectedEventId}`);
+      setEvent(data.event);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to submit review');
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -254,13 +290,26 @@ export function EventDetail() {
           {/* Reviews */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Star className="h-5 w-5 fill-amber-400 text-amber-400" />
-                Reviews ({event._count?.reviews || 0})
-                {avgRating > 0 && (
-                  <span className="text-sm font-normal text-muted-foreground">
-                    {avgRating.toFixed(1)} average
-                  </span>
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Star className="h-5 w-5 fill-amber-400 text-amber-400" />
+                  Reviews ({event._count?.reviews || 0})
+                  {avgRating > 0 && (
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {avgRating.toFixed(1)} average
+                    </span>
+                  )}
+                </span>
+                {user && !userHasReviewed && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setReviewDialog(true)}
+                    className="gap-1"
+                  >
+                    <MessageSquarePlus className="h-4 w-4" />
+                    Write a Review
+                  </Button>
                 )}
               </CardTitle>
             </CardHeader>
@@ -414,6 +463,62 @@ export function EventDetail() {
             <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={confirmBooking} disabled={booking}>
               {booking && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Confirm Booking
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Review Dialog */}
+      <Dialog open={reviewDialog} onOpenChange={setReviewDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Write a Review</DialogTitle>
+            <DialogDescription>Share your experience for {event.title}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Rating</Label>
+              <div className="flex gap-1">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setReviewRating(i + 1)}
+                    className="p-1"
+                  >
+                    <Star
+                      className={`h-6 w-6 transition-colors ${
+                        i < reviewRating
+                          ? 'fill-amber-400 text-amber-400'
+                          : 'text-gray-200 hover:text-amber-300'
+                      }`}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Comment (optional)</Label>
+              <Textarea
+                placeholder="Share your thoughts about this event..."
+                value={reviewComment}
+                onChange={(e) => setReviewComment(e.target.value)}
+                rows={3}
+                maxLength={1000}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReviewDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={submitReview}
+              disabled={submittingReview}
+            >
+              {submittingReview && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Submit Review
             </Button>
           </DialogFooter>
         </DialogContent>

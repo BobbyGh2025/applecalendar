@@ -153,8 +153,38 @@ export async function PATCH(
     if (isFeatured !== undefined && user.role === 'SUPER_ADMIN') updateData.isFeatured = isFeatured;
     if (isPaid !== undefined) updateData.isPaid = isPaid;
     if (currency !== undefined) updateData.currency = currency;
-    if (status !== undefined && (user.role === 'SUPER_ADMIN' || user.id === existingEvent.organizerId)) {
-      updateData.status = status;
+    // Status transition validation — enforced server-side
+    if (status !== undefined) {
+      const currentStatus = existingEvent.status;
+      const isOwner = user.id === existingEvent.organizerId;
+      const isAdmin = user.role === 'SUPER_ADMIN';
+
+      // SUPER_ADMIN may perform any status transition (administrative bypass)
+      if (isAdmin) {
+        updateData.status = status;
+      } else if (isOwner) {
+        // Organizers may only perform these safe transitions:
+        // DRAFT → PENDING (submit for review)
+        // PENDING → DRAFT (withdraw from review)
+        // PUBLISHED → CANCELLED (cancel published event)
+        const allowedTransitions: Record<string, string[]> = {
+          DRAFT: ['PENDING'],
+          PENDING: ['DRAFT'],
+          PUBLISHED: ['CANCELLED'],
+        };
+        const allowed = allowedTransitions[currentStatus];
+        if (!allowed || !allowed.includes(status)) {
+          throw new ApiError(
+            403,
+            'FORBIDDEN',
+            `Organizers cannot transition event status from ${currentStatus} to ${status}`
+          );
+        }
+        updateData.status = status;
+      } else {
+        // Non-owner, non-admin cannot change status
+        throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to change this event\'s status');
+      }
     }
 
     // Ensure slug uniqueness if title changed

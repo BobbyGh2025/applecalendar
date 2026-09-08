@@ -14,6 +14,7 @@ import { AdminAds } from '@/components/admin-ads';
 import { OrganizerDashboard } from '@/components/organizer-dashboard';
 import { OrganizerEvents } from '@/components/organizer-events';
 import { OrganizerCreateEvent } from '@/components/organizer-create-event';
+import { OrganizerEditEvent } from '@/components/organizer-edit-event';
 import { OrganizerAnalytics } from '@/components/organizer-analytics';
 import { OrganizerAds } from '@/components/organizer-ads';
 import { MyBookings } from '@/components/my-bookings';
@@ -47,6 +48,8 @@ function renderCurrentView() {
       return <OrganizerEvents />;
     case 'organizer-create-event':
       return <OrganizerCreateEvent />;
+    case 'organizer-edit-event':
+      return <OrganizerEditEvent />;
     case 'organizer-analytics':
       return <OrganizerAnalytics />;
     case 'organizer-ads':

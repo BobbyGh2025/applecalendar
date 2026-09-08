@@ -18,6 +18,7 @@ export type AppView =
   | 'organizer-dashboard'
   | 'organizer-events'
   | 'organizer-create-event'
+  | 'organizer-edit-event'
   | 'organizer-analytics'
   | 'organizer-ads'
   | 'notifications';

@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { Plus, Eye, BarChart3, CalendarDays } from 'lucide-react';
+import { Plus, Eye, BarChart3, CalendarDays, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface OrgEvent {
@@ -92,6 +92,9 @@ export function OrganizerEvents() {
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" className="flex-1" onClick={() => navigate('event-detail', ev.id)}>
                       <Eye className="h-4 w-4 mr-1" /> View
+                    </Button>
+                    <Button variant="outline" size="sm" className="flex-1" onClick={() => navigate('organizer-edit-event', ev.id)}>
+                      <Pencil className="h-4 w-4 mr-1" /> Edit
                     </Button>
                     <Button variant="outline" size="sm" className="flex-1" onClick={() => navigate('organizer-analytics', ev.id)}>
                       <BarChart3 className="h-4 w-4 mr-1" /> Analytics

@@ -94,3 +94,11 @@ export {
 export type {
   NotificationsQueryInput,
 } from './notifications';
+
+// ---- Reviews ----
+export {
+  createReviewSchema,
+} from './reviews';
+export type {
+  CreateReviewInput,
+} from './reviews';

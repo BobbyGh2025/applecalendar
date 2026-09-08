@@ -1,0 +1,127 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { authenticate } from '@/lib/auth';
+import { handleApiError, ApiError } from '@/lib/errors';
+import { z } from 'zod';
+
+const updateTicketTypeSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+  price: z.number().min(0).optional(),
+  currency: z.string().length(3).regex(/^[A-Z]{3}$/).optional(),
+  quantity: z.number().int().positive().optional(),
+  minPerOrder: z.number().int().min(1).optional(),
+  maxPerOrder: z.number().int().min(1).optional(),
+  saleStart: z.string().optional(),
+  saleEnd: z.string().optional(),
+  isActive: z.boolean().optional(),
+});
+
+/**
+ * PATCH /api/events/:id/ticket-types/:ttId
+ * Update a ticket type. Owner or SUPER_ADMIN only.
+ * Cannot reduce quantity below soldCount.
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; ttId: string }> }
+) {
+  try {
+    const user = await authenticate(request);
+    const { id: eventId, ttId } = await params;
+
+    const event = await db.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
+    }
+
+    if (event.organizerId !== user.id && user.role !== 'SUPER_ADMIN') {
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to manage ticket types for this event');
+    }
+
+    const existing = await db.ticketType.findFirst({
+      where: { id: ttId, eventId },
+    });
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'Ticket type not found');
+    }
+
+    const body = await request.json();
+    const parsed = updateTicketTypeSchema.safeParse(body);
+    if (!parsed.success) {
+      return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
+    // Cannot reduce quantity below soldCount
+    if (parsed.data.quantity !== undefined && parsed.data.quantity < existing.soldCount) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        `Cannot reduce quantity below ${existing.soldCount} (already sold)`
+      );
+    }
+
+    const updateData: Record<string, unknown> = { ...parsed.data };
+    if (parsed.data.saleStart !== undefined) {
+      updateData.saleStart = parsed.data.saleStart ? new Date(parsed.data.saleStart) : null;
+    }
+    if (parsed.data.saleEnd !== undefined) {
+      updateData.saleEnd = parsed.data.saleEnd ? new Date(parsed.data.saleEnd) : null;
+    }
+
+    const ticketType = await db.ticketType.update({
+      where: { id: ttId },
+      data: updateData,
+    });
+
+    return NextResponse.json({ ticketType });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+/**
+ * DELETE /api/events/:id/ticket-types/:ttId
+ * Delete a ticket type. Owner or SUPER_ADMIN only.
+ * Cannot delete if tickets have been sold.
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; ttId: string }> }
+) {
+  try {
+    const user = await authenticate(request);
+    const { id: eventId, ttId } = await params;
+
+    const event = await db.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
+    }
+
+    if (event.organizerId !== user.id && user.role !== 'SUPER_ADMIN') {
+      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to manage ticket types for this event');
+    }
+
+    const existing = await db.ticketType.findFirst({
+      where: { id: ttId, eventId },
+    });
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'Ticket type not found');
+    }
+
+    // Cannot delete if tickets have been sold
+    if (existing.soldCount > 0) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        `Cannot delete ticket type with ${existing.soldCount} tickets sold. Deactivate it instead.`
+      );
+    }
+
+    await db.ticketType.delete({ where: { id: ttId } });
+
+    return NextResponse.json({ success: true, message: 'Ticket type deleted successfully' });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}

@@ -1,0 +1,1060 @@
+     1→# AppleCalendar — Complete Technical Audit Report
+     2→
+     3→Generated: 2025
+     4→Auditor: Automated codebase inspection
+     5→
+     6→---
+     7→
+     8→## 1. Current Technology Stack
+     9→
+    10→| Layer | Technology | Status | Notes |
+    11→|-------|-----------|--------|-------|
+    12→| **Framework** | Next.js 16.1.1 (App Router, Turbopack) | ✅ Active | Output: standalone |
+    13→| **Language** | TypeScript 5 | ✅ Active | `noImplicitAny: false` — loose typing |
+    14→| **Runtime** | Bun | ✅ Active | Scripts use `bun run` |
+    15→| **Frontend Library** | React 19 | ✅ Active | |
+    16→| **Styling** | Tailwind CSS 4 + tw-animate-css | ✅ Active | oklch color tokens, light/dark CSS vars |
+    17→| **UI Components** | shadcn/ui (New York style) | ✅ Active | 35+ Radix UI primitives |
+    18→| **Icons** | Lucide React 0.525.0 | ✅ Active | |
+    19→| **State Management** | Zustand 5 (persist middleware) | ✅ Active | Only user+token persisted |
+    20→| **Server State** | TanStack React Query 5 | ⚠️ Installed but NOT USED | Listed in deps but zero imports in codebase |
+    21→| **Database** | SQLite (file-based) | ✅ Active | `db/custom.db` |
+    22→| **ORM** | Prisma 6.11 | ✅ Active | `db push` (no migrations tracked) |
+    23→| **Authentication** | JWT via `jose` 6.2.7 (custom impl) | ⚠️ Partial | Login/register only; no refresh, no verify, no reset |
+    24→| **Password Hashing** | bcryptjs 3 | ✅ Active | 12 rounds |
+    25→| **Validation** | Zod 4 | ⚠️ Installed but NOT USED | Available but zero imports |
+    26→| **Charts** | Recharts 2.15 | ✅ Active | Admin dashboard, organizer analytics |
+    27→| **Animations** | Framer Motion 12 | ✅ Active | Page transitions |
+    28→| **Toasts** | Sonner 2 | ✅ Active | Primary toast system |
+    29→| **Date Utilities** | date-fns 4 | ⚠️ Installed, minimally used | Most date formatting is custom code |
+    30→| **Form Handling** | React Hook Form 7 + @hookform/resolvers | ⚠️ Installed but NOT USED | All forms use raw useState |
+    31→| **Markdown** | react-markdown 10 | ⚠️ Installed but NOT USED | |
+    32→| **Drag & Drop** | @dnd-kit/core + sortable | ⚠️ Installed but NOT USED | |
+    33→| **Rich Text Editor** | @mdxeditor/editor | ⚠️ Installed but NOT USED | |
+    34→| **Tables** | @tanstack/react-table 8 | ⚠️ Installed but NOT USED | All tables are custom HTML |
+    35→| **OTP Input** | input-otp | ⚠️ Installed but NOT USED | |
+    36→| **Image Processing** | Sharp 0.34 | ⚠️ Installed but NOT USED | No image upload pipeline |
+    37→| **NextAuth** | next-auth 4 | ⚠️ Installed but NOT USED | Custom JWT auth used instead |
+    38→| **Themes** | next-themes | ⚠️ Installed but NOT USED | Dark mode CSS exists, no toggle UI |
+    39→| **i18n** | next-intl | ⚠️ Installed but NOT USED | |
+    40→| **AI SDK** | z-ai-web-dev-sdk | ✅ Available | For AI skill integration |
+    41→| **File/Image Storage** | None | ❌ Not implemented | Cover images are URL-only strings |
+    42→| **Payment Integration** | None | ❌ Not implemented | `method: 'STRIPE'` is a string label only |
+    43→| **Email Service** | None | ❌ Not implemented | No email sending |
+    44→| **SMS Service** | None | ❌ Not implemented | |
+    45→| **Push Notifications** | None | ❌ Not implemented | |
+    46→| **Map/Location** | None | ❌ Not implemented | Lat/lng stored, no map rendering |
+    47→| **QR Code** | None | ❌ Not implemented | QR codes are random text strings |
+    48→| **PDF Generation** | None | ❌ Not implemented | Download button is a stub |
+    49→| **Third-party APIs** | None | ❌ Not implemented | No external API integrations |
+    50→
+    51→### Installed-but-Unused Packages (Technical Debt)
+    52→
+    53→13 packages are installed but have zero imports in the codebase:
+    54→- `@tanstack/react-query`, `@tanstack/react-table`, `react-hook-form`, `@hookform/resolvers`
+    55→- `react-markdown`, `@mdxeditor/editor`, `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`
+    56→- `input-otp`, `next-auth`, `next-themes`, `next-intl`, `sharp`
+    57→
+    58→---
+    59→
+    60→## 2. Current Project Structure
+    61→
+    62→```
+    63→/home/z/my-project/
+    64→├── .env                          # DATABASE_URL only (no JWT_SECRET!)
+    65→├── Caddyfile                     # Gateway config
+    66→├── next.config.ts                # Next.js config (standalone, CORS headers, loose TS)
+    67→├── package.json                  # Project config (name still "nextjs_tailwind_shadcn_ts")
+    68→├── tsconfig.json                 # TypeScript config (noImplicitAny: false)
+    69→├── eslint.config.mjs             # ESLint config
+    70→├── tailwind.config.ts            # Tailwind config
+    71→├── postcss.config.mjs            # PostCSS config
+    72→├── prisma/
+    73→│   ├── schema.prisma             # 16 models (full schema)
+    74→│   └── seed.ts                   # Seed script (4 users, 10 events, 8 ticket types, 3 bookings)
+    75→├── db/
+    76→│   └── custom.db                 # SQLite database file
+    77→├── public/
+    78→│   ├── logo.svg                  # Default scaffold logo
+    79→│   └── robots.txt                # Default robots.txt
+    80→├── src/
+    81→│   ├── app/
+    82→│   │   ├── layout.tsx            # Root layout (WRONG: Z.ai branding metadata)
+    83→│   │   ├── page.tsx              # Single-page shell (header + sidebar + content + footer)
+    84→│   │   ├── globals.css           # Tailwind v4 theme (light/dark CSS vars)
+    85→│   │   └── api/                  # 19 API route files
+    86→│   │       ├── route.ts          # Health check
+    87→│   │       ├── auth/route.ts     # Login/Register
+    88→│   │       ├── events/
+    89→│   │       │   ├── route.ts      # List/Create events
+    90→│   │       │   └── [id]/
+    91→│   │       │       ├── route.ts  # Get/Update/Delete event
+    92→│   │       │       └── book/route.ts  # Book tickets
+    93→│   │       ├── admin/
+    94→│   │       │   ├── route.ts      # Dashboard stats + user list
+    95→│   │       │   ├── users/[id]/route.ts  # User management
+    96→│   │       │   └── events/[id]/moderate/route.ts  # Event moderation
+    97→│   │       ├── organizer/
+    98→│   │       │   ├── route.ts      # Organizer dashboard data
+    99→│   │       │   ├── events/
+   100→│   │       │   │   ├── route.ts  # Organizer's events
+   101→│   │       │   │   └── [id]/analytics/route.ts  # Per-event analytics
+   102→│   │       ├── categories/route.ts  # List categories
+   103→│   │       ├── notifications/
+   104→│   │       │   ├── route.ts      # List user notifications
+   105→│   │       │   └── [id]/read/route.ts  # Mark as read
+   106→│   │       ├── subscription-plans/route.ts  # List plans
+   107→│   │       ├── ads/
+   108→│   │       │   ├── route.ts      # List/Create ads
+   109→│   │       │   └── [id]/route.ts  # Update/Delete ads
+   110→│   │       ├── bookings/route.ts  # List user bookings
+   111→│   │       └── tickets/[qrCode]/route.ts  # Validate/Check-in tickets
+   112→│   ├── components/
+   113→│   │   ├── ui/                  # 35+ shadcn/ui components
+   114→│   │   ├── auth-view.tsx        # Login/Register
+   115→│   │   ├── public-discover.tsx   # Event discovery
+   116→│   │   ├── event-detail.tsx     # Event detail + booking
+   117→│   │   ├── admin-dashboard.tsx  # Admin overview
+   118→│   │   ├── admin-users.tsx      # User management
+   119→│   │   ├── admin-events.tsx     # Event moderation
+   120→│   │   ├── admin-plans.tsx      # Plan display (read-only)
+   121→│   │   ├── admin-ads.tsx        # Ad management CRUD
+   122→│   │   ├── organizer-dashboard.tsx  # Organizer overview
+   123→│   │   ├── organizer-events.tsx     # Organizer's event list
+   124→│   │   ├── organizer-create-event.tsx  # Event creation form
+   125→│   │   ├── organizer-analytics.tsx   # Per-event analytics
+   126→│   │   ├── organizer-ads.tsx    # Ad management CRUD (DUPLICATE)
+   127→│   │   ├── my-bookings.tsx      # User's bookings
+   128→│   │   ├── my-tickets.tsx       # User's tickets (QR as text)
+   129→│   │   ├── notifications-view.tsx  # Notifications list
+   130→│   │   ├── sidebar-nav.tsx      # Role-based sidebar
+   131→│   │   ├── header.tsx           # Top header bar
+   132→│   │   └── carousel.tsx         # Unused carousel component
+   133→│   ├── stores/
+   134→│   │   └── app-store.ts         # Zustand store (auth, nav, UI state)
+   135→│   ├── lib/
+   136→│   │   ├── db.ts               # Prisma client singleton
+   137→│   │   ├── auth.ts             # JWT generation, verify, authenticate, requireRole
+   138→│   │   ├── api.ts              # fetch wrapper with auth header
+   139→│   │   └── utils.ts            # cn() utility (clsx + tailwind-merge)
+   140→│   └── hooks/
+   141→│       ├── use-mobile.ts        # Dead code (unused hook)
+   142→│       └── use-toast.ts         # Dead code (unused, sonner used instead)
+   143→├── examples/
+   144→│   └── websocket/               # WebSocket demo (not integrated)
+   145→├── tests/                       # Python test scripts (not for this project)
+   146→└── tool-results/                # Cached tool output
+   147→```
+   148→
+   149→---
+   150→
+   151→## 3. Existing Features — Implementation Status
+   152→
+   153→### Public Platform
+   154→
+   155→| Feature | Status | Details |
+   156→|---------|--------|--------|
+   157→| Event discovery (browse) | ✅ Fully implemented | Grid layout with pagination |
+   158→| Search | ⚠️ Partially implemented | Works but no debounce, no autocomplete |
+   159→| Category filter | ✅ Fully implemented | Pill-based category selection |
+   160→| Date filter | ⚠️ Partially implemented | 4 preset options (all, today, this week, this month) |
+   161→| Category listing | ✅ Fully implemented | From API with event counts |
+   162→| Event details | ✅ Fully implemented | Full detail page with metadata |
+   163→| Event images | ⚠️ Partially implemented | URL-only, no upload |
+   164→| Event videos | ❌ Not implemented | |
+   165→| Venue/location | ⚠️ Partially implemented | Stored in DB, no map display |
+   166→| Artists/speakers | ❌ Not implemented | |
+   167→| Program outline/schedule | ❌ Not implemented | |
+   168→| Event sharing | ❌ Not implemented | No social share buttons, no shareable URLs |
+   169→| Favorites | ❌ Not implemented | |
+   170→| Calendar integration | ❌ Not implemented | No .ics export |
+   171→| Featured events | ✅ Fully implemented | Horizontal scroll carousel |
+   172→| Related events | ⚠️ Partially implemented | Same-category, silent failure on fetch |
+   173→| Reviews (read) | ✅ Fully implemented | Displayed on event detail |
+   174→| Reviews (write) | ❌ Not implemented | No rating/submit UI |
+   175→| Sorting | ❌ Not implemented | No sort by date/price/popularity |
+   176→| Location/city filter | ❌ Not implemented | |
+   177→
+   178→### Organizer Platform
+   179→
+   180→| Feature | Status | Details |
+   181→|---------|--------|--------|
+   182→| Organizer registration | ⚠️ Partially implemented | Register as PUBLIC, admin upgrades role |
+   183→| Organizer verification | ❌ Not implemented | No approval flow |
+   184→| SaaS subscription | 🟡 Placeholder | Plans exist in DB, no purchase/enforce |
+   185→| Event creation | ⚠️ Partially implemented | Basic form, no image upload, no rich text |
+   186→| Event editing | ❌ Not implemented | Create only, no edit form |
+   187→| Event publishing | ⚠️ Partially implemented | Auto-sets PENDING, admin approves |
+   188→| Event approval | ✅ Fully implemented | Admin approve/reject |
+   189→| Event analytics | ⚠️ Partially implemented | Charts render but data source has no writer |
+   190→| Ticket management | ⚠️ Partially implemented | Create ticket types, no edit/delete |
+   191→| Attendee management | ❌ Not implemented | No attendee list view |
+   192→| Staff management | ❌ Not implemented | StaffAssignment model exists, no UI |
+   193→| Organizer dashboard | ✅ Fully implemented | Stats, upcoming events, recent bookings |
+   194→| Organizer event list | ⚠️ Partially implemented | No edit, no delete, no status filter |
+   195→
+   196→### Ticketing
+   197→
+   198→| Feature | Status | Details |
+   199→|---------|--------|--------|
+   200→| Free tickets | ✅ Fully implemented | "Register Free" button for free events |
+   201→| Paid tickets | ⚠️ Partially implemented | Booking created, no actual payment |
+   202→| Multiple ticket types | ✅ Fully implemented | Per-event ticket types with pricing |
+   203→| Ticket quantity limits | ✅ Fully implemented | minPerOrder, maxPerOrder enforced |
+   204→| Online payment | ❌ Not implemented | Stub only |
+   205→| QR code | ❌ Not implemented | Random text string, not actual QR image |
+   206→| PDF ticket | ❌ Not implemented | Download button shows toast |
+   207→| Mobile ticket | ❌ Not implemented | |
+   208→| Ticket verification/scanning | ⚠️ Partially implemented | API endpoint exists, no scanning UI |
+   209→| Refunds | ❌ Not implemented | |
+   210→| Ticket transfer | ❌ Not implemented | |
+   211→| Booking cancellation | ❌ Not implemented | |
+   212→
+   213→### Admin
+   214→
+   215→| Feature | Status | Details |
+   216→|---------|--------|--------|
+   217→| Dashboard | ✅ Fully implemented | Stats, charts, recent tables |
+   218→| User management | ⚠️ Partially implemented | Search, activate/deactivate, role change |
+   219→| Organizer management | ❌ Not implemented | No dedicated organizer management |
+   220→| Event moderation | ⚠️ Partially implemented | Approve/reject, no reason, no audit |
+   221→| Subscription management | 🟡 Placeholder | Read-only display, no CRUD |
+   222→| Payment management | ❌ Not implemented | |
+   223→| Commission management | ❌ Not implemented | |
+   224→| Advertisement management | ✅ Fully implemented | Full CRUD |
+   225→| Featured events | ⚠️ Partially implemented | Flag exists, no admin UI to toggle |
+   226→| Categories | 🟡 Placeholder | DB + GET, no admin CRUD |
+   227→| Reports | ⚠️ Partially implemented | Dashboard charts only |
+   228→| Platform settings | 🟡 Placeholder | SystemSetting table exists, no UI |
+   229→| Audit logs | ❌ Not implemented | |
+   230→
+   231→---
+   232→
+   233→## 4. Existing User Roles & Permissions
+   234→
+   235→| Role | Value in DB | Nav Items | Can Do |
+   236→|------|-----------|-----------|--------|
+   237→| **Public User** | `PUBLIC` | Discover Events, My Bookings, My Tickets, Notifications | Browse events, book tickets, view own bookings/tickets |
+   238→| **Organizer** | `ORGANIZER` | Dashboard, My Events, Create Event, Analytics, My Ads, My Bookings, My Tickets, Notifications | Everything PUBLIC can do + create/manage own events, view analytics, manage ads |
+   239→| **Staff** | `STAFF` | Discover Events, Check Tickets, Notifications | Browse events, check in tickets (but check-in UI doesn't exist) |
+   240→| **Super Admin** | `SUPER_ADMIN` | Dashboard, Users, Events, Ads, Plans, Discover Events, Notifications | Full platform management |
+   241→
+   242→### Permission Gaps:
+   243→- **No frontend route guards** — sidebar hides nav but `navigate()` can reach any view
+   244→- **STAFF role is underutilized** — only 3 nav items, no dedicated check-in UI
+   245→- **No permission for organizer to edit events** (only create)
+   246→- **No permission for organizer to manage staff** for their events
+   247→- **Admin can grant SUPER_ADMIN** to any user (privilege escalation risk)
+   248→- **Any organizer can set `isFeatured`** on their own events (should be admin-only)
+   249→
+   250→---
+   251→
+   252→## 5. Database Audit
+   253→
+   254→### Tables (16 models)
+   255→
+   256→| # | Model | Purpose | Records (seeded) |
+   257→|---|-------|---------|------------------|
+   258→| 1 | `User` | Users with roles | 4 (1 admin, 2 organizers, 1 staff, 1 public) |
+   259→| 2 | `StaffAssignment` | Staff assigned to events | 0 |
+   260→| 3 | `Category` | Event categories | 10 |
+   261→| 4 | `Tag` | Event tags | 17 |
+   262→| 5 | `SubscriptionPlan` | Pricing tiers | 4 (Free, Starter, Professional, Enterprise) |
+   263→| 6 | `Subscription` | User subscriptions | 2 |
+   264→| 7 | `Event` | Events | 10 (8 published, 1 draft, 1 pending) |
+   265→| 8 | `EventTag` | Event ↔ Tag junction | 0 (tags created but not linked to events) |
+   266→| 9 | `TicketType` | Ticket tiers per event | 18 |
+   267→| 10 | `Ticket` | Individual tickets | 3 |
+   268→| 11 | `Booking` | Event bookings | 3 |
+   269→| 12 | `Payment` | Payment records | 2 |
+   270→| 13 | `Review` | Event reviews | 2 |
+   271→| 14 | `Notification` | User notifications | 5 |
+   272→| 15 | `Advertisement` | Promotional ads | 2 |
+   273→| 16 | `EventAnalytics` | Daily event stats | ~240 (30 days × 8 published events) |
+   274→| 17 | `SystemSetting` | Platform config | 4 (platform_name, fee_percent, default_currency, support_email) |
+   275→
+   276→### Important Observations:
+   277→
+   278→1. **No migrations tracked.** Using `prisma db push --accept-data-loss` — no migration history, no rollback capability.
+   279→2. **No indexes** defined beyond `@unique` and `@id`. No composite indexes for common queries (e.g., `organizerId + status`).
+   280→3. **EventTag seeding is missing** — tags are created but never linked to events.
+   281→4. **No `REJECTED` status** in Event model — only DRAFT, PENDING, PUBLISHED, CANCELLED, COMPLETED. Admin "reject" sets CANCELLED.
+   282→5. **No `OrganizerProfile` model** — organizer info (company, website, social) is not separated from User.
+   283→6. **No `EventSchedule`/`Session` model** — no multi-session/multi-day event support.
+   284→7. **No `Speaker`/`Artist` model** — no speaker/artist management.
+   285→8. **No `Favorite`/`Bookmark` model** — no event favoriting.
+   286→9. **No `DiscountCode`/`PromoCode` model** — no promo/discount support.
+   287→10. **No `AuditLog` model** — no audit trail for admin actions.
+   288→11. **No `Refund` model** — no refund tracking.
+   289→12. **No `TicketTransfer` model** — no ticket resale/transfer.
+   290→13. **No `EmailTemplate` model** — no email notification templates.
+   291→14. **No `Country`/`City` model** — location is just free text fields.
+   292→15. **`features` on SubscriptionPlan is a JSON string**, not a separate table — limits querying.
+   293→16. **Payment `transactionId` has no unique constraint** — could have duplicates.
+   294→17. **No soft-delete pattern** — only User has `isActive`, all other deletes are hard deletes.
+   295→
+   296→### Missing Database Structures for Full Vision:
+   297→
+   298→| Missing Model | Purpose |
+   299→|--------------|---------|
+   300→| `OrganizerProfile` | Company details, verification, social links |
+   301→| `EventSession` | Multi-session event support |
+   302→| `Speaker` | Speaker/artist profiles |
+   303→| `EventSpeaker` | Speaker ↔ Event junction |
+   304→| `EventSchedule` | Day-by-day program outline |
+   305→| `Favorite` | User event bookmarks |
+   306→| `DiscountCode` | Promo codes with rules |
+   307→| `AuditLog` | Admin/moderation action trail |
+   308→| `Refund` | Refund requests and processing |
+   309→| `TicketTransfer` | Ticket transfer between users |
+   310→| `EmailTemplate` | Customizable notification templates |
+   311→| `Waitlist` | Sold-out event waitlist |
+   312→| `Venue` | Reusable venue database with geocoding |
+   313→| `Country`/`City` | Normalized location data |
+   314→
+   315→---
+   316→
+   317→## 6. API Audit — Complete Endpoint Inventory
+   318→
+   319→### Authentication
+   320→
+   321→| Method | Endpoint | Auth | Purpose | Status |
+   322→|--------|----------|------|---------|--------|
+   323→| POST | `/api/auth` | None | Login (`action: "login"`) or Register (`action: "register"`) | ⚠️ Partial — no validation, no rate limit, no verify |
+   324→
+   325→### Events
+   326→
+   327→| Method | Endpoint | Auth | Purpose | Status |
+   328→|--------|----------|------|---------|--------|
+   329→| GET | `/api/events` | Optional | List events (search, filter, paginate) | ✅ Working |
+   330→| POST | `/api/events` | ORGANIZER/SUPER_ADMIN | Create event | ⚠️ Partial — race condition on slug, no validation |
+   331→| GET | `/api/events/[id]` | None | Get single event detail | ⚠️ Partial — leaks unpublished events |
+   332→| PATCH | `/api/events/[id]` | Owner/SUPER_ADMIN | Update event | ⚠️ Partial — no enum validation, featured flag open |
+   333→| DELETE | `/api/events/[id]` | Owner/SUPER_ADMIN | Delete event | ⚠️ Partial — hard delete, no cascade check |
+   334→| POST | `/api/events/[id]/book` | Required | Book tickets | ⚠️ Partial — race condition, no real payment |
+   335→
+   336→### Admin
+   337→
+   338→| Method | Endpoint | Auth | Purpose | Status |
+   339→|--------|----------|------|---------|--------|
+   340→| GET | `/api/admin?type=stats` | SUPER_ADMIN | Dashboard statistics | ✅ Working |
+   341→| GET | `/api/admin?type=users` | SUPER_ADMIN | User list (search, filter, paginate) | ✅ Working |
+   342→| PATCH | `/api/admin/users/[id]` | SUPER_ADMIN | Update user (role, active) | ⚠️ Partial — no escalation guard |
+   343→| DELETE | `/api/admin/users/[id]` | SUPER_ADMIN | Deactivate user | ✅ Working (soft delete) |
+   344→| PATCH | `/api/admin/events/[id]/moderate` | SUPER_ADMIN | Approve/reject event | ⚠️ Partial — no reason, no audit |
+   345→
+   346→### Organizer
+   347→
+   348→| Method | Endpoint | Auth | Purpose | Status |
+   349→|--------|----------|------|---------|--------|
+   350→| GET | `/api/organizer?type=dashboard` | ORGANIZER/SUPER_ADMIN | Organizer dashboard data | ✅ Working |
+   351→| GET | `/api/organizer/events` | ORGANIZER/SUPER_ADMIN | Organizer's event list | ⚠️ Partial — admin sees only own events |
+   352→| GET | `/api/organizer/events/[id]/analytics` | ORGANIZER/SUPER_ADMIN + Owner | Per-event analytics (30d) | ⚠️ Partial — analytics data never written |
+   353→
+   354→### Categories
+   355→
+   356→| Method | Endpoint | Auth | Purpose | Status |
+   357→|--------|----------|------|---------|--------|
+   358→| GET | `/api/categories` | None | List active categories | ✅ Working |
+   359→| POST | `/api/categories` | — | Create category | ❌ Missing |
+   360→| PUT | `/api/categories/[id]` | — | Update category | ❌ Missing |
+   361→| DELETE | `/api/categories/[id]` | — | Delete category | ❌ Missing |
+   362→
+   363→### Subscriptions
+   364→
+   365→| Method | Endpoint | Auth | Purpose | Status |
+   366→|--------|----------|------|---------|--------|
+   367→| GET | `/api/subscription-plans` | None | List active plans | ✅ Working |
+   368→| POST | `/api/subscription-plans` | — | Create plan (admin) | ❌ Missing |
+   369→| PATCH | `/api/subscription-plans/[id]` | — | Update plan (admin) | ❌ Missing |
+   370→| DELETE | `/api/subscription-plans/[id]` | — | Delete plan (admin) | ❌ Missing |
+   371→| POST | `/api/subscription-plans/subscribe` | — | Subscribe to plan | ❌ Missing |
+   372→
+   373→### Notifications
+   374→
+   375→| Method | Endpoint | Auth | Purpose | Status |
+   376→|--------|----------|------|---------|--------|
+   377→| GET | `/api/notifications` | Required | List user notifications (last 50) | ⚠️ Partial — no pagination, no unread count |
+   378→| PATCH | `/api/notifications/[id]/read` | Required | Mark as read | ✅ Working |
+   379→| PATCH | `/api/notifications/read-all` | — | Mark all as read | ❌ Missing |
+   380→
+   381→### Ads
+   382→
+   383→| Method | Endpoint | Auth | Purpose | Status |
+   384→|--------|----------|------|---------|--------|
+   385→| GET | `/api/ads` | None | List active ads | ✅ Working |
+   386→| POST | `/api/ads` | ORGANIZER/SUPER_ADMIN | Create ad | ⚠️ Partial — no validation, no approval |
+   387→| PATCH | `/api/ads/[id]` | ORGANIZER/SUPER_ADMIN | Update ad | ⚠️ Partial — NO OWNERSHIP CHECK |
+   388→| DELETE | `/api/ads/[id]` | ORGANIZER/SUPER_ADMIN | Delete ad | ⚠️ Partial — NO OWNERSHIP CHECK, hard delete |
+   389→
+   390→### Bookings
+   391→
+   392→| Method | Endpoint | Auth | Purpose | Status |
+   393→|--------|----------|------|---------|--------|
+   394→| GET | `/api/bookings` | Required | List user's bookings | ⚠️ Partial — no pagination, no filtering |
+   395→| POST | `/api/bookings/[id]/cancel` | — | Cancel booking | ❌ Missing |
+   396→| GET | `/api/bookings/[id]` | — | Single booking detail | ❌ Missing |
+   397→
+   398→### Tickets
+   399→
+   400→| Method | Endpoint | Auth | Purpose | Status |
+   401→|--------|----------|------|---------|--------|
+   402→| GET | `/api/tickets/[qrCode]` | ORGANIZER/STAFF/SUPER_ADMIN | Validate ticket | ⚠️ Partial — NO EVENT OWNERSHIP CHECK |
+   403→| PATCH | `/api/tickets/[qrCode]` | ORGANIZER/STAFF/SUPER_ADMIN | Check in ticket | ⚠️ Partial — NO EVENT OWNERSHIP CHECK, no audit |
+   404→
+   405→### Missing Endpoints
+   406→
+   407→| Method | Endpoint | Purpose |
+   408→|--------|----------|---------|
+   409→| POST | `/api/auth/forgot-password` | Password reset request |
+   410→| POST | `/api/auth/reset-password` | Password reset execution |
+   411→| POST | `/api/auth/verify-email` | Email verification |
+   412→| POST | `/api/auth/refresh-token` | Token refresh |
+   413→| POST | `/api/auth/logout` | Token invalidation |
+   414→| POST | `/api/upload` | Image/file upload |
+   415→| GET | `/api/users/me` | Current user profile |
+   416→| PATCH | `/api/users/me` | Update own profile |
+   417→| POST | `/api/events/[id]/reviews` | Submit review/rating |
+   418→| GET | `/api/events/[id]/schedule` | Event sessions/schedule |
+   419→| POST | `/api/events/[id]/favorites` | Add to favorites |
+   420→| DELETE | `/api/events/[id]/favorites` | Remove from favorites |
+   421→| GET | `/api/organizer/events/[id]/attendees` | Event attendee list |
+   422→| POST | `/api/organizer/events/[id]/staff` | Assign staff to event |
+   423→| GET | `/api/payments/[bookingId]/checkout` | Initiate payment |
+   424→| POST | `/api/payments/webhook/stripe` | Stripe webhook |
+   425→| POST | `/api/tickets/[id]/transfer` | Transfer ticket |
+   426→| GET | `/api/tickets/[id]/pdf` | Download PDF ticket |
+   427→| GET | `/api/admin/revenue` | Revenue reports |
+   428→| GET | `/api/admin/audit-logs` | Audit log viewer |
+   429→| GET/PUT | `/api/admin/settings` | Platform settings CRUD |
+   430→| GET/POST/PUT/DELETE | `/api/admin/categories` | Category management |
+   431→| GET/POST/PUT/DELETE | `/api/admin/plans` | Plan management |
+   432→| GET | `/api/search/suggestions` | Search autocomplete |
+   433→
+   434→---
+   435→
+   436→## 7. Authentication & Security Audit
+   437→
+   438→### What Exists
+   439→
+   440→| Feature | Status | Details |
+   441→|---------|--------|--------|
+   442→| Password hashing | ✅ Good | bcryptjs with 12 rounds |
+   443→| JWT generation | ✅ Working | HS256 via jose, 7-day expiry |
+   444→| JWT verification | ✅ Working | Middleware pattern with authenticate() + requireRole() |
+   445→| Role-based access | ✅ Working | 4 roles: PUBLIC, ORGANIZER, STAFF, SUPER_ADMIN |
+   446→| Login error message | ✅ Good | Doesn't leak whether email exists |
+   447→| Token in localStorage | ✅ Working | Via Zustand persist |
+   448→| Auth header injection | ✅ Working | Via apiFetch wrapper |
+   449→
+   450→### Critical Security Issues
+   451→
+   452→| # | Severity | Issue | Impact |
+   453→|---|----------|-------|--------|
+   454→| 1 | 🔴 CRITICAL | **Hardcoded JWT secret fallback** (`'applecalendar-secret-key-2025'`) | All tokens predictable if env var missing |
+   455→| 2 | 🔴 CRITICAL | **No rate limiting** on login or any endpoint | Brute-force, DoS |
+   456→| 3 | 🔴 CRITICAL | **No email verification** | Fake accounts, spam |
+   457→| 4 | 🔴 CRITICAL | **No input validation framework** | Injection, type confusion |
+   458→| 5 | 🔴 CRITICAL | **Ticket booking race condition** | Overselling |
+   459→| 6 | 🟠 HIGH | **Unpublished events leak via direct ID access** | Data exposure |
+   460→| 7 | 🟠 HIGH | **Ad PATCH/DELETE has no ownership check** | Data manipulation |
+   461→| 8 | 🟠 HIGH | **Ticket check-in has no event ownership check** | Unauthorized check-ins |
+   462→| 9 | 🟠 HIGH | **Admin can grant SUPER_ADMIN to anyone** | Privilege escalation |
+   463→| 10 | 🟠 HIGH | **No token refresh mechanism** | 7-day hard expiry, no rotation |
+   464→| 11 | 🟠 HIGH | **No 401 auto-logout in client** | Stale sessions persist |
+   465→| 12 | 🟠 HIGH | **No password reset flow** | Account recovery impossible |
+   466→| 13 | 🟡 MEDIUM | **CORS set to `*`** | Any origin can call APIs |
+   467→| 14 | 🟡 MEDIUM | **`ignoreBuildErrors: true`** in next.config | TypeScript errors silently ignored |
+   468→| 15 | 🟡 MEDIUM | **`reactStrictMode: false`** | Missing double-render safety checks |
+   469→| 16 | 🟡 MEDIUM | **`noImplicitAny: false`** in tsconfig | Loose type safety |
+   470→| 17 | 🟡 MEDIUM | **`log: ['query']` in Prisma client** | All SQL queries logged (perf + security) |
+   471→| 18 | 🟡 MEDIUM | **`Math.random()` for QR codes** | Not cryptographically secure |
+   472→| 19 | 🟡 MEDIUM | **No request body size limits** | Potential DoS via large payloads |
+   473→| 20 | 🟢 LOW | **Event DELETE is hard delete** | No undo, data loss |
+   474→| 21 | 🟢 LOW | **No audit logging** | No accountability trail |
+   475→
+   476→### What's Missing for Production Security
+   477→
+   478→- Zod validation on all inputs
+   479→- Rate limiting (e.g., `@upstash/ratelimit`)
+   480→- CSRF protection (not needed for API-only with JWT, but good practice)
+   481→- Content Security Policy headers
+   482→- Helmet middleware equivalent
+   483→- Request ID tracing
+   484→- API request logging
+   485→- Account lockout after failed login attempts
+   486→- Session/token blacklist for logout
+   487→- Password strength requirements enforcement
+   488→- Input sanitization (XSS prevention)
+   489→- File upload validation (type, size, malware scan)
+   490→- Environment variable validation at startup
+   491→
+   492→---
+   493→
+   494→## 8. UI/UX Audit
+   495→
+   496→### Public Interface
+   497→
+   498→| Aspect | Rating | Notes |
+   499→|--------|--------|-------|
+   500→| Event discovery page | ⭐⭐⭐⭐ | Good hero, filters, grid, pagination, skeletons, empty states |
+   501→| Event detail page | ⭐⭐⭐⭐ | Good layout, ticket sidebar, reviews, related events |
+   502→| Search experience | ⭐⭐ | No debounce, no autocomplete, no suggestions |
+   503→| Mobile responsiveness | ⭐⭐⭐ | Good grid breakpoints, tables overflow on mobile |
+   504→| Accessibility | ⭐⭐ | Missing ARIA labels, no keyboard nav on cards, no skip-to-content |
+   505→| Performance | ⭐⭐⭐ | Skeleton loading, but double-fetch on filter change |
+   506→
+   507→### Authentication Screens
+   508→
+   509→| Aspect | Rating | Notes |
+   510→|--------|--------|-------|
+   511→| Login/Register UI | ⭐⭐⭐⭐ | Clean card, tabbed, good validation UX |
+   512→| Password reset | ❌ Missing | |
+   513→| Social login | ❌ Missing | |
+   514→| Email verification | ❌ Missing | |
+   515→
+   516→### User Dashboard
+   517→
+   518→| Aspect | Rating | Notes |
+   519→|--------|--------|-------|
+   520→| My Bookings | ⭐⭐⭐ | Good cards, no cancel/refund, no pagination |
+   521→| My Tickets | ⭐⭐ | QR is text, download is stub |
+   522→| Notifications | ⭐⭐⭐ | Good list, no mark-all-read, no real-time |
+   523→| User Profile | ❌ Missing | No profile view or edit |
+   524→
+   525→### Organizer Interface
+   526→
+   527→| Aspect | Rating | Notes |
+   528→|--------|--------|-------|
+   529→| Dashboard | ⭐⭐⭐⭐ | Good stats, upcoming events, recent bookings |
+   530→| Event List | ⭐⭐ | No edit, no delete, no status filter |
+   531→| Event Creation | ⭐⭐⭐ | Multi-section form, no image upload, no preview |
+   532→| Event Editing | ❌ Missing | |
+   533→| Analytics | ⭐⭐⭐ | Good charts, no date range, no export |
+   534→| Ad Management | ⭐⭐⭐ | Full CRUD, but duplicated component |
+   535→
+   536→### Admin Interface
+   537→
+   538→| Aspect | Rating | Notes |
+   539→|--------|--------|-------|
+   540→| Dashboard | ⭐⭐⭐⭐ | Stats, charts, recent tables |
+   541→| User Management | ⭐⭐⭐ | Search, role/status management, broken pagination |
+   542→| Event Moderation | ⭐⭐⭐ | Approve/reject, no reason, no search, no pagination |
+   543→| Plan Management | ⭐ | Read-only display |
+   544→| Ad Management | ⭐⭐⭐ | Full CRUD |
+   545→| Categories | ❌ Missing admin UI | |
+   546→| Settings | ❌ Missing UI | |
+   547→| Reports | ⭐⭐ | Dashboard charts only |
+   548→
+   549→### Navigation
+   550→
+   551→| Aspect | Rating | Notes |
+   552→|--------|--------|-------|
+   553→| Sidebar navigation | ⭐⭐⭐⭐ | Role-based, mobile sheet, active states |
+   554→| Header | ⭐⭐⭐ | Logo, search (duplicate), bell, avatar dropdown |
+   555→| URL routing | ❌ None | All views on `/`, no deep linking, no browser back |
+   556→| Breadcrumbs | ❌ Missing | |
+   557→
+   558→### Critical UX Issues
+   559→
+   560→1. **No URL-based routing** — the #1 architectural problem. No shareable links, no SEO, no browser back button.
+   561→2. **Metadata is wrong** — page title/description still shows "Z.ai Code Scaffold."
+   562→3. **Footer shows on auth page** — odd visual on gradient background.
+   563→4. **Tables overflow on mobile** — no horizontal scroll wrapper.
+   564→5. **Duplicate search bars** — header and hero both control same state.
+   565→6. **Sidebar always dark** regardless of theme state.
+   566→7. **No dark mode toggle** — CSS is ready but no UI.
+   567→8. **No notification badge** on bell icon.
+   568→9. **Admin pagination broken** — page state not sent to API.
+   569→10. **`organizer-ads.tsx` duplicates `admin-ads.tsx`** — ~95% identical code.
+   570→
+   571→---
+   572→
+   573→## 9. AppleCalendar Requirements Gap Analysis
+   574→
+   575→### PUBLIC PLATFORM
+   576→
+   577→| Requirement | Current | Gap |
+   578→|------------|---------|-----|
+   579→| Event discovery | ✅ Implemented | — |
+   580→| Search | ⚠️ Basic | Needs debounce, autocomplete, suggestions API |
+   581→| Filters | ⚠️ Basic | Needs location/city, price range, sorting |
+   582→| Categories | ✅ Implemented | — |
+   583→| Event details | ✅ Implemented | — |
+   584→| Event images | ⚠️ URL-only | Needs upload, cropping, gallery |
+   585→| Event videos | ❌ Missing | Needs video upload/embed |
+   586→| Venue/location | ⚠️ Stored | Needs map embed (Google Maps/Leaflet) |
+   587→| Artists/speakers | ❌ Missing | Needs Speaker model + UI |
+   588→| Program outline | ❌ Missing | Needs EventSession model + UI |
+   589→| Event sharing | ❌ Missing | Needs share buttons + URL routing |
+   590→| Favorites | ❌ Missing | Needs Favorite model + toggle |
+   591→| Calendar integration | ❌ Missing | Needs .ics export |
+   592→
+   593→### ORGANIZER PLATFORM
+   594→
+   595→| Requirement | Current | Gap |
+   596→|------------|---------|-----|
+   597→| Organizer registration | ⚠️ Basic | Needs dedicated onboarding |
+   598→| Organizer verification | ❌ Missing | Needs approval workflow |
+   599→| SaaS subscription | 🟡 Placeholder | Entire billing system missing |
+   600→| Event creation | ⚠️ Basic | Needs image upload, rich text, preview |
+   601→| Event editing | ❌ Missing | Needs edit form |
+   602→| Event publishing | ⚠️ Partial | Auto PENDING → admin approve |
+   603→| Event approval | ✅ Implemented | — |
+   604→| Event analytics | ⚠️ Partial | Data never populated, needs tracking middleware |
+   605→| Ticket management | ⚠️ Basic | No edit/delete ticket types |
+   606→| Attendee management | ❌ Missing | Needs attendee list + export |
+   607→| Staff management | ❌ Missing | Model exists, no UI |
+   608→
+   609→### TICKETING
+   610→
+   611→| Requirement | Current | Gap |
+   612→|------------|---------|-----|
+   613→| Free tickets | ✅ Implemented | — |
+   614→| Paid tickets | ⚠️ Stub | Real payment integration needed |
+   615→| Multiple ticket types | ✅ Implemented | — |
+   616→| Ticket quantity | ✅ Implemented | — |
+   617→| Online payment | ❌ Missing | Stripe integration needed |
+   618→| QR code | ❌ Missing | Currently random text |
+   619→| PDF ticket | ❌ Missing | Download is a toast stub |
+   620→| Mobile ticket | ❌ Missing | Needs PWA or responsive ticket view |
+   621→| Ticket verification | ⚠️ Partial | API exists, no scanning UI |
+   622→| Refunds | ❌ Missing | |
+   623→| Ticket transfer | ❌ Missing | |
+   624→
+   625→### ADMIN
+   626→
+   627→| Requirement | Current | Gap |
+   628→|------------|---------|-----|
+   629→| Dashboard | ✅ Implemented | — |
+   630→| User management | ⚠️ Partial | Missing detail view, invite user |
+   631→| Organizer management | ❌ Missing | |
+   632→| Event moderation | ⚠️ Partial | Missing reason, audit, pagination |
+   633→| Subscription management | 🟡 Read-only | Full CRUD + enforcement needed |
+   634→| Payment management | ❌ Missing | |
+   635→| Commission management | ❌ Missing | |
+   636→| Advertisement management | ✅ Implemented | — |
+   637→| Featured events | ⚠️ Flag exists | No admin toggle UI |
+   638→| Categories | ❌ No admin UI | CRUD needed |
+   639→| Reports | ⚠️ Basic | More comprehensive reporting needed |
+   640→| Platform settings | ❌ No UI | |
+   641→| Audit logs | ❌ Missing | |
+   642→
+   643→### MOBILE
+   644→
+   645→| Requirement | Current | Gap |
+   646→|------------|---------|-----|
+   647→| Android | ❌ Not applicable | This is a web app, not Flutter (original spec mismatch) |
+   648→| iOS | ❌ Not applicable | Same as above |
+   649→| Push notifications | ❌ Missing | Needs PWA + push service |
+   650→| Mobile tickets | ⚠️ Responsive | Needs PWA for offline access |
+   651→| QR scanner | ❌ Missing | Needs camera API integration |
+   652→| Offline ticket access | ❌ Missing | Needs PWA service worker |
+   653→
+   654→> **Note:** The original spec requested Flutter for Android/iOS, but the actual implementation is a Next.js web app. Mobile reach should be achieved via PWA instead of native apps.
+   655→
+   656→---
+   657→
+   658→## 10. SaaS Architecture Assessment
+   659→
+   660→### Current State: ❌ NOT Properly SaaS
+   661→
+   662→The current architecture does **not** properly support multiple event organizers as separate SaaS customers.
+   663→
+   664→### Issues:
+   665→
+   666→1. **No subscription enforcement.** Plans exist in the database but nothing checks whether an organizer has exceeded their plan limits (max events, max tickets). An organizer on the Free plan can create unlimited events.
+   667→
+   668→2. **No billing system.** No Stripe integration, no payment collection, no invoice generation, no usage-based billing.
+   669→
+   670→3. **No data isolation.** All organizers share the same database tables with no row-level security or tenant isolation. Admin can see all data. An organizer cannot be restricted to only their data at the DB level.
+   671→
+   672→4. **No plan-based feature gating.** Features like "Custom branding," "API access," or "Advertisement slots" listed in plan features are not checked anywhere.
+   673→
+   674→5. **No organizer onboarding.** No step-by-step setup, no profile completion, no verification.
+   675→
+   676→6. **No usage tracking.** No mechanism to count events created this month, tickets sold, API calls made, etc.
+   677→
+   678→### What Would Be Needed:
+   679→
+   680→| Component | Status | Description |
+   681→|-----------|--------|-------------|
+   682→| Subscription model | ❌ Missing | Stripe Customer + Subscription webhooks |
+   683→| Plan limit enforcement | ❌ Missing | Middleware checking plan limits before event creation |
+   684→| Usage tracking | ❌ Missing | Monthly counters for events, tickets, API calls |
+   685→| Billing/invoicing | ❌ Missing | Stripe Billing + invoice PDF generation |
+   686→| Feature flags | ❌ Missing | Per-plan feature gate checks |
+   687→| Tenant isolation | ⚠️ Partial | Application-level filtering exists (organizerId), no DB-level isolation |
+   688→| Organizer profiles | ❌ Missing | Separate public-facing organizer pages |
+   689→
+   690→---
+   691→
+   692→## 11. Development Risks
+   693→
+   694→### Technical Debt (High)
+   695→
+   696→1. **SPA routing on single `/` URL** — will need complete refactor for SEO, sharing, and proper navigation
+   697→2. **13 unused npm packages** adding bloat and confusion
+   698→3. **~95% code duplication** between `admin-ads.tsx` and `organizer-ads.tsx`
+   699→4. **Duplicate utility functions** (formatDistanceToNow, status color maps, slugify)
+   700→5. **Dead code** (use-mobile.ts, use-toast.ts, carousel.tsx)
+   701→6. **Two competing toast systems** (shadcn toaster vs sonner)
+   702→7. **No test suite** — zero tests written
+   703→8. **No migration tracking** — `db push --accept-data-loss` is dangerous
+   704→9. **`package.json` name is still "nextjs_tailwind_shadcn_ts"** — wrong identity
+   705→10. **`layout.tsx` metadata is Z.ai scaffold** — wrong branding
+   706→
+   707→### Architecture Problems (High)
+   708→
+   709→1. **No URL routing** — fundamental architectural flaw for a public-facing platform
+   710→2. **No input validation framework** — all ad-hoc if-checks
+   711→3. **No error boundary** — unhandled errors crash the whole page
+   712→4. **No service layer** — API routes directly contain all business logic
+   713→5. **No middleware** — auth/rate-limiting not applied at framework level
+   714→6. **No WebSocket/SSE** — no real-time capability
+   715→7. **SQLite limitations** — no concurrent writes, no full-text search, no JSON operators
+   716→
+   717→### Security Risks (Critical)
+   718→
+   719→1. Hardcoded JWT secret fallback
+   720→2. No rate limiting anywhere
+   721→3. No email verification
+   722→4. Race conditions on booking and slug generation
+   723→5. Unauthorized data access (ads, tickets, unpublished events)
+   724→6. Privilege escalation (admin → super admin)
+   725→7. CORS wildcard
+   726→
+   727→### Scalability Problems (Medium)
+   728→
+   729→1. SQLite will not scale to production traffic
+   730→2. No caching layer (Redis or in-memory)
+   731→3. No CDN for static assets
+   732→4. No image optimization pipeline
+   733→5. Analytics data populated by seed only — no real-time collection
+   734→6. No database connection pooling configuration
+   735→7. Sequential N+1 DB operations in loops
+   736→
+   737→### Missing Tests (Critical)
+   738→
+   739→- Zero unit tests
+   740→- Zero integration tests
+   741→- Zero E2E tests
+   742→- No test framework configured
+   743→- No CI/CD pipeline
+   744→
+   745→---
+   746→
+   747→## 12. Recommended Development Roadmap
+   748→
+   749→Based on the actual current project state, here is the prioritized development roadmap:
+   750→
+   751→---
+   752→
+   753→### PHASE 1 — Foundation Hardening
+   754→
+   755→> Fix the broken basics before adding features.
+   756→
+   757→1. **Fix layout metadata** — Update `layout.tsx` with AppleCalendar branding, OG tags, favicon
+   758→2. **Fix `package.json`** name to `applecalendar`
+   759→3. **Remove dead code** — Delete `use-toast.ts`, `use-mobile.ts`, unused `carousel.tsx`
+   760→4. **Remove unused toast system** — Keep sonner, remove shadcn Toaster from layout, delete toaster component
+   761→5. **Enable React strict mode** — Set `reactStrictMode: true` in next.config.ts
+   762→6. **Enable TypeScript strict mode** — Set `noImplicitAny: true` in tsconfig.json
+   763→7. **Disable Prisma query logging** — Remove `log: ['query']` from db.ts
+   764→8. **Set JWT_SECRET in .env** — Generate a proper secret, remove hardcoded fallback
+   765→9. **Add Zod validation** — Create validation schemas for auth, events, bookings, ads
+   766→10. **Add input validation middleware** — Apply Zod schemas to all POST/PATCH endpoints
+   767→11. **Deduplicate code** — Extract shared ad component, shared utility functions
+   768→12. **Add error boundary** — Global error boundary in layout.tsx
+   769→13. **Fix CORS** — Restrict to actual allowed origins instead of `*`
+   770→
+   771→---
+   772→
+   773→### PHASE 2 — Authentication & Users
+   774→
+   775→> Complete the auth system and user management.
+   776→
+   777→1. **Add password strength validation** — Min 8 chars, uppercase, number, special char
+   778→2. **Add email format validation** (Zod)
+   779→3. **Implement forgot password flow** — New API endpoints, email service integration
+   780→4. **Implement password reset** — Token generation, expiry, verification
+   781→5. **Add 401 auto-logout** — In apiFetch, clear auth and redirect to login on 401
+   782→6. **Add token refresh** — Refresh token endpoint, auto-refresh before expiry
+   783→7. **Create user profile page** — View/edit name, email, avatar, bio, phone
+   784→8. **Add image upload for avatars** — Using Sharp + local storage
+   785→9. **Create admin user invite flow** — Admin creates user with invitation email
+   786→10. **Add rate limiting** — On login (5/min), registration (3/min), general API (100/min)
+   787→
+   788→---
+   789→
+   790→### PHASE 3 — URL Routing & Navigation
+   791→
+   792→> Migrate from SPA state-based routing to proper Next.js App Router pages.
+   793→
+   794→1. **Create `/` route** — Public event discovery (move from component to page)
+   795→2. **Create `/events/[slug]` route** — Event detail page (SEO-friendly)
+   796→3. **Create `/login` route** — Auth page
+   797→4. **Create `/dashboard` route** — Role-based dashboard redirect
+   798→5. **Create `/dashboard/events` route** — Organizer/admin events
+   799→6. **Create `/dashboard/events/new` route** — Event creation
+   800→7. **Create `/dashboard/events/[id]/edit` route** — Event editing
+   801→8. **Create `/dashboard/analytics` route** — Organizer analytics
+   802→9. **Create `/dashboard/bookings` route** — User bookings
+   803→10. **Create `/dashboard/tickets` route** — User tickets
+   804→11. **Create `/dashboard/notifications` route** — Notifications
+   805→12. **Create `/admin` route** — Admin dashboard
+   806→13. **Create `/admin/users` route** — User management
+   807→14. **Create `/admin/events` route** — Event moderation
+   808→15. **Create `/admin/plans` route** — Subscription management
+   809→16. **Create `/admin/ads` route** — Ad management
+   810→17. **Create `/admin/settings` route** — Platform settings
+   811→18. **Add middleware.ts** — Auth check, role-based route protection, redirects
+   812→19. **Update sidebar/header** — Use `next/link` instead of `navigate()`
+   813→20. **Add breadcrumbs** — On all dashboard/admin pages
+   814→
+   815→---
+   816→
+   817→### PHASE 4 — Event Management Enhancements
+   818→
+   819→> Complete the event CRUD for organizers.
+   820→
+   821→1. **Add event edit form** — Reuse create form with pre-populated data
+   822→2. **Add event draft/publish/submit flow** — DRAFT → PENDING → PUBLISHED
+   823→3. **Add event image upload** — Cover image upload with preview and cropping
+   824→4. **Add rich text description** — Using @mdxeditor/editor (already installed)
+   825→5. **Add tag autocomplete** — Suggest existing tags during event creation
+   826→6. **Add event status filter** — In organizer events list
+   827→7. **Add event delete with confirmation** — Soft delete with booking check
+   828→8. **Add event duplicate/clone** — For recurring events
+   829→9. **Add `REJECTED` status** — Separate from CANCELLED
+   830→10. **Add rejection reason field** — On admin moderation
+   831→11. **Add admin event search** — In admin events list
+   832→12. **Add admin event pagination** — In admin events list
+   833→13. **Fix event detail access control** — Only PUBLISHED events for public users
+   834→14. **Add event slug uniqueness fix** — Transaction-based slug generation
+   835→
+   836→---
+   837→
+   838→### PHASE 5 — Public Event Discovery
+   839→
+   840→> Enhance the discovery experience.
+   841→
+   842→1. **Add search debounce** — 300ms debounce on search input
+   843→2. **Add search suggestions API** — Autocomplete endpoint
+   844→3. **Add location/city filter** — Dropdown or text input
+   845→4. **Add price range filter** — Min/max price slider
+   846→5. **Add sort options** — Date, price, popularity, relevance
+   847→6. **Add social sharing buttons** — Twitter, Facebook, LinkedIn, WhatsApp, copy link
+   848→7. **Add "Add to Calendar" button** — .ics file download
+   849→8. **Add favorites/wishlist** — Heart icon on event cards, favorites page
+   850→9. **Add map display** — Leaflet or Google Maps embed on event detail
+   851→10. **Add review submission** — Star rating + comment form
+   852→11. **Add event image gallery** — Multiple images with lightbox
+   853→12. **Add featured events admin toggle** — In admin dashboard
+   854→13. **Fix double-fetch on filter change** — Single useEffect with deps
+   855→14. **Add virtual event link** — Clickable link for virtual events
+   856→15. **Add organizer profile link** — On event detail page
+   857→
+   858→---
+   859→
+   860→### PHASE 6 — Ticketing System
+   861→
+   862→> Complete the ticketing workflow.
+   863→
+   864→1. **Fix booking race condition** — Move availability check inside transaction
+   865→2. **Add event capacity check** — Validate against event.capacity
+   866→3. **Add ticket sale window validation** — Check saleStart/saleEnd
+   867→4. **Add idempotency key** — Prevent double-booking on retry
+   868→5. **Add booking cancellation** — User-facing cancel button + API
+   869→6. **Add refund request flow** — Refund model, admin approval, payment refund
+   870→7. **Add ticket type edit/delete** — For organizer
+   871→8. **Add ticket transfer** — Transfer to another user
+   872→9. **Add waitlist** — For sold-out events
+   873→10. **Add promo/discount codes** — Code generation, validation, application
+   874→11. **Add dedicated tickets API** — Separate from bookings
+   875→12. **Add booking pagination** — In user bookings view
+   876→13. **Add booking status filter** — In user bookings view
+   877→14. **Fix booking reference format** — Ensure APC- prefix consistency
+   878→
+   879→---
+   880→
+   881→### PHASE 7 — Payment Integration
+   882→
+   883→> Real payment processing.
+   884→
+   885→1. **Set up Stripe account** — Get API keys
+   886→2. **Create Stripe checkout session** — New API endpoint
+   887→3. **Add Stripe webhook handler** — Payment confirmation, failure handling
+   888→4. **Update booking flow** — Redirect to Stripe, webhook confirms booking
+   889→5. **Add payment history** — For users and organizers
+   890→6. **Add refund processing** — Via Stripe API
+   891→7. **Add commission calculation** — Platform fee on each payment
+   892→8. **Add organizer payout** — Transfer net amount to organizer
+   893→9. **Add payment retry** — For failed payments
+   894→10. **Add invoice/receipt** — PDF generation for payment records
+   895→
+   896→---
+   897→
+   898→### PHASE 8 — QR Verification
+   899→
+   900→> Real QR code generation and scanning.
+   901→
+   902→1. **Install QR code library** — `qrcode.react` for generation
+   903→2. **Generate real QR codes** — Replace text strings with actual QR images
+   904→3. **Use crypto-secure random** — `crypto.randomBytes` for QR code content
+   905→4. **Add PDF ticket generation** — Using a PDF library (puppeteer or jspdf)
+   906→5. **Add ticket download** — PDF download with QR code, event details, barcode
+   907→6. **Add mobile-friendly ticket view** — Optimized for phone screens
+   908→7. **Add ticket scanning UI** — For STAFF role (camera API)
+   909→8. **Add event ownership check** — On ticket validation/check-in
+   910→9. **Add check-in audit trail** — Record who checked in each ticket
+   911→10. **Add bulk check-in** — For event entry points
+   912→11. **Add offline ticket access** — PWA service worker caching
+   913→
+   914→---
+   915→
+   916→### PHASE 9 — Notifications & Real-time
+   917→
+   918→> Complete notification system.
+   919→
+   920→1. **Add notification badge count** — In header bell icon
+   921→2. **Add mark-all-as-read** — Button + API endpoint
+   922→3. **Add notification pagination** — For users with many notifications
+   923→4. **Add notification preferences** — User can choose which types to receive
+   924→5. **Add email notifications** — Via email service (SendGrid, Resend, etc.)
+   925→6. **Add real-time updates** — WebSocket or SSE for instant notifications
+   926→7. **Add notification templates** — Customizable message templates
+   927→8. **Add admin notification settings** — Platform-wide notification config
+   928→9. **Add booking confirmation email** — With ticket details
+   929→10. **Add event reminder** — Before event start (1 day, 1 hour)
+   930→
+   931→---
+   932→
+   933→### PHASE 10 — Analytics & Advertising
+   934→
+   935→> Complete analytics and ad platform.
+   936→
+   937→1. **Add analytics tracking middleware** — Track views/clicks/bookings on event pages
+   938→2. **Add analytics data writer** — Populate eventAnalytics table in real-time
+   939→3. **Add date range selector** — In analytics views
+   940→4. **Add analytics export** — CSV/PDF download
+   941→5. **Add conversion funnel** — Views → clicks → bookings
+   942→6. **Add ticket-type breakdown** — In analytics
+   943→7. **Add ad impression tracking** — Increment on ad view
+   944→8. **Add ad click tracking** — Increment on ad click
+   945→9. **Add ad approval workflow** — Admin reviews ads before display
+   946→10. **Add ad performance reports** — CTR, conversions for advertisers
+   947→11. **Add featured events management** — Admin UI to feature/unfeature
+   948→12. **Add comprehensive admin reports** — Revenue, growth, user activity
+   949→
+   950→---
+   951→
+   952→### PHASE 11 — SaaS Subscription & Billing
+   953→
+   954→> Complete the SaaS business model.
+   955→
+   956→1. **Create subscription management UI** — Admin CRUD for plans
+   957→2. **Create organizer subscription page** — View current plan, upgrade/downgrade
+   958→3. **Integrate Stripe for subscriptions** — Checkout, webhooks, portal
+   959→4. **Add plan limit enforcement** — Check limits on event creation, ticket sales
+   960→5. **Add usage tracking** — Monthly counters per organizer
+   961→6. **Add plan-based feature gating** — Hide/disable features based on plan
+   962→7. **Add billing history** — Invoice list, payment history
+   963→8. **Add downgrade handling** — What happens when limits are exceeded
+   964→9. **Add free trial** — 14-day trial for paid plans
+   965→10. **Add organizer verification** — Admin approval for organizer accounts
+   966→11. **Add commission management** — Configure platform fee percentage
+   967→12. **Add payout management** — Track and process organizer payouts
+   968→
+   969→---
+   970→
+   971→### PHASE 12 — Admin Platform Completion
+   972→
+   973→> Complete all admin functionality.
+   974→
+   975→1. **Add admin categories CRUD** — Create, edit, reorder, deactivate
+   976→2. **Add admin plans CRUD** — Create, edit, reorder, features management
+   977→3. **Add admin settings page** — Platform name, fee, currency, support email
+   978→4. **Add admin audit logs** — Log all admin actions
+   979→5. **Add organizer management** — Dedicated section for organizer oversight
+   980→6. **Add revenue management** — Detailed revenue reports, commissions, payouts
+   981→7. **Add system health dashboard** — Uptime, API performance, error rates
+   982→8. **Add data export** — CSV export for users, events, bookings
+   983→9. **Add content moderation queue** — Centralized review of flagged content
+   984→10. **Add bulk actions** — Bulk approve/reject events, bulk deactivate users
+   985→
+   986→---
+   987→
+   988→### PHASE 13 — Mobile & PWA
+   989→
+   990→> Enable mobile reach.
+   991→
+   992→1. **Add PWA manifest** — App name, icons, theme color
+   993→2. **Add service worker** — Offline caching for tickets
+   994→3. **Add mobile ticket wallet** — Add-to-home-screen ticket access
+   995→4. **Add push notification support** — Via web push API
+   996→5. **Optimize mobile layouts** — Tables, forms, charts for small screens
+   997→6. **Add touch gestures** — Swipe to navigate, pull to refresh
+   998→
+   999→---
+  1000→
+  1001→### PHASE 14 — Testing, Security & Production
+  1002→
+  1003→> Make it production-ready.
+  1004→
+  1005→1. **Set up testing framework** — Vitest + React Testing Library
+  1006→2. **Write unit tests** — For all utility functions, stores, hooks
+  1007→3. **Write API integration tests** — For all endpoints
+  1008→4. **Write component tests** — For all major components
+  1009→5. **Write E2E tests** — For critical flows (auth, booking, admin)
+  1010→6. **Add security headers** — CSP, X-Frame-Options, etc.
+  1011→7. **Add environment validation** — Fail fast on missing required env vars
+  1012→8. **Switch from SQLite to PostgreSQL** — For production concurrency
+  1013→9. **Set up database migrations** — Prisma migrate instead of db push
+  1014→10. **Add CI/CD pipeline** — Automated testing, linting, deployment
+  1015→11. **Add monitoring** — Error tracking, performance monitoring
+  1016→12. **Add rate limiting** — Per-endpoint and per-user
+  1017→13. **Add request logging** — Structured logging for all API requests
+  1018→14. **Performance optimization** — Bundle analysis, lazy loading, image optimization
+  1019→15. **Security audit** — Penetration testing, dependency vulnerability scan
+  1020→
+  1021→---
+  1022→
+  1023→## Summary Statistics
+  1024→
+  1025→| Metric | Count |
+  1026→|--------|-------|
+  1027→| Total files in src/ | ~65 |
+  1028→| API endpoints | 19 implemented, 25+ missing |
+  1029→| UI components | 21 custom + 35+ shadcn |
+  1030→| Database models | 16 |
+  1031→| Seed records | ~300 total |
+  1032→| Critical security issues | 6 |
+  1033→| High-priority bugs | 10 |
+  1034→| Unused npm packages | 13 |
+  1035→| Features fully implemented | ~12 |
+  1036→| Features partially implemented | ~20 |
+  1037→| Features not implemented | ~40+ |
+  1038→| Missing database models | 13+ |
+  1039→| Test coverage | 0% |
+  1040→
+  1041→---
+  1042→
+  1043→## READY FOR NEXT DEVELOPMENT PROMPT
+  1044→
+  1045→The **single highest-priority module to implement next** is:
+  1046→
+  1047→### **PHASE 1 — Foundation Hardening**
+  1048→
+  1049→Specifically, the very first task should be:
+  1050→
+  1051→**"Fix the foundational issues: update layout.tsx metadata to AppleCalendar branding, fix package.json name, set JWT_SECRET in .env, remove dead code, disable Prisma query logging, enable React strict mode, and add a global error boundary. Then implement proper Zod validation schemas and apply them to all POST/PATCH API endpoints."**
+  1052→
+  1053→This must be done first because:
+  1054→1. The current branding is wrong (Z.ai scaffold) — users see the wrong name in browser tabs
+  1055→2. The JWT secret is a hardcoded fallback — a known security vulnerability
+  1056→3. There is no input validation — the most fundamental security layer is missing
+  1057→4. Dead code and unused packages add confusion for future development
+  1058→5. No error boundary means unhandled errors crash the entire application
+  1059→6. All subsequent feature development will build on this foundation
+  1060→

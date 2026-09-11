@@ -1,0 +1,858 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect } from 'react';
+     4→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+     5→import { Button } from '@/components/ui/button';
+     6→import { Input } from '@/components/ui/input';
+     7→import { Label } from '@/components/ui/label';
+     8→import { Textarea } from '@/components/ui/textarea';
+     9→import { Switch } from '@/components/ui/switch';
+    10→import { Badge } from '@/components/ui/badge';
+    11→import { Separator } from '@/components/ui/separator';
+    12→import {
+    13→  Select,
+    14→  SelectContent,
+    15→  SelectItem,
+    16→  SelectTrigger,
+    17→  SelectValue,
+    18→} from '@/components/ui/select';
+    19→import {
+    20→  Dialog,
+    21→  DialogContent,
+    22→  DialogHeader,
+    23→  DialogTitle,
+    24→  DialogDescription,
+    25→  DialogFooter,
+    26→} from '@/components/ui/dialog';
+    27→import { useAppStore } from '@/stores/app-store';
+    28→import { apiFetch } from '@/lib/api';
+    29→import { toast } from 'sonner';
+    30→import {
+    31→  Loader2,
+    32→  Plus,
+    33→  Trash2,
+    34→  Globe,
+    35→  MapPin,
+    36→  DollarSign,
+    37→  Info,
+    38→  Clock,
+    39→  Send,
+    40→  XCircle,
+    41→  Save,
+    42→  AlertTriangle,
+    43→} from 'lucide-react';
+    44→
+    45→interface Category {
+    46→  id: string;
+    47→  name: string;
+    48→  slug: string;
+    49→}
+    50→
+    51→interface TicketTypeForm {
+    52→  id?: string;
+    53→  name: string;
+    54→  price: string;
+    55→  quantity: string;
+    56→  isNew?: boolean;
+    57→  toDelete?: boolean;
+    58→}
+    59→
+    60→const STATUS_COLORS: Record<string, string> = {
+    61→  PUBLISHED: 'bg-green-100 text-green-700',
+    62→  DRAFT: 'bg-gray-100 text-gray-700',
+    63→  PENDING: 'bg-yellow-100 text-yellow-700',
+    64→  CANCELLED: 'bg-red-100 text-red-700',
+    65→  COMPLETED: 'bg-blue-100 text-blue-700',
+    66→  REJECTED: 'bg-red-100 text-red-700',
+    67→};
+    68→
+    69→export function OrganizerEditEvent() {
+    70→  const { selectedEventId, navigate, user } = useAppStore();
+    71→  const [loading, setLoading] = useState(true);
+    72→  const [saving, setSaving] = useState(false);
+    73→  const [categories, setCategories] = useState<Category[]>([]);
+    74→  const [eventStatus, setEventStatus] = useState<string>('DRAFT');
+    75→  const [statusDialog, setStatusDialog] = useState<{ open: boolean; target: string }>({
+    76→    open: false,
+    77→    target: '',
+    78→  });
+    79→
+    80→  const [form, setForm] = useState({
+    81→    title: '',
+    82→    description: '',
+    83→    shortDescription: '',
+    84→    categoryId: '',
+    85→    coverImage: '',
+    86→    startDate: '',
+    87→    endDate: '',
+    88→    startTime: '',
+    89→    endTime: '',
+    90→    timezone: 'UTC',
+    91→    venueName: '',
+    92→    venueAddress: '',
+    93→    venueCity: '',
+    94→    venueState: '',
+    95→    venueCountry: '',
+    96→    isVirtual: false,
+    97→    virtualUrl: '',
+    98→    isPaid: false,
+    99→    currency: 'USD',
+   100→    capacity: '',
+   101→    tags: '',
+   102→  });
+   103→
+   104→  const [ticketTypes, setTicketTypes] = useState<TicketTypeForm[]>([]);
+   105→
+   106→  // Load event data and categories
+   107→  useEffect(() => {
+   108→    if (!selectedEventId) return;
+   109→    setLoading(true);
+   110→    Promise.all([
+   111→      apiFetch<{
+   112→        event: {
+   113→          title: string;
+   114→          description: string;
+   115→          shortDescription: string | null;
+   116→          coverImage: string | null;
+   117→          startDate: string;
+   118→          endDate: string | null;
+   119→          startTime: string | null;
+   120→          endTime: string | null;
+   121→          timezone: string;
+   122→          venueName: string | null;
+   123→          venueAddress: string | null;
+   124→          venueCity: string | null;
+   125→          venueState: string | null;
+   126→          venueCountry: string | null;
+   127→          isVirtual: boolean;
+   128→          virtualUrl: string | null;
+   129→          isPaid: boolean;
+   130→          currency: string;
+   131→          capacity: number | null;
+   132→          status: string;
+   133→          categoryId: string | null;
+   134→          category: { id: string; name: string; slug: string } | null;
+   135→          tags: { tag: { name: string } }[];
+   136→          ticketTypes: {
+   137→            id: string;
+   138→            name: string;
+   139→            price: number;
+   140→            quantity: number;
+   141→            soldCount: number;
+   142→          }[];
+   143→        };
+   144→      }>(`/api/events/${selectedEventId}`),
+   145→      apiFetch<{ categories: Category[] }>('/api/categories'),
+   146→    ])
+   147→      .then(([eventData, catData]) => {
+   148→        const e = eventData.event;
+   149→        setForm({
+   150→          title: e.title,
+   151→          description: e.description,
+   152→          shortDescription: e.shortDescription || '',
+   153→          categoryId: e.category?.id || '',
+   154→          coverImage: e.coverImage || '',
+   155→          startDate: e.startDate ? new Date(e.startDate).toISOString().split('T')[0] : '',
+   156→          endDate: e.endDate ? new Date(e.endDate).toISOString().split('T')[0] : '',
+   157→          startTime: e.startTime || '',
+   158→          endTime: e.endTime || '',
+   159→          timezone: e.timezone || 'UTC',
+   160→          venueName: e.venueName || '',
+   161→          venueAddress: e.venueAddress || '',
+   162→          venueCity: e.venueCity || '',
+   163→          venueState: e.venueState || '',
+   164→          venueCountry: e.venueCountry || '',
+   165→          isVirtual: e.isVirtual,
+   166→          virtualUrl: e.virtualUrl || '',
+   167→          isPaid: e.isPaid,
+   168→          currency: e.currency || 'USD',
+   169→          capacity: e.capacity ? String(e.capacity) : '',
+   170→          tags: e.tags?.map((t: { tag: { name: string } }) => t.tag.name).join(', ') || '',
+   171→        });
+   172→        setEventStatus(e.status);
+   173→        setTicketTypes(
+   174→          e.ticketTypes.map((tt) => ({
+   175→            id: tt.id,
+   176→            name: tt.name,
+   177→            price: String(tt.price),
+   178→            quantity: String(tt.quantity),
+   179→          }))
+   180→        );
+   181→        setCategories(catData.categories || []);
+   182→      })
+   183→      .catch(() => toast.error('Failed to load event'))
+   184→      .finally(() => setLoading(false));
+   185→  }, [selectedEventId]);
+   186→
+   187→  const updateForm = (key: string, value: string | boolean) =>
+   188→    setForm((prev) => ({ ...prev, [key]: value }));
+   189→
+   190→  const addTicketType = () =>
+   191→    setTicketTypes((prev) => [
+   192→      ...prev,
+   193→      { name: '', price: '0', quantity: '50', isNew: true },
+   194→    ]);
+   195→  const removeTicketType = (i: number) => {
+   196→    const tt = ticketTypes[i];
+   197→    if (tt.isNew) {
+   198→      setTicketTypes((prev) => prev.filter((_, idx) => idx !== i));
+   199→    } else {
+   200→      // Mark existing for deletion
+   201→      setTicketTypes((prev) =>
+   202→        prev.map((t, idx) => (idx === i ? { ...t, toDelete: true } : t))
+   203→      );
+   204→    }
+   205→  };
+   206→  const restoreTicketType = (i: number) => {
+   207→    setTicketTypes((prev) =>
+   208→      prev.map((t, idx) => (idx === i ? { ...t, toDelete: false } : t))
+   209→    );
+   210→  };
+   211→  const updateTicketType = (i: number, key: keyof TicketTypeForm, value: string) => {
+   212→    setTicketTypes((prev) =>
+   213→      prev.map((t, idx) => (idx === i ? { ...t, [key]: value } : t))
+   214→    );
+   215→  };
+   216→
+   217→  const handleSubmit = async (e: React.FormEvent) => {
+   218→    e.preventDefault();
+   219→    if (!form.title || !form.startDate) {
+   220→      toast.error('Please fill in required fields (title, date)');
+   221→      return;
+   222→    }
+   223→    if (form.isVirtual && !form.virtualUrl) {
+   224→      toast.error('Please provide a virtual event URL');
+   225→      return;
+   226→    }
+   227→
+   228→    setSaving(true);
+   229→    try {
+   230→      // Build PATCH body (only send changed fields)
+   231→      const body: Record<string, unknown> = {
+   232→        title: form.title,
+   233→        description: form.description,
+   234→        shortDescription: form.shortDescription || undefined,
+   235→        coverImage: form.coverImage || undefined,
+   236→        startDate: form.startDate,
+   237→        endDate: form.endDate || undefined,
+   238→        startTime: form.startTime || undefined,
+   239→        endTime: form.endTime || undefined,
+   240→        timezone: form.timezone,
+   241→        venueName: form.isVirtual ? undefined : form.venueName,
+   242→        venueAddress: form.isVirtual ? undefined : form.venueAddress,
+   243→        venueCity: form.isVirtual ? undefined : form.venueCity,
+   244→        venueState: form.isVirtual ? undefined : form.venueState,
+   245→        venueCountry: form.isVirtual ? undefined : form.venueCountry,
+   246→        isVirtual: form.isVirtual,
+   247→        virtualUrl: form.isVirtual ? form.virtualUrl : undefined,
+   248→        isPaid: form.isPaid,
+   249→        currency: form.currency,
+   250→        capacity: form.capacity ? parseInt(form.capacity) : undefined,
+   251→        categoryId: form.categoryId || undefined,
+   252→        tags: form.tags
+   253→          ? form.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
+   254→          : [],
+   255→      };
+   256→
+   257→      await apiFetch(`/api/events/${selectedEventId}`, {
+   258→        method: 'PATCH',
+   259→        body: JSON.stringify(body),
+   260→      });
+   261→
+   262→      // Handle ticket type changes
+   263→      // Delete marked ticket types
+   264→      for (const tt of ticketTypes.filter((t) => t.toDelete && t.id)) {
+   265→        await apiFetch(
+   266→          `/api/events/${selectedEventId}/ticket-types/${tt.id}`,
+   267→          { method: 'DELETE' }
+   268→        );
+   269→      }
+   270→
+   271→      // Add new ticket types
+   272→      for (const tt of ticketTypes.filter((t) => t.isNew)) {
+   273→        await apiFetch(`/api/events/${selectedEventId}/ticket-types`, {
+   274→          method: 'POST',
+   275→          body: JSON.stringify({
+   276→            name: tt.name,
+   277→            price: parseFloat(tt.price) || 0,
+   278→            quantity: parseInt(tt.quantity) || 50,
+   279→            currency: form.currency,
+   280→          }),
+   281→        });
+   282→      }
+   283→
+   284→      // Update existing ticket types (changed values)
+   285→      for (const tt of ticketTypes.filter((t) => t.id && !t.isNew && !t.toDelete)) {
+   286→        await apiFetch(
+   287→          `/api/events/${selectedEventId}/ticket-types/${tt.id}`,
+   288→          {
+   289→            method: 'PATCH',
+   290→            body: JSON.stringify({
+   291→              name: tt.name,
+   292→              price: parseFloat(tt.price),
+   293→              quantity: parseInt(tt.quantity),
+   294→            }),
+   295→          }
+   296→        );
+   297→      }
+   298→
+   299→      toast.success('Event updated successfully!');
+   300→      navigate('organizer-events');
+   301→    } catch (err: unknown) {
+   302→      const message = err instanceof Error ? err.message : 'Failed to update event';
+   303→      toast.error(message);
+   304→    } finally {
+   305→      setSaving(false);
+   306→    }
+   307→  };
+   308→
+   309→  // Status transition handlers
+   310→  const handleStatusChange = async (targetStatus: string) => {
+   311→    setStatusDialog({ open: false, target: '' });
+   312→    setSaving(true);
+   313→    try {
+   314→      await apiFetch(`/api/events/${selectedEventId}`, {
+   315→        method: 'PATCH',
+   316→        body: JSON.stringify({ status: targetStatus }),
+   317→      });
+   318→      setEventStatus(targetStatus);
+   319→      toast.success(`Event status changed to ${targetStatus}`);
+   320→    } catch (err: unknown) {
+   321→      const message = err instanceof Error ? err.message : 'Failed to change status';
+   322→      toast.error(message);
+   323→    } finally {
+   324→      setSaving(false);
+   325→    }
+   326→  };
+   327→
+   328→  if (loading) {
+   329→    return (
+   330→      <div className="space-y-6 max-w-3xl">
+   331→        <div className="h-8 w-48 bg-muted animate-pulse rounded" />
+   332→        <div className="h-64 bg-muted animate-pulse rounded-xl" />
+   333→        <div className="h-48 bg-muted animate-pulse rounded-xl" />
+   334→      </div>
+   335→    );
+   336→  }
+   337→
+   338→  // Determine available status transitions based on current status
+   339→  const getStatusActions = () => {
+   340→    if (!user) return [];
+   341→    const actions: { target: string; label: string; icon: React.ReactNode; variant: string }[] = [];
+   342→
+   343→    if (user.role === 'ORGANIZER' || user.role === 'SUPER_ADMIN') {
+   344→      if (eventStatus === 'DRAFT') {
+   345→        actions.push({
+   346→          target: 'PENDING',
+   347→          label: 'Submit for Review',
+   348→          icon: <Send className="h-4 w-4" />,
+   349→          variant: 'default',
+   350→        });
+   351→      }
+   352→      if (eventStatus === 'PENDING') {
+   353→        actions.push({
+   354→          target: 'DRAFT',
+   355→          label: 'Withdraw from Review',
+   356→          icon: <XCircle className="h-4 w-4" />,
+   357→          variant: 'outline',
+   358→        });
+   359→      }
+   360→      if (eventStatus === 'PUBLISHED') {
+   361→        actions.push({
+   362→          target: 'CANCELLED',
+   363→          label: 'Cancel Event',
+   364→          icon: <XCircle className="h-4 w-4" />,
+   365→          variant: 'destructive',
+   366→        });
+   367→      }
+   368→    }
+   369→
+   370→    // SUPER_ADMIN can additionally publish and reject directly
+   371→    if (user.role === 'SUPER_ADMIN') {
+   372→      if (eventStatus === 'PENDING') {
+   373→        actions.push({
+   374→          target: 'PUBLISHED',
+   375→          label: 'Approve & Publish',
+   376→          icon: <Send className="h-4 w-4" />,
+   377→          variant: 'default',
+   378→        });
+   379→        actions.push({
+   380→          target: 'REJECTED',
+   381→          label: 'Reject Event',
+   382→          icon: <XCircle className="h-4 w-4" />,
+   383→          variant: 'destructive',
+   384→        });
+   385→      }
+   386→      if (eventStatus === 'DRAFT') {
+   387→        actions.push({
+   388→          target: 'PUBLISHED',
+   389→          label: 'Publish Directly',
+   390→          icon: <Send className="h-4 w-4" />,
+   391→          variant: 'default',
+   392→        });
+   393→      }
+   394→    }
+   395→
+   396→    return actions;
+   397→  };
+   398→
+   399→  return (
+   400→    <form onSubmit={handleSubmit} className="space-y-6 max-w-3xl">
+   401→      <div className="flex items-center justify-between">
+   402→        <h1 className="text-2xl font-bold">Edit Event</h1>
+   403→        <Badge className={STATUS_COLORS[eventStatus] || ''}>{eventStatus}</Badge>
+   404→      </div>
+   405→
+   406→      {/* Status Workflow Actions */}
+   407→      {getStatusActions().length > 0 && (
+   408→        <Card>
+   409→          <CardHeader>
+   410→            <CardTitle className="text-base">Event Status</CardTitle>
+   411→            <CardDescription>Change the event status to control visibility</CardDescription>
+   412→          </CardHeader>
+   413→          <CardContent>
+   414→            <div className="flex flex-wrap gap-2">
+   415→              {getStatusActions().map((action) => (
+   416→                <Button
+   417→                  key={action.target}
+   418→                  type="button"
+   419→                  variant={action.variant === 'destructive' ? 'destructive' : action.variant === 'default' ? 'default' : 'outline'}
+   420→                  className={action.variant === 'default' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+   421→                  onClick={() =>
+   422→                    setStatusDialog({ open: true, target: action.target })
+   423→                  }
+   424→                  disabled={saving}
+   425→                >
+   426→                  {action.icon}
+   427→                  <span className="ml-2">{action.label}</span>
+   428→                </Button>
+   429→              ))}
+   430→            </div>
+   431→          </CardContent>
+   432→        </Card>
+   433→      )}
+   434→
+   435→      {/* Basic Info */}
+   436→      <Card>
+   437→        <CardHeader>
+   438→          <CardTitle className="flex items-center gap-2">
+   439→            <Info className="h-5 w-5 text-emerald-500" /> Basic Information
+   440→          </CardTitle>
+   441→        </CardHeader>
+   442→        <CardContent className="space-y-4">
+   443→          <div className="space-y-2">
+   444→            <Label htmlFor="title">Title *</Label>
+   445→            <Input
+   446→              id="title"
+   447→              placeholder="Event title"
+   448→              value={form.title}
+   449→              onChange={(e) => updateForm('title', e.target.value)}
+   450→              required
+   451→            />
+   452→          </div>
+   453→          <div className="space-y-2">
+   454→            <Label htmlFor="shortDesc">Short Description</Label>
+   455→            <Input
+   456→              id="shortDesc"
+   457→              placeholder="Brief summary (1-2 sentences)"
+   458→              value={form.shortDescription}
+   459→              onChange={(e) => updateForm('shortDescription', e.target.value)}
+   460→            />
+   461→          </div>
+   462→          <div className="space-y-2">
+   463→            <Label htmlFor="desc">Full Description</Label>
+   464→            <Textarea
+   465→              id="desc"
+   466→              placeholder="Detailed event description..."
+   467→              rows={5}
+   468→              value={form.description}
+   469→              onChange={(e) => updateForm('description', e.target.value)}
+   470→            />
+   471→          </div>
+   472→          <div className="grid sm:grid-cols-2 gap-4">
+   473→            <div className="space-y-2">
+   474→              <Label>Category</Label>
+   475→              <Select
+   476→                value={form.categoryId}
+   477→                onValueChange={(v) => updateForm('categoryId', v)}
+   478→              >
+   479→                <SelectTrigger>
+   480→                  <SelectValue placeholder="Select category" />
+   481→                </SelectTrigger>
+   482→                <SelectContent>
+   483→                  {categories.map((c) => (
+   484→                    <SelectItem key={c.id} value={c.id}>
+   485→                      {c.name}
+   486→                    </SelectItem>
+   487→                  ))}
+   488→                </SelectContent>
+   489→              </Select>
+   490→            </div>
+   491→            <div className="space-y-2">
+   492→              <Label htmlFor="coverImg">Cover Image URL</Label>
+   493→              <Input
+   494→                id="coverImg"
+   495→                placeholder="https://..."
+   496→                value={form.coverImage}
+   497→                onChange={(e) => updateForm('coverImage', e.target.value)}
+   498→              />
+   499→            </div>
+   500→          </div>
+   501→          <div className="space-y-2">
+   502→            <Label htmlFor="tags">Tags (comma-separated)</Label>
+   503→            <Input
+   504→              id="tags"
+   505→              placeholder="music, tech, networking"
+   506→              value={form.tags}
+   507→              onChange={(e) => updateForm('tags', e.target.value)}
+   508→            />
+   509→          </div>
+   510→        </CardContent>
+   511→      </Card>
+   512→
+   513→      {/* Date & Time */}
+   514→      <Card>
+   515→        <CardHeader>
+   516→          <CardTitle className="flex items-center gap-2">
+   517→            <Clock className="h-5 w-5 text-teal-500" /> Date & Time
+   518→          </CardTitle>
+   519→        </CardHeader>
+   520→        <CardContent className="space-y-4">
+   521→          <div className="grid sm:grid-cols-2 gap-4">
+   522→            <div className="space-y-2">
+   523→              <Label htmlFor="startDate">Start Date *</Label>
+   524→              <Input
+   525→                id="startDate"
+   526→                type="date"
+   527→                value={form.startDate}
+   528→                onChange={(e) => updateForm('startDate', e.target.value)}
+   529→                required
+   530→              />
+   531→            </div>
+   532→            <div className="space-y-2">
+   533→              <Label htmlFor="endDate">End Date</Label>
+   534→              <Input
+   535→                id="endDate"
+   536→                type="date"
+   537→                value={form.endDate}
+   538→                onChange={(e) => updateForm('endDate', e.target.value)}
+   539→              />
+   540→            </div>
+   541→          </div>
+   542→          <div className="grid sm:grid-cols-2 gap-4">
+   543→            <div className="space-y-2">
+   544→              <Label htmlFor="startTime">Start Time</Label>
+   545→              <Input
+   546→                id="startTime"
+   547→                type="time"
+   548→                value={form.startTime}
+   549→                onChange={(e) => updateForm('startTime', e.target.value)}
+   550→              />
+   551→            </div>
+   552→            <div className="space-y-2">
+   553→              <Label htmlFor="endTime">End Time</Label>
+   554→              <Input
+   555→                id="endTime"
+   556→                type="time"
+   557→                value={form.endTime}
+   558→                onChange={(e) => updateForm('endTime', e.target.value)}
+   559→              />
+   560→            </div>
+   561→          </div>
+   562→          <div className="space-y-2">
+   563→            <Label>Timezone</Label>
+   564→            <Select
+   565→              value={form.timezone}
+   566→              onValueChange={(v) => updateForm('timezone', v)}
+   567→            >
+   568→              <SelectTrigger>
+   569→                <SelectValue />
+   570→              </SelectTrigger>
+   571→              <SelectContent>
+   572→                <SelectItem value="UTC">UTC</SelectItem>
+   573→                <SelectItem value="America/New_York">Eastern (ET)</SelectItem>
+   574→                <SelectItem value="America/Chicago">Central (CT)</SelectItem>
+   575→                <SelectItem value="America/Denver">Mountain (MT)</SelectItem>
+   576→                <SelectItem value="America/Los_Angeles">Pacific (PT)</SelectItem>
+   577→                <SelectItem value="Europe/London">London (GMT)</SelectItem>
+   578→              </SelectContent>
+   579→            </Select>
+   580→          </div>
+   581→        </CardContent>
+   582→      </Card>
+   583→
+   584→      {/* Venue */}
+   585→      <Card>
+   586→        <CardHeader>
+   587→          <CardTitle className="flex items-center gap-2">
+   588→            {form.isVirtual ? (
+   589→              <Globe className="h-5 w-5 text-cyan-500" />
+   590→            ) : (
+   591→              <MapPin className="h-5 w-5 text-amber-500" />
+   592→            )}
+   593→            {form.isVirtual ? 'Virtual Event' : 'Venue'}
+   594→          </CardTitle>
+   595→        </CardHeader>
+   596→        <CardContent className="space-y-4">
+   597→          <div className="flex items-center gap-3">
+   598→            <Switch
+   599→              checked={form.isVirtual}
+   600→              onCheckedChange={(v) => updateForm('isVirtual', v)}
+   601→            />
+   602→            <Label>This is a virtual/online event</Label>
+   603→          </div>
+   604→          {form.isVirtual ? (
+   605→            <div className="space-y-2">
+   606→              <Label htmlFor="virtualUrl">Virtual Event URL *</Label>
+   607→              <Input
+   608→                id="virtualUrl"
+   609→                placeholder="https://zoom.us/..."
+   610→                value={form.virtualUrl}
+   611→                onChange={(e) => updateForm('virtualUrl', e.target.value)}
+   612→              />
+   613→            </div>
+   614→          ) : (
+   615→            <div className="grid sm:grid-cols-2 gap-4">
+   616→              <div className="space-y-2">
+   617→                <Label htmlFor="venueName">Venue Name</Label>
+   618→                <Input
+   619→                  id="venueName"
+   620→                  placeholder="Convention Center"
+   621→                  value={form.venueName}
+   622→                  onChange={(e) => updateForm('venueName', e.target.value)}
+   623→                />
+   624→              </div>
+   625→              <div className="space-y-2">
+   626→                <Label htmlFor="venueAddr">Address</Label>
+   627→                <Input
+   628→                  id="venueAddr"
+   629→                  placeholder="123 Main St"
+   630→                  value={form.venueAddress}
+   631→                  onChange={(e) => updateForm('venueAddress', e.target.value)}
+   632→                />
+   633→              </div>
+   634→              <div className="space-y-2">
+   635→                <Label htmlFor="venueCity">City</Label>
+   636→                <Input
+   637→                  id="venueCity"
+   638→                  placeholder="New York"
+   639→                  value={form.venueCity}
+   640→                  onChange={(e) => updateForm('venueCity', e.target.value)}
+   641→                />
+   642→              </div>
+   643→              <div className="space-y-2">
+   644→                <Label htmlFor="venueState">State</Label>
+   645→                <Input
+   646→                  id="venueState"
+   647→                  placeholder="NY"
+   648→                  value={form.venueState}
+   649→                  onChange={(e) => updateForm('venueState', e.target.value)}
+   650→                />
+   651→              </div>
+   652→              <div className="space-y-2 sm:col-span-2">
+   653→                <Label htmlFor="venueCountry">Country</Label>
+   654→                <Input
+   655→                  id="venueCountry"
+   656→                  placeholder="United States"
+   657→                  value={form.venueCountry}
+   658→                  onChange={(e) => updateForm('venueCountry', e.target.value)}
+   659→                />
+   660→              </div>
+   661→            </div>
+   662→          )}
+   663→        </CardContent>
+   664→      </Card>
+   665→
+   666→      {/* Ticketing */}
+   667→      <Card>
+   668→        <CardHeader>
+   669→          <CardTitle className="flex items-center gap-2">
+   670→            <DollarSign className="h-5 w-5 text-emerald-500" /> Ticketing
+   671→          </CardTitle>
+   672→        </CardHeader>
+   673→        <CardContent className="space-y-4">
+   674→          <div className="flex items-center gap-3">
+   675→            <Switch
+   676→              checked={form.isPaid}
+   677→              onCheckedChange={(v) => updateForm('isPaid', v)}
+   678→            />
+   679→            <Label>This is a paid event</Label>
+   680→          </div>
+   681→          {form.isPaid && (
+   682→            <>
+   683→              <div className="grid sm:grid-cols-2 gap-4">
+   684→                <div className="space-y-2">
+   685→                  <Label>Currency</Label>
+   686→                  <Select
+   687→                    value={form.currency}
+   688→                    onValueChange={(v) => updateForm('currency', v)}
+   689→                  >
+   690→                    <SelectTrigger>
+   691→                      <SelectValue />
+   692→                    </SelectTrigger>
+   693→                    <SelectContent>
+   694→                      <SelectItem value="USD">USD ($)</SelectItem>
+   695→                      <SelectItem value="EUR">EUR</SelectItem>
+   696→                      <SelectItem value="GBP">GBP</SelectItem>
+   697→                    </SelectContent>
+   698→                  </Select>
+   699→                </div>
+   700→                <div className="space-y-2">
+   701→                  <Label htmlFor="capacity">Total Capacity</Label>
+   702→                  <Input
+   703→                    id="capacity"
+   704→                    type="number"
+   705→                    placeholder="100"
+   706→                    value={form.capacity}
+   707→                    onChange={(e) => updateForm('capacity', e.target.value)}
+   708→                  />
+   709→                </div>
+   710→              </div>
+   711→              <Separator />
+   712→              <div className="space-y-3">
+   713→                <div className="flex items-center justify-between">
+   714→                  <Label>Ticket Types</Label>
+   715→                  <Button
+   716→                    type="button"
+   717→                    variant="outline"
+   718→                    size="sm"
+   719→                    onClick={addTicketType}
+   720→                  >
+   721→                    <Plus className="h-4 w-4 mr-1" /> Add Type
+   722→                  </Button>
+   723→                </div>
+   724→                {ticketTypes.map((tt, i) => (
+   725→                  <div
+   726→                    key={tt.id || i}
+   727→                    className={`grid grid-cols-[1fr_100px_100px_40px] gap-2 items-end ${tt.toDelete ? 'opacity-50' : ''}`}
+   728→                  >
+   729→                    <div className="space-y-1">
+   730→                      {i === 0 && <Label className="text-xs">Name</Label>}
+   731→                      <Input
+   732→                        placeholder="VIP, General..."
+   733→                        value={tt.name}
+   734→                        onChange={(e) => updateTicketType(i, 'name', e.target.value)}
+   735→                        disabled={tt.toDelete}
+   736→                      />
+   737→                    </div>
+   738→                    <div className="space-y-1">
+   739→                      {i === 0 && <Label className="text-xs">Price</Label>}
+   740→                      <Input
+   741→                        type="number"
+   742→                        placeholder="0"
+   743→                        value={tt.price}
+   744→                        onChange={(e) => updateTicketType(i, 'price', e.target.value)}
+   745→                        disabled={tt.toDelete}
+   746→                      />
+   747→                    </div>
+   748→                    <div className="space-y-1">
+   749→                      {i === 0 && <Label className="text-xs">Qty</Label>}
+   750→                      <Input
+   751→                        type="number"
+   752→                        placeholder="50"
+   753→                        value={tt.quantity}
+   754→                        onChange={(e) => updateTicketType(i, 'quantity', e.target.value)}
+   755→                        disabled={tt.toDelete}
+   756→                      />
+   757→                    </div>
+   758→                    {tt.toDelete ? (
+   759→                      <Button
+   760→                        type="button"
+   761→                        variant="ghost"
+   762→                        size="icon"
+   763→                        className="text-emerald-500"
+   764→                        onClick={() => restoreTicketType(i)}
+   765→                      >
+   766→                        <AlertTriangle className="h-4 w-4" />
+   767→                      </Button>
+   768→                    ) : (
+   769→                      <Button
+   770→                        type="button"
+   771→                        variant="ghost"
+   772→                        size="icon"
+   773→                        className="text-red-500"
+   774→                        onClick={() => removeTicketType(i)}
+   775→                        disabled={ticketTypes.filter((t) => !t.toDelete).length <= 1}
+   776→                      >
+   777→                        <Trash2 className="h-4 w-4" />
+   778→                      </Button>
+   779→                    )}
+   780→                  </div>
+   781→                ))}
+   782→              </div>
+   783→            </>
+   784→          )}
+   785→        </CardContent>
+   786→      </Card>
+   787→
+   788→      <div className="flex gap-4">
+   789→        <Button
+   790→          type="button"
+   791→          variant="outline"
+   792→          onClick={() => navigate('organizer-events')}
+   793→        >
+   794→          Cancel
+   795→        </Button>
+   796→        <Button
+   797→          type="submit"
+   798→          className="bg-emerald-600 hover:bg-emerald-700"
+   799→          disabled={saving}
+   800→        >
+   801→          {saving ? (
+   802→            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+   803→          ) : (
+   804→            <Save className="mr-2 h-4 w-4" />
+   805→          )}
+   806→          Save Changes
+   807→        </Button>
+   808→      </div>
+   809→
+   810→      {/* Status Change Confirmation Dialog */}
+   811→      <Dialog
+   812→        open={statusDialog.open}
+   813→        onOpenChange={(open) => setStatusDialog({ open, target: statusDialog.target })}
+   814→      >
+   815→        <DialogContent>
+   816→          <DialogHeader>
+   817→            <DialogTitle>Confirm Status Change</DialogTitle>
+   818→            <DialogDescription>
+   819→              Are you sure you want to change the event status from{' '}
+   820→              <Badge className={STATUS_COLORS[eventStatus]}>{eventStatus}</Badge> to{' '}
+   821→              <Badge className={STATUS_COLORS[statusDialog.target]}>
+   822→                {statusDialog.target}
+   823→              </Badge>
+   824→              ?
+   825→              {statusDialog.target === 'CANCELLED' &&
+   826→                ' This will make the event unavailable for booking.'}
+   827→              {statusDialog.target === 'PENDING' &&
+   828→                ' This will submit the event for admin review.'}
+   829→              {statusDialog.target === 'PUBLISHED' &&
+   830→                ' This will make the event publicly visible.'}
+   831→            </DialogDescription>
+   832→          </DialogHeader>
+   833→          <DialogFooter>
+   834→            <Button
+   835→              variant="outline"
+   836→              onClick={() => setStatusDialog({ open: false, target: '' })}
+   837→            >
+   838→              Cancel
+   839→            </Button>
+   840→            <Button
+   841→              className={
+   842→                statusDialog.target === 'CANCELLED' || statusDialog.target === 'REJECTED'
+   843→                  ? 'bg-red-600 hover:bg-red-700'
+   844→                  : 'bg-emerald-600 hover:bg-emerald-700'
+   845→              }
+   846→              onClick={() => handleStatusChange(statusDialog.target)}
+   847→              disabled={saving}
+   848→            >
+   849→              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+   850→              Confirm
+   851→            </Button>
+   852→          </DialogFooter>
+   853→        </DialogContent>
+   854→      </Dialog>
+   855→    </form>
+   856→  );
+   857→}
+   858→

@@ -102,3 +102,31 @@ export {
 export type {
   CreateReviewInput,
 } from './reviews';
+
+// ---- Identity ----
+export {
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  changePasswordSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
+  refreshTokenSchema,
+  updateProfileSchema,
+  updateOrganizerProfileSchema,
+  inviteStaffSchema,
+  updateMemberSchema,
+  acceptInvitationSchema,
+} from './identity';
+export type {
+  ForgotPasswordInput,
+  ResetPasswordInput,
+  ChangePasswordInput,
+  VerifyEmailInput,
+  ResendVerificationInput,
+  RefreshTokenInput,
+  UpdateProfileInput,
+  UpdateOrganizerProfileInput,
+  InviteStaffInput,
+  UpdateMemberInput,
+  AcceptInvitationInput,
+} from './identity';

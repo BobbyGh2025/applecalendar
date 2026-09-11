@@ -21,7 +21,13 @@ export type AppView =
   | 'organizer-edit-event'
   | 'organizer-analytics'
   | 'organizer-ads'
-  | 'notifications';
+  | 'organizer-profile'
+  | 'organizer-staff'
+  | 'notifications'
+  | 'user-profile'
+  | 'change-password'
+  | 'forgot-password'
+  | 'reset-password';
 
 interface User {
   id: string;

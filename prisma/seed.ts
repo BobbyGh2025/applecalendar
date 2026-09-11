@@ -105,6 +105,67 @@ async function main() {
 
   console.log('✅ Users created');
 
+  // 2.5 Create OrganizerProfiles for organizer users
+  const orgProfile1 = await prisma.organizerProfile.upsert({
+    where: { userId: organizer1.id },
+    update: {},
+    create: {
+      userId: organizer1.id,
+      organizationName: 'Mitchell Events',
+      slug: 'mitchell-events',
+      description: 'Premium event organization with 10+ years of experience producing world-class events.',
+      logo: 'https://images.unsplash.com/photo-1560473635-8e3d3e3e3e3e?w=200&h=200&fit=crop',
+      website: 'https://mitchell-events.example.com',
+      contactEmail: 'info@mitchell-events.example.com',
+      phone: '+1-555-0101',
+      city: 'San Francisco',
+      state: 'CA',
+      country: 'US',
+      socialLinks: JSON.stringify({ twitter: '@mitchell_events', linkedin: 'mitchell-events' }),
+      isVerified: true,
+      approvalStatus: 'APPROVED',
+    },
+  });
+
+  const orgProfile2 = await prisma.organizerProfile.upsert({
+    where: { userId: organizer2.id },
+    update: {},
+    create: {
+      userId: organizer2.id,
+      organizationName: 'Tech Events Co.',
+      slug: 'tech-events-co',
+      description: 'Leading technology conference organizers and workshop providers.',
+      website: 'https://tech-events.example.com',
+      contactEmail: 'info@tech-events.example.com',
+      phone: '+1-555-0202',
+      city: 'New York',
+      state: 'NY',
+      country: 'US',
+      socialLinks: JSON.stringify({ twitter: '@tech_events_co', linkedin: 'tech-events-co' }),
+      isVerified: true,
+      approvalStatus: 'APPROVED',
+    },
+  });
+
+  console.log('✅ Organizer Profiles created');
+
+  // 2.6 Create OrganizerMembership for staff user as member of organizer1's org
+  await prisma.organizerMembership.upsert({
+    where: { id: 'membership-staff-1' },
+    update: {},
+    create: {
+      id: 'membership-staff-1',
+      organizerId: orgProfile1.id,
+      userId: staffUser.id,
+      role: 'STAFF',
+      permissions: JSON.stringify(['events.view', 'tickets.view', 'bookings.view', 'analytics.view', 'organizer.profile']),
+      status: 'ACTIVE',
+      invitedByEmail: 'organizer@events.com',
+    },
+  });
+
+  console.log('✅ Organizer Memberships created');
+
   // 3. Create Categories
   const categories = [
     { name: 'Music', slug: 'music', icon: 'Music', color: '#ec4899' },

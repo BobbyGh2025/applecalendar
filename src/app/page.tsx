@@ -17,9 +17,15 @@ import { OrganizerCreateEvent } from '@/components/organizer-create-event';
 import { OrganizerEditEvent } from '@/components/organizer-edit-event';
 import { OrganizerAnalytics } from '@/components/organizer-analytics';
 import { OrganizerAds } from '@/components/organizer-ads';
+import { OrganizerProfileForm } from '@/components/organizer-profile-form';
+import { OrganizerStaff } from '@/components/organizer-staff';
 import { MyBookings } from '@/components/my-bookings';
 import { MyTickets } from '@/components/my-tickets';
 import { NotificationsView } from '@/components/notifications-view';
+import { UserProfile } from '@/components/user-profile';
+import { ChangePassword } from '@/components/change-password';
+import { ForgotPassword } from '@/components/forgot-password';
+import { ResetPassword } from '@/components/reset-password';
 import { AnimatePresence, motion } from 'framer-motion';
 
 function renderCurrentView() {
@@ -54,12 +60,24 @@ function renderCurrentView() {
       return <OrganizerAnalytics />;
     case 'organizer-ads':
       return <OrganizerAds />;
+    case 'organizer-profile':
+      return <OrganizerProfileForm />;
+    case 'organizer-staff':
+      return <OrganizerStaff />;
     case 'my-bookings':
       return <MyBookings />;
     case 'my-tickets':
       return <MyTickets />;
     case 'notifications':
       return <NotificationsView />;
+    case 'user-profile':
+      return <UserProfile />;
+    case 'change-password':
+      return <ChangePassword />;
+    case 'forgot-password':
+      return <ForgotPassword />;
+    case 'reset-password':
+      return <ResetPassword />;
     default:
       return <PublicDiscover />;
   }

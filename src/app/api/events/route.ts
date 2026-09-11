@@ -126,6 +126,16 @@ export async function POST(request: NextRequest) {
     const user = await authenticate(request);
     requireRole('ORGANIZER', 'SUPER_ADMIN')(user);
 
+    // Verify ORGANIZER role has an OrganizerProfile
+    if (user.role === 'ORGANIZER') {
+      const profile = await db.organizerProfile.findUnique({
+        where: { userId: user.id },
+      });
+      if (!profile) {
+        throw new ApiError(403, 'FORBIDDEN', 'Please create your organizer profile before creating events');
+      }
+    }
+
     const body = await request.json();
 
     const parsed = createEventSchema.safeParse(body);

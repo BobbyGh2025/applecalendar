@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
+import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
 
 export async function GET(
   request: NextRequest,
@@ -9,7 +10,7 @@ export async function GET(
 ) {
   try {
     const user = await authenticate(request);
-    requireRole('ORGANIZER', 'SUPER_ADMIN')(user);
+    requireRole('ORGANIZER', 'STAFF', 'SUPER_ADMIN')(user);
     const { id } = await params;
 
     const event = await db.event.findUnique({
@@ -20,8 +21,30 @@ export async function GET(
       throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
+    // Ownership check: direct owner, SUPER_ADMIN, or staff member with analytics permission
     if (event.organizerId !== user.id && user.role !== 'SUPER_ADMIN') {
-      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to view this event\'s analytics');
+      // Check membership with analytics.view permission
+      const eventOwner = await db.user.findUnique({
+        where: { id: event.organizerId },
+        select: { organizerProfile: { select: { id: true } } },
+      });
+
+      if (!eventOwner?.organizerProfile) {
+        throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to view this event\'s analytics');
+      }
+
+      const membership = await db.organizerMembership.findUnique({
+        where: { organizerId_userId: { organizerId: eventOwner.organizerProfile.id, userId: user.id } },
+      });
+
+      if (!membership || membership.status !== 'ACTIVE') {
+        throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to view this event\'s analytics');
+      }
+
+      const perms = getOrganizerPermissions(membership);
+      if (!hasPermission(perms, PERMISSIONS.ANALYTICS_VIEW)) {
+        throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to view analytics');
+      }
     }
 
     // Get last 30 days of analytics

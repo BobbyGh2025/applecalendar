@@ -203,7 +203,7 @@ export function AuthView({ defaultTab = 'login' }: AuthViewProps) {
             </TabsContent>
           </Tabs>
         </CardContent>
-        <CardFooter className="justify-center">
+        <CardFooter className="justify-center flex-col gap-2">
           <p className="text-sm text-muted-foreground">
             {tab === 'login' ? (
               <>
@@ -221,6 +221,14 @@ export function AuthView({ defaultTab = 'login' }: AuthViewProps) {
               </>
             )}
           </p>
+          {tab === 'login' && (
+            <button
+              onClick={() => navigate('forgot-password')}
+              className="text-sm text-muted-foreground hover:text-emerald-600 hover:underline"
+            >
+              Forgot password?
+            </button>
+          )}
         </CardFooter>
       </Card>
     </div>

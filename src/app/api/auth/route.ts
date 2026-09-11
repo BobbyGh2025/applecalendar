@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { generateToken } from '@/lib/auth';
+import { generateToken, generateRefreshToken } from '@/lib/auth';
 import { hash, compare } from 'bcryptjs';
 import { rateLimit, RateLimitError } from '@/lib/rate-limit';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { authSchema } from '@/lib/validations';
+import { generateSecureToken, hashToken } from '@/lib/tokens';
 
 const loginLimiter = rateLimit({ windowMs: 60_000, maxRequests: 5 });
 const registerLimiter = rateLimit({ windowMs: 60_000, maxRequests: 3 });
@@ -44,7 +45,36 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Generate access token
       const token = await generateToken({ userId: user.id, email: user.email, role: user.role });
+
+      // Generate refresh token
+      const refreshToken = await generateRefreshToken({ userId: user.id, email: user.email, role: user.role });
+      const refreshTokenHash = await hashToken(refreshToken);
+
+      // Store refresh token in DB
+      await db.refreshToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: refreshTokenHash,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      // Generate email verification token
+      const verificationToken = generateSecureToken();
+      const verificationTokenHash = await hashToken(verificationToken);
+
+      await db.emailVerificationToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: verificationTokenHash,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        },
+      });
+
+      // In development, return the verification token for testing
+      const isDev = process.env.NODE_ENV !== 'production';
 
       return NextResponse.json({
         user: {
@@ -57,6 +87,8 @@ export async function POST(request: NextRequest) {
           phone: user.phone,
         },
         token,
+        refreshToken,
+        ...(isDev && { verificationToken }), // Only in dev for testing
       }, { status: 201 });
     }
 
@@ -80,7 +112,21 @@ export async function POST(request: NextRequest) {
         throw new ApiError(403, 'FORBIDDEN', 'Account is deactivated');
       }
 
+      // Generate access token
       const token = await generateToken({ userId: user.id, email: user.email, role: user.role });
+
+      // Generate refresh token
+      const refreshToken = await generateRefreshToken({ userId: user.id, email: user.email, role: user.role });
+      const refreshTokenHash = await hashToken(refreshToken);
+
+      // Store refresh token in DB
+      await db.refreshToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: refreshTokenHash,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
 
       return NextResponse.json({
         user: {
@@ -93,6 +139,7 @@ export async function POST(request: NextRequest) {
           phone: user.phone,
         },
         token,
+        refreshToken,
       });
     }
 

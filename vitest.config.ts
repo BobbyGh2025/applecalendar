@@ -9,6 +9,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
+    env: {
+      JWT_SECRET: 'test-jwt-secret-for-vitest-2025',
+    },
   },
   resolve: {
     alias: {

@@ -21,6 +21,10 @@ import {
   CreditCard,
   LogOut,
   Menu,
+  UserCircle,
+  Lock,
+  Building2,
+  UserCog,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -36,6 +40,8 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'my-bookings', label: 'My Bookings', icon: Ticket },
     { view: 'my-tickets', label: 'My Tickets', icon: QrCode },
     { view: 'notifications', label: 'Notifications', icon: Bell },
+    { view: 'user-profile', label: 'Profile', icon: UserCircle },
+    { view: 'change-password', label: 'Change Password', icon: Lock },
   ],
   ORGANIZER: [
     { view: 'public-discover', label: 'Discover Events', icon: CalendarDays },
@@ -47,11 +53,17 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'my-tickets', label: 'My Tickets', icon: QrCode },
     { view: 'notifications', label: 'Notifications', icon: Bell },
     { view: 'organizer-ads', label: 'Advertisements', icon: Megaphone },
+    { view: 'organizer-profile', label: 'Org Profile', icon: Building2 },
+    { view: 'organizer-staff', label: 'Staff', icon: UserCog },
+    { view: 'user-profile', label: 'Profile', icon: UserCircle },
+    { view: 'change-password', label: 'Change Password', icon: Lock },
   ],
   STAFF: [
     { view: 'public-discover', label: 'Discover Events', icon: CalendarDays },
     { view: 'my-tickets', label: 'Check Tickets', icon: ScanLine },
     { view: 'notifications', label: 'Notifications', icon: Bell },
+    { view: 'user-profile', label: 'Profile', icon: UserCircle },
+    { view: 'change-password', label: 'Change Password', icon: Lock },
   ],
   SUPER_ADMIN: [
     { view: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -60,6 +72,8 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'admin-plans', label: 'Plans', icon: CreditCard },
     { view: 'admin-ads', label: 'Advertisements', icon: Megaphone },
     { view: 'notifications', label: 'Notifications', icon: Bell },
+    { view: 'user-profile', label: 'Profile', icon: UserCircle },
+    { view: 'change-password', label: 'Change Password', icon: Lock },
   ],
 };
 

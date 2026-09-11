@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { updateEventSchema } from '@/lib/validations';
+import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
 
 function slugify(text: string): string {
   return text
@@ -85,9 +86,28 @@ export async function PATCH(
       throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
-    // Only owner or admin can update
+    // Only owner, admin, or staff with events.update permission can update
     if (existingEvent.organizerId !== user.id && user.role !== 'SUPER_ADMIN') {
-      throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to update this event');
+      // Check staff membership with events.update permission
+      const eventOwner = await db.user.findUnique({
+        where: { id: existingEvent.organizerId },
+        select: { organizerProfile: { select: { id: true } } },
+      });
+
+      let hasUpdatePermission = false;
+      if (eventOwner?.organizerProfile) {
+        const membership = await db.organizerMembership.findUnique({
+          where: { organizerId_userId: { organizerId: eventOwner.organizerProfile.id, userId: user.id } },
+        });
+        if (membership && membership.status === 'ACTIVE') {
+          const perms = getOrganizerPermissions(membership);
+          hasUpdatePermission = hasPermission(perms, PERMISSIONS.EVENTS_UPDATE);
+        }
+      }
+
+      if (!hasUpdatePermission) {
+        throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to update this event');
+      }
     }
 
     const body = await request.json();

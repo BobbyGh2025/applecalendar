@@ -1,0 +1,545 @@
+     1→     1→import { PrismaClient } from '@prisma/client';
+     2→     2→import { hash } from 'bcryptjs';
+     3→     3→
+     4→     4→const prisma = new PrismaClient();
+     5→     5→
+     6→     6→async function hashPassword(password: string): Promise<string> {
+     7→     7→  return hash(password, 12);
+     8→     8→}
+     9→     9→
+    10→    10→// ─── Development-only credentials (DO NOT use in production) ───
+    11→    11→// admin@applecalendar.com  →  AdminPass2025!
+    12→    12→// organizer@events.com      →  OrgPass2025!
+    13→    13→// tech@events.com           →  OrgPass2025!
+    14→    14→// staff@events.com          →  StaffPass2025!
+    15→    15→// user@test.com             →  UserPass2025!
+    16→    16→// ───────────────────────────────────────────────────────────────
+    17→    17→
+    18→    18→const DEV_CREDENTIALS = {
+    19→    19→  superAdmin: 'AdminPass2025!',
+    20→    20→  organizer: 'OrgPass2025!',
+    21→    21→  staff: 'StaffPass2025!',
+    22→    22→  public: 'UserPass2025!',
+    23→    23→} as const;
+    24→    24→
+    25→    25→async function main() {
+    26→    26→  console.log('🌱 Seeding database...');
+    27→    27→
+    28→    28→  // 1. Create Super Admin
+    29→    29→  const superAdminPassword = await hashPassword(DEV_CREDENTIALS.superAdmin);
+    30→    30→  const superAdmin = await prisma.user.upsert({
+    31→    31→    where: { email: 'admin@applecalendar.com' },
+    32→    32→    update: {},
+    33→    33→    create: {
+    34→    34→      email: 'admin@applecalendar.com',
+    35→    35→      password: superAdminPassword,
+    36→    36→      name: 'Super Admin',
+    37→    37→      role: 'SUPER_ADMIN',
+    38→    38→      isActive: true,
+    39→    39→      emailVerified: new Date(),
+    40→    40→    },
+    41→    41→  });
+    42→    42→  console.log('✅ Super Admin created:', superAdmin.email);
+    43→    43→
+    44→    44→  // 2. Create Organizer users
+    45→    45→  const orgPassword = await hashPassword(DEV_CREDENTIALS.organizer);
+    46→    46→  const organizer1 = await prisma.user.upsert({
+    47→    47→    where: { email: 'organizer@events.com' },
+    48→    48→    update: {},
+    49→    49→    create: {
+    50→    50→      email: 'organizer@events.com',
+    51→    51→      password: orgPassword,
+    52→    52→      name: 'Sarah Mitchell',
+    53→    53→      role: 'ORGANIZER',
+    54→    54→      bio: 'Professional event organizer with 10+ years experience',
+    55→    55→      phone: '+1-555-0101',
+    56→    56→      isActive: true,
+    57→    57→      emailVerified: new Date(),
+    58→    58→    },
+    59→    59→  });
+    60→    60→
+    61→    61→  const organizer2 = await prisma.user.upsert({
+    62→    62→    where: { email: 'tech@events.com' },
+    63→    63→    update: {},
+    64→    64→    create: {
+    65→    65→      email: 'tech@events.com',
+    66→    66→      password: orgPassword,
+    67→    67→      name: 'Tech Events Co.',
+    68→    68→      role: 'ORGANIZER',
+    69→    69→      bio: 'Leading technology conference organizers',
+    70→    70→      phone: '+1-555-0202',
+    71→    71→      isActive: true,
+    72→    72→      emailVerified: new Date(),
+    73→    73→    },
+    74→    74→  });
+    75→    75→
+    76→    76→  const staffPassword = await hashPassword(DEV_CREDENTIALS.staff);
+    77→    77→  const staffUser = await prisma.user.upsert({
+    78→    78→    where: { email: 'staff@events.com' },
+    79→    79→    update: {},
+    80→    80→    create: {
+    81→    81→      email: 'staff@events.com',
+    82→    82→      password: staffPassword,
+    83→    83→      name: 'James Wilson',
+    84→    84→      role: 'STAFF',
+    85→    85→      phone: '+1-555-0303',
+    86→    86→      isActive: true,
+    87→    87→      emailVerified: new Date(),
+    88→    88→    },
+    89→    89→  });
+    90→    90→
+    91→    91→  const publicPassword = await hashPassword(DEV_CREDENTIALS.public);
+    92→    92→  const publicUser = await prisma.user.upsert({
+    93→    93→    where: { email: 'user@test.com' },
+    94→    94→    update: {},
+    95→    95→    create: {
+    96→    96→      email: 'user@test.com',
+    97→    97→      password: publicPassword,
+    98→    98→      name: 'Alex Johnson',
+    99→    99→      role: 'PUBLIC',
+   100→   100→      phone: '+1-555-0404',
+   101→   101→      isActive: true,
+   102→   102→      emailVerified: new Date(),
+   103→   103→    },
+   104→   104→  });
+   105→   105→
+   106→   106→  console.log('✅ Users created');
+   107→   107→
+   108→   108→  // 2.5 Create OrganizerProfiles for organizer users
+   109→   109→  const orgProfile1 = await prisma.organizerProfile.upsert({
+   110→   110→    where: { userId: organizer1.id },
+   111→   111→    update: {},
+   112→   112→    create: {
+   113→   113→      userId: organizer1.id,
+   114→   114→      organizationName: 'Mitchell Events',
+   115→   115→      slug: 'mitchell-events',
+   116→   116→      description: 'Premium event organization with 10+ years of experience producing world-class events.',
+   117→   117→      logo: 'https://images.unsplash.com/photo-1560473635-8e3d3e3e3e3e?w=200&h=200&fit=crop',
+   118→   118→      website: 'https://mitchell-events.example.com',
+   119→   119→      contactEmail: 'info@mitchell-events.example.com',
+   120→   120→      phone: '+1-555-0101',
+   121→   121→      city: 'San Francisco',
+   122→   122→      state: 'CA',
+   123→   123→      country: 'US',
+   124→   124→      socialLinks: JSON.stringify({ twitter: '@mitchell_events', linkedin: 'mitchell-events' }),
+   125→   125→      isVerified: true,
+   126→   126→      approvalStatus: 'APPROVED',
+   127→   127→    },
+   128→   128→  });
+   129→   129→
+   130→   130→  const orgProfile2 = await prisma.organizerProfile.upsert({
+   131→   131→    where: { userId: organizer2.id },
+   132→   132→    update: {},
+   133→   133→    create: {
+   134→   134→      userId: organizer2.id,
+   135→   135→      organizationName: 'Tech Events Co.',
+   136→   136→      slug: 'tech-events-co',
+   137→   137→      description: 'Leading technology conference organizers and workshop providers.',
+   138→   138→      website: 'https://tech-events.example.com',
+   139→   139→      contactEmail: 'info@tech-events.example.com',
+   140→   140→      phone: '+1-555-0202',
+   141→   141→      city: 'New York',
+   142→   142→      state: 'NY',
+   143→   143→      country: 'US',
+   144→   144→      socialLinks: JSON.stringify({ twitter: '@tech_events_co', linkedin: 'tech-events-co' }),
+   145→   145→      isVerified: true,
+   146→   146→      approvalStatus: 'APPROVED',
+   147→   147→    },
+   148→   148→  });
+   149→   149→
+   150→   150→  console.log('✅ Organizer Profiles created');
+   151→   151→
+   152→   152→  // 2.6 Create OrganizerMembership for staff user as member of organizer1's org
+   153→   153→  await prisma.organizerMembership.upsert({
+   154→   154→    where: { id: 'membership-staff-1' },
+   155→   155→    update: {},
+   156→   156→    create: {
+   157→   157→      id: 'membership-staff-1',
+   158→   158→      organizerId: orgProfile1.id,
+   159→   159→      userId: staffUser.id,
+   160→   160→      role: 'STAFF',
+   161→   161→      permissions: JSON.stringify(['events.view', 'tickets.view', 'bookings.view', 'analytics.view', 'organizer.profile']),
+   162→   162→      status: 'ACTIVE',
+   163→   163→      invitedByEmail: 'organizer@events.com',
+   164→   164→    },
+   165→   165→  });
+   166→   166→
+   167→   167→  console.log('✅ Organizer Memberships created');
+   168→   168→
+   169→   169→  // 3. Create Categories
+   170→   170→  const categories = [
+   171→   171→    { name: 'Music', slug: 'music', icon: 'Music', color: '#ec4899' },
+   172→   172→    { name: 'Technology', slug: 'technology', icon: 'Laptop', color: '#6366f1' },
+   173→   173→    { name: 'Business', slug: 'business', icon: 'Briefcase', color: '#f59e0b' },
+   174→   174→    { name: 'Sports', slug: 'sports', icon: 'Trophy', color: '#10b981' },
+   175→   175→    { name: 'Arts', slug: 'arts', icon: 'Palette', color: '#f43f5e' },
+   176→   176→    { name: 'Food & Drink', slug: 'food-drink', icon: 'UtensilsCrossed', color: '#f97316' },
+   177→   177→    { name: 'Health', slug: 'health', icon: 'Heart', color: '#ef4444' },
+   178→   178→    { name: 'Education', slug: 'education', icon: 'GraduationCap', color: '#8b5cf6' },
+   179→   179→    { name: 'Community', slug: 'community', icon: 'Users', color: '#14b8a6' },
+   180→   180→    { name: 'Networking', slug: 'networking', icon: 'Network', color: '#0ea5e9' },
+   181→   181→  ];
+   182→   182→
+   183→   183→  for (const cat of categories) {
+   184→   184→    await prisma.category.upsert({
+   185→   185→      where: { slug: cat.slug },
+   186→   186→      update: {},
+   187→   187→      create: { ...cat, sortOrder: categories.indexOf(cat) },
+   188→   188→    });
+   189→   189→  }
+   190→   190→  console.log('✅ Categories created');
+   191→   191→
+   192→   192→  // 4. Create Tags
+   193→   193→  const tags = [
+   194→   194→    'free', 'paid', 'outdoor', 'indoor', 'virtual',
+   195→   195→    'family-friendly', '18-plus', 'live-music', 'workshop',
+   196→   196→    'conference', 'meetup', 'festival', 'seminar',
+   197→   197→    'networking', 'hackathon', 'bootcamp', 'webinar',
+   198→   198→  ];
+   199→   199→  for (const tag of tags) {
+   200→   200→    await prisma.tag.upsert({
+   201→   201→      where: { slug: tag },
+   202→   202→      update: {},
+   203→   203→      create: { name: tag.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), slug: tag },
+   204→   204→    });
+   205→   205→  }
+   206→   206→  console.log('✅ Tags created');
+   207→   207→
+   208→   208→  // 5. Create Subscription Plans
+   209→   209→  const plans = [
+   210→   210→    {
+   211→   211→      name: 'Free', slug: 'free',
+   212→   212→      description: 'Get started with basic event creation',
+   213→   213→      price: 0, interval: 'MONTHLY', maxEvents: 3, maxTickets: 50,
+   214→   214→      features: JSON.stringify(['3 events/month', '50 tickets/event', 'Basic analytics', 'Email support']),
+   215→   215→      sortOrder: 0,
+   216→   216→    },
+   217→   217→    {
+   218→   218→      name: 'Starter', slug: 'starter',
+   219→   219→      description: 'Perfect for growing event organizers',
+   220→   220→      price: 29, interval: 'MONTHLY', maxEvents: 10, maxTickets: 500,
+   221→   221→      features: JSON.stringify(['10 events/month', '500 tickets/event', 'Advanced analytics', 'Custom branding', 'Priority support', 'QR code tickets']),
+   222→   222→      sortOrder: 1,
+   223→   223→    },
+   224→   224→    {
+   225→   225→      name: 'Professional', slug: 'professional',
+   226→   226→      description: 'For professional event management',
+   227→   227→      price: 79, interval: 'MONTHLY', maxEvents: 50, maxTickets: 5000,
+   228→   228→      features: JSON.stringify(['50 events/month', '5000 tickets/event', 'Full analytics suite', 'Custom branding', 'Dedicated support', 'QR code tickets', 'PDF tickets', 'Advertisement slots', 'API access']),
+   229→   229→      sortOrder: 2,
+   230→   230→    },
+   231→   231→    {
+   232→   232→      name: 'Enterprise', slug: 'enterprise',
+   233→   233→      description: 'Unlimited events for large organizations',
+   234→   234→      price: 199, interval: 'MONTHLY', maxEvents: 999, maxTickets: 50000,
+   235→   235→      features: JSON.stringify(['Unlimited events', 'Unlimited tickets', 'Full analytics suite', 'White-label branding', '24/7 dedicated support', 'All ticket features', 'Advertisement management', 'API access', 'Custom integrations', 'SLA guarantee']),
+   236→   236→      sortOrder: 3,
+   237→   237→    },
+   238→   238→  ];
+   239→   239→
+   240→   240→  for (const plan of plans) {
+   241→   241→    await prisma.subscriptionPlan.upsert({
+   242→   242→      where: { slug: plan.slug },
+   243→   243→      update: {},
+   244→   244→      create: plan,
+   245→   245→    });
+   246→   246→  }
+   247→   247→  console.log('✅ Subscription Plans created');
+   248→   248→
+   249→   249→  // 6. Create subscriptions for organizers
+   250→   250→  const starterPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'professional' } });
+   251→   251→  const proPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'starter' } });
+   252→   252→  if (starterPlan && proPlan) {
+   253→   253→    await prisma.subscription.upsert({
+   254→   254→      where: { id: 'sub-1' },
+   255→   255→      update: {},
+   256→   256→      create: {
+   257→   257→        id: 'sub-1', userId: organizer1.id, planId: starterPlan.id,
+   258→   258→        status: 'ACTIVE', startDate: new Date(),
+   259→   259→        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), autoRenew: true,
+   260→   260→      },
+   261→   261→    });
+   262→   262→    await prisma.subscription.upsert({
+   263→   263→      where: { id: 'sub-2' },
+   264→   264→      update: {},
+   265→   265→      create: {
+   266→   266→        id: 'sub-2', userId: organizer2.id, planId: proPlan.id,
+   267→   267→        status: 'ACTIVE', startDate: new Date(),
+   268→   268→        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), autoRenew: true,
+   269→   269→      },
+   270→   270→    });
+   271→   271→  }
+   272→   272→  console.log('✅ Subscriptions created');
+   273→   273→
+   274→   274→  // 7. Create sample events
+   275→   275→  const techCat = await prisma.category.findUnique({ where: { slug: 'technology' } });
+   276→   276→  const musicCat = await prisma.category.findUnique({ where: { slug: 'music' } });
+   277→   277→  const businessCat = await prisma.category.findUnique({ where: { slug: 'business' } });
+   278→   278→  const foodCat = await prisma.category.findUnique({ where: { slug: 'food-drink' } });
+   279→   279→  const artsCat = await prisma.category.findUnique({ where: { slug: 'arts' } });
+   280→   280→  const sportsCat = await prisma.category.findUnique({ where: { slug: 'sports' } });
+   281→   281→
+   282→   282→  const now = new Date();
+   283→   283→  const events = [
+   284→   284→    {
+   285→   285→      id: 'evt-1', title: 'Global Tech Summit 2025', slug: 'global-tech-summit-2025',
+   286→   286→      description: 'Join the world\'s leading technologists for three days of keynotes, workshops, and networking. Featuring speakers from top tech companies including Google, Meta, and Apple. Explore the latest in AI, cloud computing, cybersecurity, and more.',
+   287→   287→      shortDescription: 'Three days of keynotes, workshops, and networking with world-class technologists.',
+   288→   288→      coverImage: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&h=400&fit=crop',
+   289→   289→      startDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+   290→   290→      endDate: new Date(now.getTime() + 32 * 24 * 60 * 60 * 1000),
+   291→   291→      startTime: '09:00', endTime: '18:00', timezone: 'America/New_York',
+   292→   292→      venueName: 'Moscone Center', venueAddress: '747 Howard St',
+   293→   293→      venueCity: 'San Francisco', venueState: 'CA', venueCountry: 'US',
+   294→   294→      venueLat: 37.7842, venueLng: -122.4016,
+   295→   295→      isVirtual: false, capacity: 5000, status: 'PUBLISHED',
+   296→   296→      isFeatured: true, isPaid: true, currency: 'USD',
+   297→   297→      organizerId: organizer1.id, categoryId: techCat?.id,
+   298→   298→    },
+   299→   299→    {
+   300→   300→      id: 'evt-2', title: 'Summer Music Festival', slug: 'summer-music-festival-2025',
+   301→   301→      description: 'An unforgettable outdoor music festival featuring over 50 artists across 4 stages. From indie rock to electronic, there\'s something for every music lover. Food trucks, art installations, and camping available.',
+   302→   302→      shortDescription: 'Over 50 artists across 4 stages in an unforgettable outdoor experience.',
+   303→   303→      coverImage: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=400&fit=crop',
+   304→   304→      startDate: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+   305→   305→      endDate: new Date(now.getTime() + 47 * 24 * 60 * 60 * 1000),
+   306→   306→      startTime: '12:00', endTime: '23:00', timezone: 'America/New_York',
+   307→   307→      venueName: 'Central Park Great Lawn', venueAddress: 'Central Park',
+   308→   308→      venueCity: 'New York', venueState: 'NY', venueCountry: 'US',
+   309→   309→      venueLat: 40.7829, venueLng: -73.9654,
+   310→   310→      isVirtual: false, capacity: 20000, status: 'PUBLISHED',
+   311→   311→      isFeatured: true, isPaid: true, currency: 'USD',
+   312→   312→      organizerId: organizer1.id, categoryId: musicCat?.id,
+   313→   313→    },
+   314→   314→    {
+   315→   315→      id: 'evt-3', title: 'AI & Machine Learning Workshop', slug: 'ai-ml-workshop-2025',
+   316→   316→      description: 'A hands-on workshop covering the latest techniques in AI and machine learning. Learn from industry experts about LLMs, computer vision, and practical ML deployment strategies.',
+   317→   317→      shortDescription: 'Hands-on workshop covering latest AI and machine learning techniques.',
+   318→   318→      coverImage: 'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=800&h=400&fit=crop',
+   319→   319→      startDate: new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000),
+   320→   320→      endDate: new Date(now.getTime() + 16 * 24 * 60 * 60 * 1000),
+   321→   321→      startTime: '10:00', endTime: '17:00', timezone: 'America/New_York',
+   322→   322→      venueName: 'TechHub NYC', venueAddress: '122 W 26th St',
+   323→   323→      venueCity: 'New York', venueState: 'NY', venueCountry: 'US',
+   324→   324→      venueLat: 40.7465, venueLng: -73.9969,
+   325→   325→      isVirtual: false, capacity: 200, status: 'PUBLISHED',
+   326→   326→      isFeatured: false, isPaid: true, currency: 'USD',
+   327→   327→      organizerId: organizer2.id, categoryId: techCat?.id,
+   328→   328→    },
+   329→   329→    {
+   330→   330→      id: 'evt-4', title: 'Startup Pitch Night', slug: 'startup-pitch-night-2025',
+   331→   331→      description: 'Watch 10 exciting startups pitch their ideas to a panel of top VCs. Network with founders, investors, and fellow entrepreneurs. Free drinks and appetizers included.',
+   332→   332→      shortDescription: '10 startups pitch to top VCs. Network with founders and investors.',
+   333→   333→      coverImage: 'https://images.unsplash.com/photo-1556761175-4b46a572b786?w=800&h=400&fit=crop',
+   334→   334→      startDate: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
+   335→   335→      startTime: '18:30', endTime: '21:30', timezone: 'America/New_York',
+   336→   336→      venueName: 'WeWork SoHo', venueAddress: '69 Charlton St',
+   337→   337→      venueCity: 'New York', venueState: 'NY', venueCountry: 'US',
+   338→   338→      venueLat: 40.7236, venueLng: -74.0018,
+   339→   339→      isVirtual: false, capacity: 150, status: 'PUBLISHED',
+   340→   340→      isFeatured: false, isPaid: false, currency: 'USD',
+   341→   341→      organizerId: organizer2.id, categoryId: businessCat?.id,
+   342→   342→    },
+   343→   343→    {
+   344→   344→      id: 'evt-5', title: 'International Food & Wine Expo', slug: 'food-wine-expo-2025',
+   345→   345→      description: 'Explore cuisines from around the world at this spectacular food and wine expo. Sample dishes from 50+ restaurants, attend cooking demonstrations, and enjoy wine tastings from premium vineyards.',
+   346→   346→      shortDescription: 'Cuisines from around the world with 50+ restaurants and wine tastings.',
+   347→   347→      coverImage: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=800&h=400&fit=crop',
+   348→   348→      startDate: new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000),
+   349→   349→      endDate: new Date(now.getTime() + 62 * 24 * 60 * 60 * 1000),
+   350→   350→      startTime: '11:00', endTime: '20:00', timezone: 'America/New_York',
+   351→   351→      venueName: 'Javits Center', venueAddress: '429 11th Ave',
+   352→   352→      venueCity: 'New York', venueState: 'NY', venueCountry: 'US',
+   353→   353→      venueLat: 40.7575, venueLng: -74.0028,
+   354→   354→      isVirtual: false, capacity: 10000, status: 'PUBLISHED',
+   355→   355→      isFeatured: true, isPaid: true, currency: 'USD',
+   356→   356→      organizerId: organizer1.id, categoryId: foodCat?.id,
+   357→   357→    },
+   358→   358→    {
+   359→   359→      id: 'evt-6', title: 'Contemporary Art Exhibition', slug: 'contemporary-art-exhibition-2025',
+   360→   360→      description: 'A stunning exhibition featuring works from 30+ contemporary artists. Explore paintings, sculptures, digital art, and immersive installations.',
+   361→   361→      shortDescription: 'Works from 30+ contemporary artists in a stunning exhibition.',
+   362→   362→      coverImage: 'https://images.unsplash.com/photo-1531243269054-5ebf6f34081e?w=800&h=400&fit=crop',
+   363→   363→      startDate: new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000),
+   364→   364→      endDate: new Date(now.getTime() + 50 * 24 * 60 * 60 * 1000),
+   365→   365→      startTime: '10:00', endTime: '20:00', timezone: 'America/New_York',
+   366→   366→      venueName: 'MoMA PS1', venueAddress: '22-25 Jackson Ave',
+   367→   367→      venueCity: 'New York', venueState: 'NY', venueCountry: 'US',
+   368→   368→      venueLat: 40.7455, venueLng: -73.9473,
+   369→   369→      isVirtual: false, capacity: 500, status: 'PUBLISHED',
+   370→   370→      isFeatured: false, isPaid: true, currency: 'USD',
+   371→   371→      organizerId: organizer1.id, categoryId: artsCat?.id,
+   372→   372→    },
+   373→   373→    {
+   374→   374→      id: 'evt-7', title: 'City Marathon 2025', slug: 'city-marathon-2025',
+   375→   375→      description: 'The annual city marathon returns! Choose from full marathon, half marathon, or 5K fun run. All fitness levels welcome.',
+   376→   376→      shortDescription: 'Annual city marathon - full, half, and 5K options for all levels.',
+   377→   377→      coverImage: 'https://images.unsplash.com/photo-1513593771513-7b58b6c4af38?w=800&h=400&fit=crop',
+   378→   378→      startDate: new Date(now.getTime() + 40 * 24 * 60 * 60 * 1000),
+   379→   379→      startTime: '06:00', endTime: '14:00', timezone: 'America/New_York',
+   380→   380→      venueName: 'Central Park', venueAddress: 'Central Park',
+   381→   381→      venueCity: 'New York', venueState: 'NY', venueCountry: 'US',
+   382→   382→      venueLat: 40.7829, venueLng: -73.9654,
+   383→   383→      isVirtual: false, capacity: 30000, status: 'PUBLISHED',
+   384→   384→      isFeatured: false, isPaid: true, currency: 'USD',
+   385→   385→      organizerId: organizer2.id, categoryId: sportsCat?.id,
+   386→   386→    },
+   387→   387→    {
+   388→   388→      id: 'evt-8', title: 'Virtual Blockchain Conference', slug: 'virtual-blockchain-conference-2025',
+   389→   389→      description: 'The premier virtual conference on blockchain technology, DeFi, and Web3. Attend from anywhere in the world.',
+   390→   390→      shortDescription: 'Premier virtual blockchain and Web3 conference - attend from anywhere.',
+   391→   391→      coverImage: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800&h=400&fit=crop',
+   392→   392→      startDate: new Date(now.getTime() + 25 * 24 * 60 * 60 * 1000),
+   393→   393→      endDate: new Date(now.getTime() + 26 * 24 * 60 * 60 * 1000),
+   394→   394→      startTime: '09:00', endTime: '18:00', timezone: 'UTC',
+   395→   395→      venueName: 'Online Event', isVirtual: true,
+   396→   396→      virtualUrl: 'https://conference.example.com',
+   397→   397→      capacity: 10000, status: 'PUBLISHED',
+   398→   398→      isFeatured: false, isPaid: true, currency: 'USD',
+   399→   399→      organizerId: organizer2.id, categoryId: techCat?.id,
+   400→   400→    },
+   401→   401→    {
+   402→   402→      id: 'evt-9', title: 'Design Thinking Workshop', slug: 'design-thinking-workshop-2025',
+   403→   403→      description: 'Learn design thinking methodologies from industry experts.',
+   404→   404→      shortDescription: 'Master design thinking with hands-on exercises.',
+   405→   405→      startDate: new Date(now.getTime() + 50 * 24 * 60 * 60 * 1000),
+   406→   406→      startTime: '10:00', endTime: '16:00',
+   407→   407→      venueName: 'Design Studio', venueCity: 'New York', venueState: 'NY', venueCountry: 'US',
+   408→   408→      capacity: 50, status: 'DRAFT',
+   409→   409→      organizerId: organizer1.id, categoryId: artsCat?.id,
+   410→   410→    },
+   411→   411→    {
+   412→   412→      id: 'evt-10', title: 'Yoga & Wellness Retreat', slug: 'yoga-wellness-retreat-2025',
+   413→   413→      description: 'A weekend of yoga, meditation, and wellness workshops in a beautiful setting.',
+   414→   414→      shortDescription: 'Weekend yoga and wellness retreat.',
+   415→   415→      startDate: new Date(now.getTime() + 55 * 24 * 60 * 60 * 1000),
+   416→   416→      endDate: new Date(now.getTime() + 57 * 24 * 60 * 60 * 1000),
+   417→   417→      startTime: '07:00', endTime: '20:00',
+   418→   418→      venueName: 'Mountain View Resort', venueCity: 'Boulder', venueState: 'CO', venueCountry: 'US',
+   419→   419→      capacity: 80, status: 'PENDING',
+   420→   420→      organizerId: organizer1.id, categoryId: sportsCat?.id,
+   421→   421→    },
+   422→   422→  ];
+   423→   423→
+   424→   424→  for (const evt of events) {
+   425→   425→    await prisma.event.upsert({
+   426→   426→      where: { slug: evt.slug },
+   427→   427→      update: {},
+   428→   428→      create: evt,
+   429→   429→    });
+   430→   430→  }
+   431→   431→  console.log('✅ Events created');
+   432→   432→
+   433→   433→  // 8. Create ticket types
+   434→   434→  const ticketTypesData = [
+   435→   435→    { eventId: 'evt-1', name: 'General Admission', price: 299, quantity: 3000, soldCount: 1847 },
+   436→   436→    { eventId: 'evt-1', name: 'VIP Pass', price: 799, quantity: 500, soldCount: 312 },
+   437→   437→    { eventId: 'evt-1', name: 'Student Discount', price: 149, quantity: 1000, soldCount: 623 },
+   438→   438→    { eventId: 'evt-2', name: 'Day Pass', price: 89, quantity: 10000, soldCount: 5621 },
+   439→   439→    { eventId: 'evt-2', name: 'Weekend Pass', price: 159, quantity: 8000, soldCount: 4230 },
+   440→   440→    { eventId: 'evt-2', name: 'VIP Camping', price: 299, quantity: 2000, soldCount: 1890 },
+   441→   441→    { eventId: 'evt-3', name: 'Standard', price: 199, quantity: 150, soldCount: 89 },
+   442→   442→    { eventId: 'evt-3', name: 'Premium (with laptop)', price: 349, quantity: 50, soldCount: 38 },
+   443→   443→    { eventId: 'evt-4', name: 'General', price: 0, quantity: 150, soldCount: 112 },
+   444→   444→    { eventId: 'evt-5', name: 'Single Day', price: 45, quantity: 5000, soldCount: 2100 },
+   445→   445→    { eventId: 'evt-5', name: 'Full Pass', price: 79, quantity: 5000, soldCount: 1890 },
+   446→   446→    { eventId: 'evt-6', name: 'Adult', price: 25, quantity: 400, soldCount: 156 },
+   447→   447→    { eventId: 'evt-6', name: 'Student', price: 15, quantity: 100, soldCount: 67 },
+   448→   448→    { eventId: 'evt-7', name: 'Full Marathon', price: 75, quantity: 15000, soldCount: 8900 },
+   449→   449→    { eventId: 'evt-7', name: 'Half Marathon', price: 55, quantity: 10000, soldCount: 6700 },
+   450→   450→    { eventId: 'evt-7', name: '5K Fun Run', price: 30, quantity: 5000, soldCount: 3400 },
+   451→   451→    { eventId: 'evt-8', name: 'Standard', price: 49, quantity: 8000, soldCount: 3200 },
+   452→   452→    { eventId: 'evt-8', name: 'Premium', price: 149, quantity: 2000, soldCount: 890 },
+   453→   453→  ];
+   454→   454→
+   455→   455→  for (const tt of ticketTypesData) {
+   456→   456→    await prisma.ticketType.create({
+   457→   457→      data: { eventId: tt.eventId, name: tt.name, price: tt.price, currency: 'USD', quantity: tt.quantity, soldCount: tt.soldCount },
+   458→   458→    });
+   459→   459→  }
+   460→   460→  console.log('✅ Ticket Types created');
+   461→   461→
+   462→   462→  // 9. Create bookings
+   463→   463→  const bookingsData = [
+   464→   464→    { userId: publicUser.id, eventId: 'evt-4', status: 'CONFIRMED', amount: 0 },
+   465→   465→    { userId: publicUser.id, eventId: 'evt-1', status: 'CONFIRMED', amount: 299 },
+   466→   466→    { userId: publicUser.id, eventId: 'evt-2', status: 'PENDING', amount: 159 },
+   467→   467→  ];
+   468→   468→
+   469→   469→  for (let i = 0; i < bookingsData.length; i++) {
+   470→   470→    const b = bookingsData[i];
+   471→   471→    const bookingRef = `APC-${Date.now()}-${i}`;
+   472→   472→    const booking = await prisma.booking.create({
+   473→   473→      data: { userId: b.userId, eventId: b.eventId, totalAmount: b.amount, currency: 'USD', status: b.status, bookingRef },
+   474→   474→    });
+   475→   475→    const ticketType = await prisma.ticketType.findFirst({ where: { eventId: b.eventId } });
+   476→   476→    if (ticketType) {
+   477→   477→      await prisma.ticket.create({
+   478→   478→        data: { ticketTypeId: ticketType.id, bookingId: booking.id, qrCode: `QR-${bookingRef}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`, status: b.status === 'CONFIRMED' ? 'VALID' : 'VALID' },
+   479→   479→      });
+   480→   480→    }
+   481→   481→    if (b.amount > 0) {
+   482→   482→      await prisma.payment.create({
+   483→   483→        data: { bookingId: booking.id, userId: b.userId, amount: b.amount, currency: 'USD', method: 'STRIPE', status: b.status === 'CONFIRMED' ? 'COMPLETED' : 'PENDING', transactionId: `txn_${Math.random().toString(36).substring(2, 15)}` },
+   484→   484→      });
+   485→   485→    }
+   486→   486→  }
+   487→   487→  console.log('✅ Bookings created');
+   488→   488→
+   489→   489→  // 10. Create reviews
+   490→   490→  try { await prisma.review.create({ data: { userId: publicUser.id, eventId: 'evt-4', rating: 5, comment: 'Amazing event! Great networking opportunities and the pitches were fantastic.' } }); } catch {}
+   491→   491→  try { await prisma.review.create({ data: { userId: publicUser.id, eventId: 'evt-1', rating: 4, comment: 'Well organized conference with great speakers. Looking forward to next year.' } }); } catch {}
+   492→   492→  console.log('✅ Reviews created');
+   493→   493→
+   494→   494→  // 11. Create event analytics
+   495→   495→  const publishedEvents = await prisma.event.findMany({ where: { status: 'PUBLISHED' } });
+   496→   496→  for (const event of publishedEvents) {
+   497→   497→    for (let d = 0; d < 30; d++) {
+   498→   498→      const date = new Date(now.getTime() - (29 - d) * 24 * 60 * 60 * 1000);
+   499→   499→      const dateStr = date.toISOString().split('T')[0];
+   500→   500→      await prisma.eventAnalytics.create({
+   501→   501→        data: {
+   502→   502→          eventId: event.id, date: dateStr,
+   503→   503→          views: Math.floor(Math.random() * 500) + 50,
+   504→   504→          clicks: Math.floor(Math.random() * 100) + 10,
+   505→   505→          bookings: Math.floor(Math.random() * 20) + 1,
+   506→   506→          revenue: Math.floor(Math.random() * 5000) + 100,
+   507→   507→        },
+   508→   508→      });
+   509→   509→    }
+   510→   510→  }
+   511→   511→  console.log('✅ Analytics created');
+   512→   512→
+   513→   513→  // 12. Create advertisements
+   514→   514→  try { await prisma.advertisement.create({ data: { title: 'Premium Event Promotion', imageUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&h=200&fit=crop', linkUrl: 'evt-1', position: 'BANNER', status: 'ACTIVE', impressions: 15420, clicks: 892, startDate: new Date(), endDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), eventId: 'evt-1', advertiserId: organizer1.id } }); } catch {}
+   515→   515→  try { await prisma.advertisement.create({ data: { title: 'Summer Festival Early Bird', imageUrl: 'https://images.unsplash.com/photo-1429962714451-bb934ecdc4ec?w=300&h=250&fit=crop', linkUrl: 'evt-2', position: 'SIDEBAR', status: 'ACTIVE', impressions: 8930, clicks: 456, startDate: new Date(), endDate: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000), eventId: 'evt-2', advertiserId: organizer1.id } }); } catch {}
+   516→   516→  console.log('✅ Advertisements created');
+   517→   517→
+   518→   518→  // 13. Create notifications
+   519→   519→  const notifs = [
+   520→   520→    { userId: publicUser.id, title: 'Booking Confirmed', message: 'Your booking for Global Tech Summit 2025 has been confirmed!', type: 'BOOKING', link: 'evt-1' },
+   521→   521→    { userId: publicUser.id, title: 'New Event Nearby', message: 'A new event "Startup Pitch Night" has been published near you!', type: 'EVENT_UPDATE', link: 'evt-4' },
+   522→   522→    { userId: organizer1.id, title: 'New Booking', message: 'Someone just booked a ticket for Global Tech Summit 2025.', type: 'BOOKING', link: 'evt-1' },
+   523→   523→    { userId: organizer1.id, title: 'Subscription Renewing', message: 'Your Professional plan subscription will renew in 5 days.', type: 'SYSTEM', link: '' },
+   524→   524→    { userId: publicUser.id, title: 'Payment Received', message: 'Payment of $299.00 for Global Tech Summit 2025 received.', type: 'PAYMENT', link: 'evt-1' },
+   525→   525→  ];
+   526→   526→  for (const n of notifs) { try { await prisma.notification.create({ data: n }); } catch {} }
+   527→   527→  console.log('✅ Notifications created');
+   528→   528→
+   529→   529→  // 14. System settings
+   530→   530→  const settings = [
+   531→   531→    { key: 'platform_name', value: 'AppleCalendar' },
+   532→   532→    { key: 'platform_fee_percent', value: '5' },
+   533→   533→    { key: 'default_currency', value: 'USD' },
+   534→   534→    { key: 'support_email', value: 'support@applecalendar.com' },
+   535→   535→  ];
+   536→   536→  for (const s of settings) { try { await prisma.systemSetting.create({ data: s }); } catch {} }
+   537→   537→  console.log('✅ System settings created');
+   538→   538→
+   539→   539→  console.log('\n🎉 Seed completed successfully!');
+   540→   540→}
+   541→   541→
+   542→   542→main()
+   543→   543→  .catch((e) => { console.error(e); process.exit(1); })
+   544→   544→  .finally(async () => { await prisma.$disconnect(); });
+   545→   545→

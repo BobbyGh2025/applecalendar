@@ -58,10 +58,13 @@ export async function PATCH(
 
     // Perform cancellation transactionally
     const result = await db.$transaction(async (tx) => {
-      // Update booking status
+      // Update booking status (with cancellation audit fields)
       const updatedBooking = await tx.booking.update({
         where: { id: bookingId },
-        data: { status: 'CANCELLED' },
+        data: {
+          status: 'CANCELLED',
+          cancelledBy: user.id,
+        },
       });
 
       // Cancel all valid tickets

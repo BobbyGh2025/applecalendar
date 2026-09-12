@@ -270,7 +270,13 @@ export async function DELETE(
     const user = await authenticate(request);
     const { id } = await params;
 
-    const existingEvent = await db.event.findUnique({ where: { id } });
+    const existingEvent = await db.event.findUnique({
+      where: { id },
+      include: {
+        ticketTypes: { select: { soldCount: true } },
+        _count: { select: { bookings: true } },
+      },
+    });
     if (!existingEvent) {
       throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
@@ -279,9 +285,37 @@ export async function DELETE(
       throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to delete this event');
     }
 
+    // ─── Event Delete Safety ───
+    // If the event has any bookings or sold tickets, we must NOT hard-delete
+    // because that would destroy transactional records (bookings, tickets, payments).
+    // Instead, set the event status to CANCELLED (soft-delete).
+    const hasBookings = existingEvent._count.bookings > 0;
+    const hasSoldTickets = existingEvent.ticketTypes.some(tt => tt.soldCount > 0);
+
+    if (hasBookings || hasSoldTickets) {
+      // Soft-delete: set status to CANCELLED to preserve transactional history
+      if (existingEvent.status !== 'CANCELLED') {
+        await db.event.update({
+          where: { id },
+          data: { status: 'CANCELLED', isBookable: false },
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Event has existing bookings or sold tickets. Event has been cancelled to preserve transactional records. It was not permanently deleted.',
+        softDeleted: true,
+      });
+    }
+
+    // No transactional records exist — safe to hard-delete
     await db.event.delete({ where: { id } });
 
-    return NextResponse.json({ success: true, message: 'Event deleted successfully' });
+    return NextResponse.json({
+      success: true,
+      message: 'Event deleted successfully',
+      softDeleted: false,
+    });
   } catch (error) {
     return handleApiError(error);
   }

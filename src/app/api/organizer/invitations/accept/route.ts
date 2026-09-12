@@ -3,10 +3,13 @@ import { db } from '@/lib/db';
 import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { acceptInvitationSchema } from '@/lib/validations';
+import { hashToken } from '@/lib/tokens';
 
 /**
  * POST /api/organizer/invitations/accept
  * Accept an invitation to join an organization.
+ * The supplied token is hashed and looked up by tokenHash (matching the security
+ * pattern used by PasswordResetToken and EmailVerificationToken).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -21,9 +24,10 @@ export async function POST(request: NextRequest) {
 
     const { token } = parsed.data;
 
-    // Find the invitation by token
+    // Hash the supplied token and find the matching invitation
+    const tokenHash = await hashToken(token);
     const invitation = await db.organizerInvitation.findUnique({
-      where: { token },
+      where: { tokenHash },
     });
 
     if (!invitation) {

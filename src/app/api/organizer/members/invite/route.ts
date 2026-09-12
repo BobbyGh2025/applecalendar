@@ -3,12 +3,13 @@ import { db } from '@/lib/db';
 import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { inviteStaffSchema } from '@/lib/validations';
-import { generateSecureToken } from '@/lib/tokens';
+import { generateSecureToken, hashToken } from '@/lib/tokens';
 
 /**
  * POST /api/organizer/members/invite
  * Invite a staff member to the organization.
  * Only the organizer owner can invite.
+ * Token is stored as SHA-256 hash for security (matching PasswordResetToken/EmailVerificationToken pattern).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -60,8 +61,9 @@ export async function POST(request: NextRequest) {
       await db.organizerInvitation.delete({ where: { id: existingInvitation.id } });
     }
 
-    // Create invitation
-    const token = generateSecureToken();
+    // Create invitation with hashed token
+    const rawToken = generateSecureToken();
+    const tokenHash = await hashToken(rawToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     const invitation = await db.organizerInvitation.create({
@@ -70,12 +72,12 @@ export async function POST(request: NextRequest) {
         email,
         role,
         permissions: JSON.stringify(permissions),
-        token,
+        tokenHash,
         expiresAt,
       },
     });
 
-    // In development, return the token for testing; in production, would send email
+    // In development, return the raw token for testing; in production, would send email
     const isDev = process.env.NODE_ENV !== 'production';
 
     return NextResponse.json({
@@ -86,7 +88,7 @@ export async function POST(request: NextRequest) {
         role: invitation.role,
         expiresAt: invitation.expiresAt,
       },
-      ...(isDev && { token }), // Only in dev for testing
+      ...(isDev && { token: rawToken }), // Only in dev for testing — never in production
     }, { status: 201 });
   } catch (error) {
     return handleApiError(error);

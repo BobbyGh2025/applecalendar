@@ -123,11 +123,21 @@ export function OrganizerProfileForm() {
         <h2 className="text-2xl font-bold">Organization Profile</h2>
       </div>
 
-      {profile && profile.approvalStatus === 'PENDING' && (
+      {profile && (profile.status === 'PENDING_APPROVAL' || profile.approvalStatus === 'PENDING') && (
         <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
           <CardContent className="p-4">
             <p className="text-sm text-amber-800 dark:text-amber-200">
               Your organization profile is pending approval. Some features may be limited until approved.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {profile && profile.status === 'SUSPENDED' && (
+        <Card className="border-red-200 bg-red-50 dark:bg-red-950/20">
+          <CardContent className="p-4">
+            <p className="text-sm text-red-800 dark:text-red-200">
+              Your organization has been suspended. Please contact support for more information.
             </p>
           </CardContent>
         </Card>

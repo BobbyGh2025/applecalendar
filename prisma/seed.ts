@@ -124,6 +124,7 @@ async function main() {
       socialLinks: JSON.stringify({ twitter: '@mitchell_events', linkedin: 'mitchell-events' }),
       isVerified: true,
       approvalStatus: 'APPROVED',
+      status: 'ACTIVE',
     },
   });
 
@@ -144,6 +145,7 @@ async function main() {
       socialLinks: JSON.stringify({ twitter: '@tech_events_co', linkedin: 'tech-events-co' }),
       isVerified: true,
       approvalStatus: 'APPROVED',
+      status: 'ACTIVE',
     },
   });
 
@@ -205,34 +207,50 @@ async function main() {
   }
   console.log('✅ Tags created');
 
-  // 5. Create Subscription Plans
+  // 5. Create Subscription Plans (Phase 4A — GHS pricing, full feature set)
   const plans = [
     {
       name: 'Free', slug: 'free',
       description: 'Get started with basic event creation',
-      price: 0, interval: 'MONTHLY', maxEvents: 3, maxTickets: 50,
-      features: JSON.stringify(['3 events/month', '50 tickets/event', 'Basic analytics', 'Email support']),
+      price: 0, interval: 'MONTHLY', currency: 'GHS',
+      maxEvents: 3, maxTicketsPerEvent: 50, maxTicketTypesPerEvent: 2,
+      maxStaff: 0, maxMediaPerEvent: 3, maxAttendeesTotal: 500,
+      canAdvertise: false, canCustomBranding: false, canApiAccess: false,
+      analyticsLevel: 'BASIC', trialDays: 0,
+      features: JSON.stringify(['3 events/month', '50 tickets/event', '2 ticket types', 'Basic analytics', 'Email support']),
       sortOrder: 0,
     },
     {
       name: 'Starter', slug: 'starter',
       description: 'Perfect for growing event organizers',
-      price: 29, interval: 'MONTHLY', maxEvents: 10, maxTickets: 500,
-      features: JSON.stringify(['10 events/month', '500 tickets/event', 'Advanced analytics', 'Custom branding', 'Priority support', 'QR code tickets']),
+      price: 99, interval: 'MONTHLY', currency: 'GHS',
+      maxEvents: 10, maxTicketsPerEvent: 500, maxTicketTypesPerEvent: 5,
+      maxStaff: 2, maxMediaPerEvent: 10, maxAttendeesTotal: 2000,
+      canAdvertise: false, canCustomBranding: false, canApiAccess: false,
+      analyticsLevel: 'ADVANCED', trialDays: 14,
+      features: JSON.stringify(['10 events/month', '500 tickets/event', '5 ticket types', '2 staff seats', 'Advanced analytics', 'Priority support', 'QR code tickets', '14-day trial']),
       sortOrder: 1,
     },
     {
       name: 'Professional', slug: 'professional',
       description: 'For professional event management',
-      price: 79, interval: 'MONTHLY', maxEvents: 50, maxTickets: 5000,
-      features: JSON.stringify(['50 events/month', '5000 tickets/event', 'Full analytics suite', 'Custom branding', 'Dedicated support', 'QR code tickets', 'PDF tickets', 'Advertisement slots', 'API access']),
+      price: 299, interval: 'MONTHLY', currency: 'GHS',
+      maxEvents: 50, maxTicketsPerEvent: 5000, maxTicketTypesPerEvent: 10,
+      maxStaff: 5, maxMediaPerEvent: 20, maxAttendeesTotal: 10000,
+      canAdvertise: true, canCustomBranding: true, canApiAccess: true,
+      analyticsLevel: 'FULL', trialDays: 14,
+      features: JSON.stringify(['50 events/month', '5000 tickets/event', '10 ticket types', '5 staff seats', 'Full analytics suite', 'Custom branding', 'Dedicated support', 'QR code tickets', 'PDF tickets', 'Advertisement slots', 'API access', '14-day trial']),
       sortOrder: 2,
     },
     {
       name: 'Enterprise', slug: 'enterprise',
       description: 'Unlimited events for large organizations',
-      price: 199, interval: 'MONTHLY', maxEvents: 999, maxTickets: 50000,
-      features: JSON.stringify(['Unlimited events', 'Unlimited tickets', 'Full analytics suite', 'White-label branding', '24/7 dedicated support', 'All ticket features', 'Advertisement management', 'API access', 'Custom integrations', 'SLA guarantee']),
+      price: 799, interval: 'MONTHLY', currency: 'GHS',
+      maxEvents: 999, maxTicketsPerEvent: 50000, maxTicketTypesPerEvent: 25,
+      maxStaff: 50, maxMediaPerEvent: 50, maxAttendeesTotal: 50000,
+      canAdvertise: true, canCustomBranding: true, canApiAccess: true,
+      analyticsLevel: 'FULL', trialDays: 30,
+      features: JSON.stringify(['Unlimited events', '50000 tickets/event', '25 ticket types', '50 staff seats', 'Full analytics suite', 'White-label branding', '24/7 dedicated support', 'All ticket features', 'Advertisement management', 'API access', 'Custom integrations', 'SLA guarantee', '30-day trial']),
       sortOrder: 3,
     },
   ];
@@ -246,15 +264,140 @@ async function main() {
   }
   console.log('✅ Subscription Plans created');
 
-  // 6. Create subscriptions for organizers
-  const starterPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'professional' } });
-  const proPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'starter' } });
-  if (starterPlan && proPlan) {
+  // 5.5 Create OrganizerSubscriptions (Phase 4A)
+  const professionalPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'professional' } });
+  const starterPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'starter' } });
+
+  if (professionalPlan) {
+    await prisma.organizerSubscription.upsert({
+      where: { organizerId: orgProfile1.id },
+      update: {},
+      create: {
+        organizerId: orgProfile1.id,
+        planId: professionalPlan.id,
+        status: 'ACTIVE',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        isInTrial: false,
+        autoRenew: true,
+        billingProvider: 'MANUAL',
+        paymentStatus: 'CURRENT',
+      },
+    });
+  }
+
+  if (starterPlan) {
+    await prisma.organizerSubscription.upsert({
+      where: { organizerId: orgProfile2.id },
+      update: {},
+      create: {
+        organizerId: orgProfile2.id,
+        planId: starterPlan.id,
+        status: 'ACTIVE',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        isInTrial: false,
+        autoRenew: true,
+        billingProvider: 'MANUAL',
+        paymentStatus: 'CURRENT',
+      },
+    });
+  }
+  console.log('✅ Organizer Subscriptions created');
+
+  // 5.6 Create Venues (Phase 4A — Ghana-based sample venues)
+  const venues = [
+    {
+      name: 'Accra International Conference Centre',
+      slug: 'accra-international-conference-centre',
+      description: 'Ghana\'s premier conference venue, hosting major international events, summits, and exhibitions.',
+      address: 'Independence Ave',
+      city: 'Accra',
+      state: 'Greater Accra',
+      country: 'GH',
+      lat: 5.556,
+      lng: -0.184,
+      capacity: 1700,
+      amenities: JSON.stringify(['parking', 'wifi', 'ac', 'catering', 'stage', 'sound_system', 'projector', 'translation_booth']),
+      contactName: 'AICC Booking Office',
+      contactEmail: 'bookings@aicc.gov.gh',
+      contactPhone: '+233-21-66-5464',
+      website: 'https://aicc.gov.gh',
+      isPublic: true,
+    },
+    {
+      name: 'National Theatre of Ghana',
+      slug: 'national-theatre-of-ghana',
+      description: 'An iconic performing arts venue on Independence Avenue, hosting concerts, plays, and cultural events.',
+      address: 'Independence Ave',
+      city: 'Accra',
+      state: 'Greater Accra',
+      country: 'GH',
+      lat: 5.548,
+      lng: -0.186,
+      capacity: 1500,
+      amenities: JSON.stringify(['parking', 'ac', 'stage', 'sound_system', 'lighting', 'backstage', 'dressing_rooms']),
+      contactName: 'National Theatre Box Office',
+      contactEmail: 'info@nationaltheatre.gov.gh',
+      contactPhone: '+233-21-66-2849',
+      isPublic: true,
+    },
+    {
+      name: 'Kempinski Hotel Gold Coast City',
+      slug: 'kempinski-hotel-gold-coast-city',
+      description: 'Luxury hotel with world-class event spaces for corporate meetings, galas, and intimate gatherings.',
+      address: 'Airport Residential Area',
+      city: 'Accra',
+      state: 'Greater Accra',
+      country: 'GH',
+      lat: 5.605,
+      lng: -0.172,
+      capacity: 500,
+      amenities: JSON.stringify(['parking', 'wifi', 'ac', 'catering', 'stage', 'sound_system', 'projector', 'valet', 'accommodation']),
+      contactName: 'Events Team',
+      contactEmail: 'events.accra@kempinski.com',
+      contactPhone: '+233-30-27-80900',
+      website: 'https://kempinski.com/accra',
+      isPublic: true,
+    },
+    {
+      name: 'University of Ghana - Great Hall',
+      slug: 'university-of-ghana-great-hall',
+      description: 'The historic Great Hall at Legon, ideal for academic conferences, convocations, and large-scale seminars.',
+      address: 'Legon',
+      city: 'Accra',
+      state: 'Greater Accra',
+      country: 'GH',
+      lat: 5.650,
+      lng: -0.186,
+      capacity: 1000,
+      amenities: JSON.stringify(['parking', 'wifi', 'ac', 'stage', 'sound_system', 'projector']),
+      contactName: 'UG Events Office',
+      contactEmail: 'events@ug.edu.gh',
+      contactPhone: '+233-30-25-50462',
+      website: 'https://ug.edu.gh',
+      isPublic: true,
+    },
+  ];
+
+  for (const venue of venues) {
+    await prisma.venue.upsert({
+      where: { slug: venue.slug },
+      update: {},
+      create: venue,
+    });
+  }
+  console.log('✅ Venues created');
+
+  // 6. Create subscriptions for organizers (legacy User-level subscriptions)
+  const legacyProPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'professional' } });
+  const legacyStarterPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'starter' } });
+  if (legacyProPlan && legacyStarterPlan) {
     await prisma.subscription.upsert({
       where: { id: 'sub-1' },
       update: {},
       create: {
-        id: 'sub-1', userId: organizer1.id, planId: starterPlan.id,
+        id: 'sub-1', userId: organizer1.id, planId: legacyProPlan.id,
         status: 'ACTIVE', startDate: new Date(),
         endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), autoRenew: true,
       },
@@ -263,7 +406,7 @@ async function main() {
       where: { id: 'sub-2' },
       update: {},
       create: {
-        id: 'sub-2', userId: organizer2.id, planId: proPlan.id,
+        id: 'sub-2', userId: organizer2.id, planId: legacyStarterPlan.id,
         status: 'ACTIVE', startDate: new Date(),
         endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), autoRenew: true,
       },
@@ -497,8 +640,10 @@ async function main() {
     for (let d = 0; d < 30; d++) {
       const date = new Date(now.getTime() - (29 - d) * 24 * 60 * 60 * 1000);
       const dateStr = date.toISOString().split('T')[0];
-      await prisma.eventAnalytics.create({
-        data: {
+      await prisma.eventAnalytics.upsert({
+        where: { eventId_date: { eventId: event.id, date: dateStr } },
+        update: {},
+        create: {
           eventId: event.id, date: dateStr,
           views: Math.floor(Math.random() * 500) + 50,
           clicks: Math.floor(Math.random() * 100) + 10,
@@ -510,9 +655,33 @@ async function main() {
   }
   console.log('✅ Analytics created');
 
-  // 12. Create advertisements
-  try { await prisma.advertisement.create({ data: { title: 'Premium Event Promotion', imageUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&h=200&fit=crop', linkUrl: 'evt-1', position: 'BANNER', status: 'ACTIVE', impressions: 15420, clicks: 892, startDate: new Date(), endDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), eventId: 'evt-1', advertiserId: organizer1.id } }); } catch {}
-  try { await prisma.advertisement.create({ data: { title: 'Summer Festival Early Bird', imageUrl: 'https://images.unsplash.com/photo-1429962714451-bb934ecdc4ec?w=300&h=250&fit=crop', linkUrl: 'evt-2', position: 'SIDEBAR', status: 'ACTIVE', impressions: 8930, clicks: 456, startDate: new Date(), endDate: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000), eventId: 'evt-2', advertiserId: organizer1.id } }); } catch {}
+  // 12. Create advertisements (Phase 4A — with organizerId, approvalStatus, reviewedBy)
+  try {
+    await prisma.advertisement.create({
+      data: {
+        title: 'Premium Event Promotion',
+        imageUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&h=200&fit=crop',
+        linkUrl: 'evt-1', position: 'BANNER', status: 'ACTIVE',
+        impressions: 15420, clicks: 892,
+        startDate: new Date(), endDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+        eventId: 'evt-1', advertiserId: organizer1.id,
+        organizerId: orgProfile1.id, approvalStatus: 'APPROVED', reviewedBy: superAdmin.id,
+      },
+    });
+  } catch {}
+  try {
+    await prisma.advertisement.create({
+      data: {
+        title: 'Summer Festival Early Bird',
+        imageUrl: 'https://images.unsplash.com/photo-1429962714451-bb934ecdc4ec?w=300&h=250&fit=crop',
+        linkUrl: 'evt-2', position: 'SIDEBAR', status: 'ACTIVE',
+        impressions: 8930, clicks: 456,
+        startDate: new Date(), endDate: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+        eventId: 'evt-2', advertiserId: organizer1.id,
+        organizerId: orgProfile1.id, approvalStatus: 'APPROVED', reviewedBy: superAdmin.id,
+      },
+    });
+  } catch {}
   console.log('✅ Advertisements created');
 
   // 13. Create notifications

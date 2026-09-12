@@ -38,6 +38,9 @@ model User {
   passwordResetTokens       PasswordResetToken[]
   emailVerificationTokens   EmailVerificationToken[]
   refreshTokens             RefreshToken[]
+  auditLogs                 AuditLog[]
+  uploadedMedia             EventMedia[]
+  ownedVenues               Venue[]             @relation("VenueCreator")
 }
 
 model StaffAssignment {
@@ -83,21 +86,32 @@ model Tag {
 // ============ SUBSCRIPTIONS ============
 
 model SubscriptionPlan {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String?
-  price       Float    @default(0)
-  interval    String   @default("MONTHLY") // MONTHLY, YEARLY
-  maxEvents   Int      @default(5)
-  maxTickets  Int      @default(100)
-  features    String   @default("[]") // JSON array
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                      String   @id @default(cuid())
+  name                    String
+  slug                    String   @unique
+  description             String?
+  price                   Float    @default(0)
+  interval                String   @default("MONTHLY") // MONTHLY, YEARLY
+  currency                String   @default("GHS")
+  maxEvents               Int      @default(5)
+  maxTicketsPerEvent      Int      @default(100)
+  maxTicketTypesPerEvent  Int      @default(3)
+  maxStaff                Int      @default(1)
+  maxMediaPerEvent        Int      @default(3)
+  maxAttendeesTotal       Int      @default(500)
+  canAdvertise            Boolean  @default(false)
+  canCustomBranding       Boolean  @default(false)
+  canApiAccess            Boolean  @default(false)
+  analyticsLevel          String   @default("BASIC") // BASIC, ADVANCED, FULL
+  trialDays               Int      @default(0)
+  features                String   @default("[]") // JSON array of feature descriptions
+  isActive                Boolean  @default(true)
+  sortOrder               Int      @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
-  subscriptions Subscription[]
+  subscriptions              Subscription[]
+  organizerSubscriptions      OrganizerSubscription[]
 }
 
 model Subscription {
@@ -118,42 +132,82 @@ model Subscription {
   @@index([planId])
 }
 
+/// OrganizerSubscription: the authoritative subscription for organizations.
+/// Linked to OrganizerProfile (not User) so subscriptions belong to the org,
+/// not to an individual staff member. One active subscription per org.
+model OrganizerSubscription {
+  id                  String    @id @default(cuid())
+  organizerId         String    @unique
+  planId              String
+  status              String    @default("ACTIVE") // ACTIVE, TRIAL, EXPIRED, CANCELLED
+  startDate           DateTime  @default(now())
+  endDate             DateTime?
+  trialStart          DateTime?
+  trialEnd            DateTime?
+  isInTrial           Boolean   @default(false)
+  autoRenew           Boolean   @default(true)
+  cancelledAt         DateTime?
+  cancelReason        String?
+  billingProvider     String    @default("MANUAL") // MANUAL, PAYSTACK, STRIPE
+  billingProviderRef  String?
+  billingCustomerId   String?
+  paymentStatus       String    @default("CURRENT") // CURRENT, PAST_DUE, GRACE_PERIOD
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organizer OrganizerProfile @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([planId])
+  @@index([status])
+}
+
 // ============ EVENTS ============
 
 model Event {
-  id              String    @id @default(cuid())
-  title           String
-  slug            String    @unique
-  description     String
+  id               String    @id @default(cuid())
+  title            String
+  slug             String    @unique
+  description      String
   shortDescription String?
-  coverImage      String?
-  startDate       DateTime
-  endDate         DateTime?
-  startTime       String?
-  endTime         String?
-  timezone        String    @default("UTC")
-  venueName       String?
-  venueAddress    String?
-  venueCity       String?
-  venueState      String?
-  venueCountry    String    @default("US")
-  venueLat        Float?
-  venueLng        Float?
-  isVirtual       Boolean   @default(false)
-  virtualUrl      String?
-  capacity        Int?
-  status          String    @default("DRAFT") // DRAFT, PENDING, PUBLISHED, CANCELLED, COMPLETED, REJECTED
-  isFeatured      Boolean   @default(false)
-  isPaid          Boolean   @default(false)
-  currency        String    @default("USD")
-  organizerId     String
-  categoryId      String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  coverImage       String?
+  startDate        DateTime
+  endDate          DateTime?
+  startTime        String?
+  endTime          String?
+  timezone         String    @default("UTC")
+  venueName        String?
+  venueAddress     String?
+  venueCity        String?
+  venueState       String?
+  venueCountry     String    @default("GH")
+  venueLat         Float?
+  venueLng         Float?
+  isVirtual        Boolean   @default(false)
+  virtualUrl       String?
+  capacity         Int?
+  status           String    @default("DRAFT") // DRAFT, PENDING, PUBLISHED, CANCELLED, COMPLETED, REJECTED
+  isFeatured       Boolean   @default(false)
+  isPaid           Boolean   @default(false)
+  currency         String    @default("GHS")
+  organizerId      String
+  categoryId       String?
+  venueId          String?
+  contactEmail     String?
+  contactPhone     String?
+  ageRestriction   String?
+  visibility       String    @default("PUBLIC") // PUBLIC, PRIVATE, INVITE_ONLY
+  rejectionReason  String?
+  moderatedBy      String?
+  moderatedAt      DateTime?
+  isBookable       Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   // Relations
   organizer         User              @relation("EventOwner", fields: [organizerId], references: [id])
   category          Category?         @relation(fields: [categoryId], references: [id])
+  venue             Venue?            @relation(fields: [venueId], references: [id])
   tags              EventTag[]
   ticketTypes       TicketType[]
   bookings          Booking[]
@@ -161,11 +215,15 @@ model Event {
   staffAssignments  StaffAssignment[]
   analytics         EventAnalytics[]
   advertisements    Advertisement[]
+  sessions          EventSession[]
+  participants      EventParticipant[]
+  media             EventMedia[]
 
   @@index([organizerId])
   @@index([status])
   @@index([categoryId])
   @@index([startDate])
+  @@index([venueId])
 }
 
 model EventTag {
@@ -182,6 +240,119 @@ model EventTag {
   @@index([tagId])
 }
 
+/// EventSession: scheduled program items within an event (keynotes, panels, breaks, etc.)
+model EventSession {
+  id            String    @id @default(cuid())
+  eventId       String
+  title         String
+  description   String?
+  startTime     String    // HH:MM
+  endTime       String    // HH:MM
+  date          DateTime? // For multi-day events
+  sortOrder     Int       @default(0)
+  venueId       String?   // FK → Venue (stage/room within venue)
+  venueName     String?   // Inline venue override (e.g., "Main Stage")
+  participantId String?   // FK → EventParticipant (speaker/artist)
+  sessionType   String    @default("SESSION") // SESSION, BREAK, REGISTRATION, KEYNOTE, PANEL, WORKSHOP, ENTERTAINMENT
+  status        String    @default("SCHEDULED") // SCHEDULED, CANCELLED
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  event       Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  venue       Venue?            @relation(fields: [venueId], references: [id])
+  participant EventParticipant? @relation(fields: [participantId], references: [id])
+
+  @@index([eventId])
+  @@index([eventId, date])
+}
+
+/// EventParticipant: speakers, artists, performers, moderators at an event.
+/// Generalized model — role field distinguishes participant type.
+model EventParticipant {
+  id           String    @id @default(cuid())
+  eventId      String
+  name         String
+  bio          String?
+  image        String?
+  role         String    @default("SPEAKER") // SPEAKER, ARTIST, PERFORMER, MODERATOR, PANELIST, DJ, HOST, INSTRUCTOR
+  title        String?   // Job title / designation
+  organization String?   // Affiliation
+  socialLinks  String?   // JSON: {twitter, linkedin, instagram, website, spotify}
+  email        String?   // Contact email (private — for organizer communication)
+  sortOrder    Int       @default(0)
+  isFeatured   Boolean   @default(false) // Headliner / keynote
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  event    Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sessions EventSession[] // Sessions this participant is assigned to
+
+  @@index([eventId])
+  @@unique([eventId, name])
+}
+
+/// EventMedia: metadata for event gallery images, videos, documents.
+/// URL-based only in Phase 4A — no file upload infrastructure yet.
+model EventMedia {
+  id        String   @id @default(cuid())
+  eventId   String
+  url       String
+  type      String   // IMAGE, VIDEO, DOCUMENT
+  category  String   @default("GALLERY") // POSTER, COVER, GALLERY, PROMOTIONAL_VIDEO, DOCUMENT, PROGRAM
+  caption   String?
+  sortOrder Int      @default(0)
+  fileSize  Int?     // Bytes
+  mimeType  String?  // MIME type
+  uploadedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [uploadedBy], references: [id])
+
+  @@index([eventId])
+  @@index([eventId, category])
+}
+
+// ============ VENUES ============
+
+/// Venue: reusable event venues. Supports Ghana-first with GH default.
+/// Organizers can create private venues; public venues are available to all.
+model Venue {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique
+  description   String?
+  address       String
+  city          String
+  state         String?
+  country       String    @default("GH")
+  postalCode    String?
+  lat           Float?
+  lng           Float?
+  googleMapsUrl String?
+  coverImage    String?
+  capacity      Int?
+  amenities     String?   // JSON array: ["parking", "wifi", "ac", "catering", "stage", "sound_system"]
+  contactName   String?
+  contactEmail  String?
+  contactPhone  String?
+  website       String?
+  organizerId   String?   // FK → User (creator — null for system/public venues)
+  isPublic      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  organizer User?          @relation("VenueCreator", fields: [organizerId], references: [id])
+  events    Event[]        // Events using this venue
+  sessions  EventSession[] // Sessions assigned to this venue
+
+  @@index([city])
+  @@index([country])
+  @@index([organizerId])
+  @@index([slug])
+}
+
 // ============ TICKETING ============
 
 model TicketType {
@@ -190,7 +361,7 @@ model TicketType {
   name        String
   description String?
   price       Float    @default(0)
-  currency    String   @default("USD")
+  currency    String   @default("GHS")
   quantity    Int      // total available
   soldCount   Int      @default(0)
   minPerOrder Int      @default(1)
@@ -224,15 +395,17 @@ model Ticket {
 }
 
 model Booking {
-  id              String   @id @default(cuid())
-  userId          String
-  eventId         String
-  totalAmount     Float    @default(0)
-  currency        String   @default("USD")
-  status          String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, REFUNDED
-  bookingRef      String   @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String   @id @default(cuid())
+  userId            String
+  eventId           String
+  totalAmount       Float    @default(0)
+  currency          String   @default("GHS")
+  status            String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, REFUNDED
+  bookingRef        String   @unique
+  cancellationReason String?
+  cancelledBy       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   user    User    @relation(fields: [userId], references: [id])
   event   Event   @relation(fields: [eventId], references: [id])
@@ -242,19 +415,28 @@ model Booking {
   @@index([userId])
   @@index([eventId])
   @@index([status])
+  @@index([eventId, status])
 }
 
 model Payment {
-  id              String   @id @default(cuid())
-  bookingId       String   @unique
-  userId          String
-  amount          Float
-  currency        String   @default("USD")
-  method          String   @default("STRIPE") // STRIPE, PAYPAL, BANK_TRANSFER
-  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED, REFUNDED
-  transactionId   String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  bookingId           String   @unique
+  userId              String
+  amount              Float
+  currency            String   @default("GHS")
+  method              String   @default("STRIPE") // STRIPE, PAYPAL, PAYSTACK, BANK_TRANSFER
+  status              String   @default("PENDING") // PENDING, COMPLETED, FAILED, REFUNDED
+  transactionId       String?
+  providerRef         String?   // Payment intent/charge ID from provider
+  providerCustomerId  String?   // Customer ID in provider system
+  webhookEventId      String?   // Last webhook event ID processed
+  idempotencyKey      String?   @unique // Prevents duplicate charges on retry
+  failureReason       String?   // Provider's failure message
+  refundedAmount      Float     @default(0)
+  refundRef           String?   // Provider's refund reference
+  metadata            String?   // JSON — provider-specific data
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   booking Booking @relation(fields: [bookingId], references: [id])
   user    User    @relation(fields: [userId], references: [id])
@@ -297,22 +479,28 @@ model Notification {
 // ============ ADVERTISEMENTS ============
 
 model Advertisement {
-  id          String   @id @default(cuid())
-  title       String
-  imageUrl    String?
-  linkUrl     String?
-  position    String   @default("SIDEBAR") // SIDEBAR, BANNER, POPUP
-  status      String   @default("ACTIVE") // ACTIVE, PAUSED, EXPIRED
-  impressions Int      @default(0)
-  clicks      Int      @default(0)
-  startDate   DateTime?
-  endDate     DateTime?
-  eventId     String?
-  advertiserId String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  title           String
+  imageUrl        String?
+  linkUrl         String?
+  position        String    @default("SIDEBAR") // SIDEBAR, BANNER, POPUP
+  status          String    @default("ACTIVE") // ACTIVE, PAUSED, EXPIRED
+  impressions     Int       @default(0)
+  clicks          Int       @default(0)
+  startDate       DateTime?
+  endDate         DateTime?
+  eventId         String?
+  advertiserId    String?
+  organizerId     String?    // FK → OrganizerProfile (who owns this ad)
+  approvalStatus  String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  reviewedBy      String?    // userId of admin who reviewed
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  event Event? @relation(fields: [eventId], references: [id])
+  event      Event?           @relation(fields: [eventId], references: [id])
+  organizer  OrganizerProfile? @relation(fields: [organizerId], references: [id])
+
+  @@index([organizerId])
 }
 
 // ============ ANALYTICS ============
@@ -344,10 +532,10 @@ model SystemSetting {
 // ============ ORGANIZER IDENTITY ============
 
 model OrganizerProfile {
-  id               String   @id @default(cuid())
-  userId           String   @unique
+  id               String    @id @default(cuid())
+  userId           String    @unique
   organizationName String
-  slug             String   @unique
+  slug             String    @unique
   description      String?
   logo             String?
   coverImage       String?
@@ -358,18 +546,25 @@ model OrganizerProfile {
   city             String?
   state            String?
   country          String?
-  socialLinks      String?  // JSON string
-  isVerified       Boolean  @default(false)
-  approvalStatus   String   @default("PENDING") // PENDING, APPROVED, REJECTED
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  socialLinks      String?   // JSON string
+  isVerified       Boolean   @default(false)
+  approvalStatus   String    @default("PENDING") // PENDING, APPROVED, REJECTED — legacy field, kept for backward compat
+  status           String    @default("PENDING_APPROVAL") // PENDING_APPROVAL, APPROVED, REJECTED, ACTIVE, SUSPENDED, DEACTIVATED
+  statusReason     String?
+  statusChangedBy  String?
+  statusChangedAt  DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  memberships OrganizerMembership[]
-  invitations OrganizerInvitation[]
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memberships            OrganizerMembership[]
+  invitations            OrganizerInvitation[]
+  organizerSubscription  OrganizerSubscription?
+  advertisements         Advertisement[]
 
   @@index([slug])
   @@index([approvalStatus])
+  @@index([status])
 }
 
 model OrganizerMembership {
@@ -390,24 +585,28 @@ model OrganizerMembership {
   @@unique([organizerId, userId])
   @@index([organizerId])
   @@index([userId])
+  @@index([organizerId, status])
 }
 
+/// OrganizerInvitation: token-hashed invitation to join an organization.
+/// Token is stored as SHA-256 hash (tokenHash), matching the security
+/// pattern used by PasswordResetToken and EmailVerificationToken.
 model OrganizerInvitation {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   organizerId String
   email       String
-  role        String   @default("STAFF")
-  permissions String   @default("[]")
-  token       String   @unique
+  role        String    @default("STAFF")
+  permissions String    @default("[]")
+  tokenHash   String    @unique
   expiresAt   DateTime
   acceptedAt  DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   organizer OrganizerProfile @relation(fields: [organizerId], references: [id], onDelete: Cascade)
 
   @@unique([organizerId, email])
   @@index([organizerId])
-  @@index([token])
+  @@index([tokenHash])
 }
 
 // ============ TOKENS & SECURITY ============
@@ -452,4 +651,29 @@ model RefreshToken {
 
   @@index([userId])
   @@index([tokenHash])
+}
+
+// ============ AUDIT LOG ============
+
+/// AuditLog: records all significant admin/system actions for accountability.
+/// Never stores passwords, JWTs, refresh tokens, or other secrets.
+model AuditLog {
+  id          String    @id @default(cuid())
+  actorId     String?   // FK → User (null for system actions)
+  action      String    // CREATE, UPDATE, DELETE, APPROVE, REJECT, SUSPEND, REINSTATE, CANCEL
+  entityType  String    // Event, OrganizerProfile, User, OrganizerSubscription, etc.
+  entityId    String    // ID of the affected entity
+  oldValue    String?   // JSON of previous state (never secrets)
+  newValue    String?   // JSON of new state (never secrets)
+  reason      String?   // Reason (for rejections, suspensions)
+  ipAddress   String?   // Client IP where safely available
+  userAgent   String?   // Client user agent where safely available
+  createdAt   DateTime  @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
 }

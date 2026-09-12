@@ -122,6 +122,7 @@ export async function PATCH(request: NextRequest) {
           country: country || null,
           socialLinks: socialLinks ? JSON.stringify(socialLinks) : null,
           approvalStatus: 'PENDING',
+          status: 'PENDING_APPROVAL',
         },
       });
 

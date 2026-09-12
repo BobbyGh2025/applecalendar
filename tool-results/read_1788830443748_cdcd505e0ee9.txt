@@ -1,0 +1,1357 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useCallback } from 'react';
+     4→import { useAppStore } from '@/stores/app-store';
+     5→import { apiFetch } from '@/lib/api';
+     6→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+     7→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+     8→import { Input } from '@/components/ui/input';
+     9→import { Label } from '@/components/ui/label';
+    10→import { Button } from '@/components/ui/button';
+    11→import { Textarea } from '@/components/ui/textarea';
+    12→import { Badge } from '@/components/ui/badge';
+    13→import { Separator } from '@/components/ui/separator';
+    14→import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+    15→import {
+    16→  AlertDialog,
+    17→  AlertDialogAction,
+    18→  AlertDialogCancel,
+    19→  AlertDialogContent,
+    20→  AlertDialogDescription,
+    21→  AlertDialogFooter,
+    22→  AlertDialogHeader,
+    23→  AlertDialogTitle,
+    24→} from '@/components/ui/alert-dialog';
+    25→import {
+    26→  User,
+    27→  Lock,
+    28→  Monitor,
+    29→  Save,
+    30→  Eye,
+    31→  EyeOff,
+    32→  Shield,
+    33→  Smartphone,
+    34→  Globe,
+    35→  Clock,
+    36→  Trash2,
+    37→  Loader2,
+    38→  CheckCircle2,
+    39→  AlertCircle,
+    40→  Mail,
+    41→  Building2,
+    42→  MapPin,
+    43→  Phone,
+    44→  Link2,
+    45→} from 'lucide-react';
+    46→import { toast } from 'sonner';
+    47→import { EmailVerificationBanner } from '@/components/email-verification-view';
+    48→
+    49→// ─── Types ───
+    50→
+    51→interface UserProfile {
+    52→  id: string;
+    53→  email: string;
+    54→  name: string;
+    55→  avatar: string | null;
+    56→  phone: string | null;
+    57→  bio: string | null;
+    58→  role: string;
+    59→  isActive: boolean;
+    60→  emailVerified: string | null;
+    61→  createdAt: string;
+    62→  updatedAt: string;
+    63→}
+    64→
+    65→interface OrganizerProfile {
+    66→  id: string;
+    67→  userId: string;
+    68→  organizationName: string;
+    69→  slug: string;
+    70→  description: string | null;
+    71→  website: string | null;
+    72→  contactEmail: string;
+    73→  contactPhone: string | null;
+    74→  logoUrl: string | null;
+    75→  coverImageUrl: string | null;
+    76→  businessAddress: string | null;
+    77→  businessCity: string | null;
+    78→  businessState: string | null;
+    79→  businessCountry: string;
+    80→  socialLinks: string;
+    81→  verificationStatus: string;
+    82→  verifiedAt: string | null;
+    83→  isFeatured: boolean;
+    84→  createdAt: string;
+    85→  updatedAt: string;
+    86→}
+    87→
+    88→interface SessionInfo {
+    89→  id: string;
+    90→  createdAt: string;
+    91→  lastActivityAt: string;
+    92→  userAgent: string | null;
+    93→  ipAddress: string | null;
+    94→  isCurrent: boolean;
+    95→}
+    96→
+    97→// ─── Helpers ───
+    98→
+    99→function parseUserAgent(ua: string | null): { device: string; browser: string } {
+   100→  if (!ua) return { device: 'Unknown device', browser: 'Unknown browser' };
+   101→
+   102→  let device = 'Desktop';
+   103→  if (/iPhone|iPad/.test(ua)) device = 'iOS';
+   104→  else if (/Android/.test(ua)) device = 'Android';
+   105→  else if (/Mobile|Windows Phone/.test(ua)) device = 'Mobile';
+   106→
+   107→  let browser = 'Unknown';
+   108→  if (/Edg\//.test(ua)) browser = 'Edge';
+   109→  else if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) browser = 'Chrome';
+   110→  else if (/Firefox\//.test(ua)) browser = 'Firefox';
+   111→  else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) browser = 'Safari';
+   112→
+   113→  return { device, browser };
+   114→}
+   115→
+   116→function formatRelativeTime(dateStr: string): string {
+   117→  const date = new Date(dateStr);
+   118→  const now = new Date();
+   119→  const diffMs = now.getTime() - date.getTime();
+   120→  const diffMin = Math.floor(diffMs / 60_000);
+   121→  const diffHr = Math.floor(diffMs / 3_600_000);
+   122→  const diffDay = Math.floor(diffMs / 86_400_000);
+   123→
+   124→  if (diffMin < 1) return 'Just now';
+   125→  if (diffMin < 60) return `${diffMin}m ago`;
+   126→  if (diffHr < 24) return `${diffHr}h ago`;
+   127→  if (diffDay < 7) return `${diffDay}d ago`;
+   128→  return date.toLocaleDateString();
+   129→}
+   130→
+   131→function formatDate(dateStr: string): string {
+   132→  return new Date(dateStr).toLocaleDateString(undefined, {
+   133→    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+   134→  });
+   135→}
+   136→
+   137→// ─── Profile Tab ───
+   138→
+   139→function ProfileTab() {
+   140→  const { user, setAuth } = useAppStore();
+   141→  const [loading, setLoading] = useState(false);
+   142→  const [name, setName] = useState(user?.name ?? '');
+   143→  const [phone, setPhone] = useState(user?.phone ?? '');
+   144→  const [bio, setBio] = useState(user?.bio ?? '');
+   145→  const [avatar, setAvatar] = useState(user?.avatar ?? '');
+   146→  const [saved, setSaved] = useState(false);
+   147→  const [emailVerified, setEmailVerified] = useState<string | null>(null);
+   148→
+   149→  // Fetch fresh email verification status
+   150→  useEffect(() => {
+   151→    apiFetch<{ success: boolean; user: UserProfile }>('/api/users/me')
+   152→      .then((data) => {
+   153→        if (data.success && data.user) {
+   154→          setEmailVerified(data.user.emailVerified);
+   155→        }
+   156→      })
+   157→      .catch(() => {});
+   158→  }, []);
+   159→
+   160→  const handleSave = async () => {
+   161→    setLoading(true);
+   162→    setSaved(false);
+   163→    try {
+   164→      const data = await apiFetch<{ success: boolean; user: UserProfile }>('/api/users/me', {
+   165→        method: 'PATCH',
+   166→        body: JSON.stringify({
+   167→          name: name || undefined,
+   168→          phone: phone || null,
+   169→          bio: bio || null,
+   170→          avatar: avatar || null,
+   171→        }),
+   172→      });
+   173→
+   174→      if (data.success && data.user) {
+   175→        // Update the store user
+   176→        const currentToken = useAppStore.getState().token;
+   177→        const currentRefreshToken = useAppStore.getState().refreshToken;
+   178→        if (currentToken) {
+   179→          setAuth(
+   180→            {
+   181→              id: data.user.id,
+   182→              email: data.user.email,
+   183→              name: data.user.name,
+   184→              role: data.user.role as 'SUPER_ADMIN' | 'ORGANIZER' | 'STAFF' | 'PUBLIC',
+   185→              avatar: data.user.avatar,
+   186→              bio: data.user.bio,
+   187→              phone: data.user.phone,
+   188→            },
+   189→            currentToken,
+   190→            currentRefreshToken ?? undefined,
+   191→          );
+   192→        }
+   193→        setSaved(true);
+   194→        toast.success('Profile updated successfully');
+   195→      }
+   196→    } catch (err) {
+   197→      toast.error(err instanceof Error ? err.message : 'Failed to update profile');
+   198→    } finally {
+   199→      setLoading(false);
+   200→    }
+   201→  };
+   202→
+   203→  return (
+   204→    <div className="space-y-6">
+   205→      {/* Avatar & Name Header */}
+   206→      <Card>
+   207→        <CardContent className="pt-6">
+   208→          <div className="flex items-center gap-4">
+   209→            <Avatar className="h-20 w-20">
+   210→              <AvatarImage src={avatar || undefined} alt={name} />
+   211→              <AvatarFallback className="bg-emerald-600 text-white text-2xl font-semibold">
+   212→                {name?.charAt(0).toUpperCase() || 'U'}
+   213→              </AvatarFallback>
+   214→            </Avatar>
+   215→            <div className="flex-1">
+   216→              <h3 className="text-lg font-semibold">{user?.name}</h3>
+   217→              <p className="text-sm text-muted-foreground">{user?.email}</p>
+   218→              <div className="flex items-center gap-2 mt-1">
+   219→                <Badge variant="secondary" className="text-xs">{user?.role}</Badge>
+   220→                {user?.role !== 'PUBLIC' && (
+   221→                  <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300">
+   222→                    <Shield className="h-3 w-3 mr-1" />
+   223→                    Verified Role
+   224→                  </Badge>
+   225→                )}
+   226→              </div>
+   227→            </div>
+   228→          </div>
+   229→        </CardContent>
+   230→      </Card>
+   231→
+   232→      {/* Edit Form */}
+   233→      <Card>
+   234→        <CardHeader>
+   235→          <CardTitle className="text-base">Edit Profile</CardTitle>
+   236→          <CardDescription>Update your personal information. Email changes require verification.</CardDescription>
+   237→        </CardHeader>
+   238→        <CardContent className="space-y-4">
+   239→          <div className="grid gap-4 sm:grid-cols-2">
+   240→            <div className="space-y-2">
+   241→              <Label htmlFor="profile-name">Display Name</Label>
+   242→              <Input
+   243→                id="profile-name"
+   244→                value={name}
+   245→                onChange={(e) => { setName(e.target.value); setSaved(false); }}
+   246→                placeholder="Your name"
+   247→                maxLength={100}
+   248→              />
+   249→            </div>
+   250→            <div className="space-y-2">
+   251→              <Label htmlFor="profile-phone">Phone Number</Label>
+   252→              <Input
+   253→                id="profile-phone"
+   254→                value={phone}
+   255→                onChange={(e) => { setPhone(e.target.value); setSaved(false); }}
+   256→                placeholder="+1 (555) 000-0000"
+   257→                maxLength={30}
+   258→              />
+   259→            </div>
+   260→          </div>
+   261→
+   262→          <div className="space-y-2">
+   263→            <Label htmlFor="profile-avatar">Avatar URL</Label>
+   264→            <Input
+   265→              id="profile-avatar"
+   266→              value={avatar}
+   267→              onChange={(e) => { setAvatar(e.target.value); setSaved(false); }}
+   268→              placeholder="https://example.com/avatar.jpg"
+   269→              maxLength={500}
+   270→            />
+   271→          </div>
+   272→
+   273→          <div className="space-y-2">
+   274→            <Label htmlFor="profile-bio">Bio</Label>
+   275→            <Textarea
+   276→              id="profile-bio"
+   277→              value={bio}
+   278→              onChange={(e) => { setBio(e.target.value); setSaved(false); }}
+   279→              placeholder="Tell us about yourself..."
+   280→              maxLength={500}
+   281→              rows={3}
+   282→            />
+   283→            <p className="text-xs text-muted-foreground text-right">{bio.length}/500</p>
+   284→          </div>
+   285→
+   286→          <div className="flex items-center justify-end gap-3">
+   287→            {saved && (
+   288→              <span className="text-sm text-emerald-600 flex items-center gap-1">
+   289→                <CheckCircle2 className="h-4 w-4" /> Saved
+   290→              </span>
+   291→            )}
+   292→            <Button onClick={handleSave} disabled={loading} className="bg-emerald-600 hover:bg-emerald-700">
+   293→              {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+   294→              Save Changes
+   295→            </Button>
+   296→          </div>
+   297→        </CardContent>
+   298→      </Card>
+   299→
+   300→      {/* Account Info (read-only) */}
+   301→      <Card>
+   302→        <CardHeader>
+   303→          <CardTitle className="text-base">Account Information</CardTitle>
+   304→          <CardDescription>Read-only account details.</CardDescription>
+   305→        </CardHeader>
+   306→        <CardContent className="space-y-3">
+   307→          <div className="flex justify-between items-center text-sm">
+   308→            <span className="text-muted-foreground">Email</span>
+   309→            <div className="flex items-center gap-2">
+   310→              <span className="font-medium">{user?.email}</span>
+   311→              <EmailVerificationBanner emailVerified={emailVerified} />
+   312→            </div>
+   313→          </div>
+   314→          <Separator />
+   315→          <div className="flex justify-between items-center text-sm">
+   316→            <span className="text-muted-foreground">Role</span>
+   317→            <Badge variant="secondary">{user?.role}</Badge>
+   318→          </div>
+   319→          <Separator />
+   320→          <div className="flex justify-between items-center text-sm">
+   321→            <span className="text-muted-foreground">Account Status</span>
+   322→            <Badge variant={user?.role ? 'default' : 'destructive'} className="bg-emerald-600">
+   323→              Active
+   324→            </Badge>
+   325→          </div>
+   326→        </CardContent>
+   327→      </Card>
+   328→    </div>
+   329→  );
+   330→}
+   331→
+   332→// ─── Password Tab ───
+   333→
+   334→function PasswordTab() {
+   335→  const [currentPassword, setCurrentPassword] = useState('');
+   336→  const [newPassword, setNewPassword] = useState('');
+   337→  const [confirmPassword, setConfirmPassword] = useState('');
+   338→  const [showCurrent, setShowCurrent] = useState(false);
+   339→  const [showNew, setShowNew] = useState(false);
+   340→  const [showConfirm, setShowConfirm] = useState(false);
+   341→  const [loading, setLoading] = useState(false);
+   342→
+   343→  // Password strength indicators
+   344→  const hasMinLength = newPassword.length >= 8;
+   345→  const hasUppercase = /[A-Z]/.test(newPassword);
+   346→  const hasLowercase = /[a-z]/.test(newPassword);
+   347→  const hasNumber = /\d/.test(newPassword);
+   348→  const hasSpecial = /[^A-Za-z0-9]/.test(newPassword);
+   349→  const passwordsMatch = newPassword === confirmPassword && newPassword.length > 0;
+   350→  const isFormValid = hasMinLength && hasUppercase && hasLowercase && hasNumber && hasSpecial && passwordsMatch && currentPassword.length > 0;
+   351→
+   352→  const strengthCount = [hasMinLength, hasUppercase, hasLowercase, hasNumber, hasSpecial].filter(Boolean).length;
+   353→  const strengthLabel = strengthCount <= 2 ? 'Weak' : strengthCount <= 4 ? 'Fair' : 'Strong';
+   354→  const strengthColor = strengthCount <= 2 ? 'text-red-500' : strengthCount <= 4 ? 'text-amber-500' : 'text-emerald-500';
+   355→
+   356→  const handleSubmit = async () => {
+   357→    if (!isFormValid) return;
+   358→    setLoading(true);
+   359→    try {
+   360→      const data = await apiFetch<{ success: boolean; message: string; sessionsRevoked: number }>(
+   361→        '/api/users/me/password',
+   362→        {
+   363→          method: 'PATCH',
+   364→          body: JSON.stringify({ currentPassword, newPassword }),
+   365→        },
+   366→      );
+   367→
+   368→      if (data.success) {
+   369→        toast.success(data.message, {
+   370→          description: data.sessionsRevoked > 0
+   371→            ? `${data.sessionsRevoked} other session(s) have been revoked for security.`
+   372→            : undefined,
+   373→        });
+   374→        setCurrentPassword('');
+   375→        setNewPassword('');
+   376→        setConfirmPassword('');
+   377→      }
+   378→    } catch (err) {
+   379→      toast.error(err instanceof Error ? err.message : 'Failed to change password');
+   380→    } finally {
+   381→      setLoading(false);
+   382→    }
+   383→  };
+   384→
+   385→  return (
+   386→    <div className="space-y-6">
+   387→      <Card>
+   388→        <CardHeader>
+   389→          <CardTitle className="text-base">Change Password</CardTitle>
+   390→          <CardDescription>
+   391→            After changing your password, all other active sessions will be revoked for security.
+   392→          </CardDescription>
+   393→        </CardHeader>
+   394→        <CardContent className="space-y-4">
+   395→          {/* Current Password */}
+   396→          <div className="space-y-2">
+   397→            <Label htmlFor="current-password">Current Password</Label>
+   398→            <div className="relative">
+   399→              <Input
+   400→                id="current-password"
+   401→                type={showCurrent ? 'text' : 'password'}
+   402→                value={currentPassword}
+   403→                onChange={(e) => setCurrentPassword(e.target.value)}
+   404→                placeholder="Enter your current password"
+   405→                className="pr-10"
+   406→              />
+   407→              <button
+   408→                type="button"
+   409→                onClick={() => setShowCurrent(!showCurrent)}
+   410→                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+   411→              >
+   412→                {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+   413→              </button>
+   414→            </div>
+   415→          </div>
+   416→
+   417→          <Separator />
+   418→
+   419→          {/* New Password */}
+   420→          <div className="space-y-2">
+   421→            <Label htmlFor="new-password">New Password</Label>
+   422→            <div className="relative">
+   423→              <Input
+   424→                id="new-password"
+   425→                type={showNew ? 'text' : 'password'}
+   426→                value={newPassword}
+   427→                onChange={(e) => setNewPassword(e.target.value)}
+   428→                placeholder="Enter a strong password"
+   429→                className="pr-10"
+   430→              />
+   431→              <button
+   432→                type="button"
+   433→                onClick={() => setShowNew(!showNew)}
+   434→                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+   435→              >
+   436→                {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+   437→              </button>
+   438→            </div>
+   439→
+   440→            {/* Strength Indicator */}
+   441→            {newPassword.length > 0 && (
+   442→              <div className="space-y-2">
+   443→                <div className="flex gap-1">
+   444→                  {[1, 2, 3, 4, 5].map((i) => (
+   445→                    <div
+   446→                      key={i}
+   447→                      className={`h-1.5 flex-1 rounded-full transition-colors ${
+   448→                        i <= strengthCount
+   449→                          ? strengthCount <= 2 ? 'bg-red-500' : strengthCount <= 4 ? 'bg-amber-500' : 'bg-emerald-500'
+   450→                          : 'bg-muted'
+   451→                      }`}
+   452→                    />
+   453→                  ))}
+   454→                </div>
+   455→                <p className={`text-xs ${strengthColor}`}>{strengthLabel}</p>
+   456→
+   457→                {/* Requirements */}
+   458→                <div className="grid grid-cols-1 gap-1 text-xs">
+   459→                  {[
+   460→                    { met: hasMinLength, label: 'At least 8 characters' },
+   461→                    { met: hasUppercase, label: 'One uppercase letter' },
+   462→                    { met: hasLowercase, label: 'One lowercase letter' },
+   463→                    { met: hasNumber, label: 'One number' },
+   464→                    { met: hasSpecial, label: 'One special character (!@#$...)' },
+   465→                  ].map(({ met, label }) => (
+   466→                    <div key={label} className={`flex items-center gap-1.5 ${met ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+   467→                      {met ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+   468→                      {label}
+   469→                    </div>
+   470→                  ))}
+   471→                </div>
+   472→              </div>
+   473→            )}
+   474→          </div>
+   475→
+   476→          {/* Confirm New Password */}
+   477→          <div className="space-y-2">
+   478→            <Label htmlFor="confirm-password">Confirm New Password</Label>
+   479→            <div className="relative">
+   480→              <Input
+   481→                id="confirm-password"
+   482→                type={showConfirm ? 'text' : 'password'}
+   483→                value={confirmPassword}
+   484→                onChange={(e) => setConfirmPassword(e.target.value)}
+   485→                placeholder="Re-enter the new password"
+   486→                className="pr-10"
+   487→              />
+   488→              <button
+   489→                type="button"
+   490→                onClick={() => setShowConfirm(!showConfirm)}
+   491→                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+   492→              >
+   493→                {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+   494→              </button>
+   495→            </div>
+   496→            {confirmPassword.length > 0 && !passwordsMatch && (
+   497→              <p className="text-xs text-red-500">Passwords do not match</p>
+   498→            )}
+   499→          </div>
+   500→
+   501→          <div className="flex justify-end">
+   502→            <Button
+   503→              onClick={handleSubmit}
+   504→              disabled={!isFormValid || loading}
+   505→              className="bg-emerald-600 hover:bg-emerald-700"
+   506→            >
+   507→              {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Lock className="h-4 w-4 mr-2" />}
+   508→              Change Password
+   509→            </Button>
+   510→          </div>
+   511→        </CardContent>
+   512→      </Card>
+   513→    </div>
+   514→  );
+   515→}
+   516→
+   517→// ─── Sessions Tab ───
+   518→
+   519→function SessionsTab() {
+   520→  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+   521→  const [loading, setLoading] = useState(true);
+   522→  const [revokeId, setRevokeId] = useState<string | null>(null);
+   523→  const [revoking, setRevoking] = useState(false);
+   524→
+   525→  const fetchSessions = useCallback(async () => {
+   526→    setLoading(true);
+   527→    try {
+   528→      const data = await apiFetch<{ success: boolean; sessions: SessionInfo[] }>('/api/users/me/sessions');
+   529→      if (data.success) {
+   530→        setSessions(data.sessions);
+   531→      }
+   532→    } catch {
+   533→      toast.error('Failed to load sessions');
+   534→    } finally {
+   535→      setLoading(false);
+   536→    }
+   537→  }, []);
+   538→
+   539→  useEffect(() => { fetchSessions(); }, [fetchSessions]);
+   540→
+   541→  const handleRevoke = async (sessionId: string) => {
+   542→    setRevoking(true);
+   543→    try {
+   544→      const data = await apiFetch<{ success: boolean; message: string }>(
+   545→        `/api/users/me/sessions/${sessionId}`,
+   546→        { method: 'DELETE' },
+   547→      );
+   548→      if (data.success) {
+   549→        toast.success('Session revoked');
+   550→        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+   551→      }
+   552→    } catch (err) {
+   553→      toast.error(err instanceof Error ? err.message : 'Failed to revoke session');
+   554→    } finally {
+   555→      setRevoking(false);
+   556→      setRevokeId(null);
+   557→    }
+   558→  };
+   559→
+   560→  return (
+   561→    <div className="space-y-6">
+   562→      <Card>
+   563→        <CardHeader>
+   564→          <CardTitle className="text-base">Active Sessions</CardTitle>
+   565→          <CardDescription>
+   566→            Devices and browsers where you&apos;re currently logged in. You can revoke any session to sign out of that device.
+   567→          </CardDescription>
+   568→        </CardHeader>
+   569→        <CardContent>
+   570→          {loading ? (
+   571→            <div className="space-y-3">
+   572→              {[1, 2, 3].map((i) => (
+   573→                <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+   574→              ))}
+   575→            </div>
+   576→          ) : sessions.length === 0 ? (
+   577→            <p className="text-sm text-muted-foreground py-4 text-center">No active sessions found.</p>
+   578→          ) : (
+   579→            <div className="space-y-3">
+   580→              {sessions.map((session) => {
+   581→                const { device, browser } = parseUserAgent(session.userAgent);
+   582→                return (
+   583→                  <div
+   584→                    key={session.id}
+   585→                    className={`flex items-center gap-4 p-4 rounded-lg border ${
+   586→                      session.isCurrent ? 'border-emerald-300 bg-emerald-50/50' : 'border-border'
+   587→                    }`}
+   588→                  >
+   589→                    {/* Device Icon */}
+   590→                    <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center ${
+   591→                      session.isCurrent ? 'bg-emerald-100 text-emerald-600' : 'bg-muted text-muted-foreground'
+   592→                    }`}>
+   593→                      {device === 'iOS' || device === 'Android' || device === 'Mobile'
+   594→                        ? <Smartphone className="h-5 w-5" />
+   595→                        : <Monitor className="h-5 w-5" />}
+   596→                    </div>
+   597→
+   598→                    {/* Session Info */}
+   599→                    <div className="flex-1 min-w-0">
+   600→                      <div className="flex items-center gap-2">
+   601→                        <p className="text-sm font-medium truncate">
+   602→                          {browser} on {device}
+   603→                        </p>
+   604→                        {session.isCurrent && (
+   605→                          <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300 bg-emerald-50">
+   606→                            Current
+   607→                          </Badge>
+   608→                        )}
+   609→                      </div>
+   610→                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+   611→                        {session.ipAddress && (
+   612→                          <span className="flex items-center gap-1">
+   613→                            <Globe className="h-3 w-3" />
+   614→                            {session.ipAddress}
+   615→                          </span>
+   616→                        )}
+   617→                        <span className="flex items-center gap-1">
+   618→                          <Clock className="h-3 w-3" />
+   619→                          {formatRelativeTime(session.lastActivityAt)}
+   620→                        </span>
+   621→                        <span className="hidden sm:inline">
+   622→                          Created {formatDate(session.createdAt)}
+   623→                        </span>
+   624→                      </div>
+   625→                    </div>
+   626→
+   627→                    {/* Revoke Button */}
+   628→                    {!session.isCurrent && (
+   629→                      <Button
+   630→                        variant="ghost"
+   631→                        size="sm"
+   632→                        onClick={() => setRevokeId(session.id)}
+   633→                        className="text-red-500 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+   634→                      >
+   635→                        <Trash2 className="h-4 w-4" />
+   636→                      </Button>
+   637→                    )}
+   638→                  </div>
+   639→                );
+   640→              })}
+   641→            </div>
+   642→          )}
+   643→        </CardContent>
+   644→      </Card>
+   645→
+   646→      {/* Revoke Confirmation Dialog */}
+   647→      <AlertDialog open={revokeId !== null} onOpenChange={(open) => !open && setRevokeId(null)}>
+   648→        <AlertDialogContent>
+   649→          <AlertDialogHeader>
+   650→            <AlertDialogTitle>Revoke Session?</AlertDialogTitle>
+   651→            <AlertDialogDescription>
+   652→              This will sign out the device associated with this session. They will need to log in again to access their account.
+   653→            </AlertDialogDescription>
+   654→          </AlertDialogHeader>
+   655→          <AlertDialogFooter>
+   656→            <AlertDialogCancel disabled={revoking}>Cancel</AlertDialogCancel>
+   657→            <AlertDialogAction
+   658→              onClick={() => revokeId && handleRevoke(revokeId)}
+   659→              disabled={revoking}
+   660→              className="bg-red-600 hover:bg-red-700 text-white"
+   661→            >
+   662→              {revoking ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+   663→              Revoke Session
+   664→            </AlertDialogAction>
+   665→          </AlertDialogFooter>
+   666→        </AlertDialogContent>
+   667→      </AlertDialog>
+   668→    </div>
+   669→  );
+   670→}
+   671→
+   672→// ─── Organization Tab ───
+   673→
+   674→function OrganizationTab() {
+   675→  const { user, setAuth } = useAppStore();
+   676→  const [profile, setProfile] = useState<OrganizerProfile | null>(null);
+   677→  const [loading, setLoading] = useState(true);
+   678→  const [saving, setSaving] = useState(false);
+   679→  const [editMode, setEditMode] = useState(false);
+   680→
+   681→  // Form fields
+   682→  const [orgName, setOrgName] = useState('');
+   683→  const [description, setDescription] = useState('');
+   684→  const [website, setWebsite] = useState('');
+   685→  const [contactEmail, setContactEmail] = useState(user?.email ?? '');
+   686→  const [contactPhone, setContactPhone] = useState('');
+   687→  const [logoUrl, setLogoUrl] = useState('');
+   688→  const [coverImageUrl, setCoverImageUrl] = useState('');
+   689→  const [businessAddress, setBusinessAddress] = useState('');
+   690→  const [businessCity, setBusinessCity] = useState('');
+   691→  const [businessState, setBusinessState] = useState('');
+   692→  const [businessCountry, setBusinessCountry] = useState('US');
+   693→  const [twitter, setTwitter] = useState('');
+   694→  const [instagram, setInstagram] = useState('');
+   695→  const [facebook, setFacebook] = useState('');
+   696→  const [linkedin, setLinkedin] = useState('');
+   697→
+   698→  const fetchProfile = useCallback(async () => {
+   699→    setLoading(true);
+   700→    try {
+   701→      const data = await apiFetch<{ profile: OrganizerProfile | null }>('/api/organizer/profile');
+   702→      if (data.profile) {
+   703→        setProfile(data.profile);
+   704→        populateForm(data.profile);
+   705→      }
+   706→    } catch {
+   707→      // Profile may not exist yet — that's fine
+   708→    } finally {
+   709→      setLoading(false);
+   710→    }
+   711→  }, []);
+   712→
+   713→  useEffect(() => { fetchProfile(); }, [fetchProfile]);
+   714→
+   715→  function populateForm(p: OrganizerProfile) {
+   716→    setOrgName(p.organizationName);
+   717→    setDescription(p.description ?? '');
+   718→    setWebsite(p.website ?? '');
+   719→    setContactEmail(p.contactEmail);
+   720→    setContactPhone(p.contactPhone ?? '');
+   721→    setLogoUrl(p.logoUrl ?? '');
+   722→    setCoverImageUrl(p.coverImageUrl ?? '');
+   723→    setBusinessAddress(p.businessAddress ?? '');
+   724→    setBusinessCity(p.businessCity ?? '');
+   725→    setBusinessState(p.businessState ?? '');
+   726→    setBusinessCountry(p.businessCountry);
+   727→    try {
+   728→      const links = JSON.parse(p.socialLinks || '{}');
+   729→      setTwitter(links.twitter ?? '');
+   730→      setInstagram(links.instagram ?? '');
+   731→      setFacebook(links.facebook ?? '');
+   732→      setLinkedin(links.linkedin ?? '');
+   733→    } catch {
+   734→      // ignore
+   735→    }
+   736→  }
+   737→
+   738→  function getSocialLinksJson(): string {
+   739→    const links: Record<string, string> = {};
+   740→    if (twitter) links.twitter = twitter;
+   741→    if (instagram) links.instagram = instagram;
+   742→    if (facebook) links.facebook = facebook;
+   743→    if (linkedin) links.linkedin = linkedin;
+   744→    return JSON.stringify(links);
+   745→  }
+   746→
+   747→  const handleCreate = async () => {
+   748→    if (!orgName.trim()) {
+   749→      toast.error('Organization name is required');
+   750→      return;
+   751→    }
+   752→    if (!contactEmail.trim()) {
+   753→      toast.error('Contact email is required');
+   754→      return;
+   755→    }
+   756→    setSaving(true);
+   757→    try {
+   758→      const data = await apiFetch<{ profile: OrganizerProfile; role: string }>('/api/organizer/profile', {
+   759→        method: 'POST',
+   760→        body: JSON.stringify({
+   761→          organizationName: orgName,
+   762→          description: description || null,
+   763→          website: website || null,
+   764→          contactEmail,
+   765→          contactPhone: contactPhone || null,
+   766→          logoUrl: logoUrl || null,
+   767→          coverImageUrl: coverImageUrl || null,
+   768→          businessAddress: businessAddress || null,
+   769→          businessCity: businessCity || null,
+   770→          businessState: businessState || null,
+   771→          businessCountry: businessCountry || 'US',
+   772→          socialLinks: getSocialLinksJson(),
+   773→        }),
+   774→      });
+   775→      if (data.profile) {
+   776→        setProfile(data.profile);
+   777→        // Upgrade user role in store
+   778→        const currentUser = useAppStore.getState().user;
+   779→        const currentToken = useAppStore.getState().token;
+   780→        const currentRefreshToken = useAppStore.getState().refreshToken;
+   781→        if (currentUser && currentToken) {
+   782→          setAuth(
+   783→            { ...currentUser, role: 'ORGANIZER' },
+   784→            currentToken,
+   785→            currentRefreshToken ?? undefined,
+   786→          );
+   787→        }
+   788→        toast.success('Organizer profile created! Your account has been upgraded.', {
+   789→          description: 'Your profile is pending verification.',
+   790→        });
+   791→      }
+   792→    } catch (err) {
+   793→      toast.error(err instanceof Error ? err.message : 'Failed to create organizer profile');
+   794→    } finally {
+   795→      setSaving(false);
+   796→    }
+   797→  };
+   798→
+   799→  const handleUpdate = async () => {
+   800→    if (!orgName.trim()) {
+   801→      toast.error('Organization name is required');
+   802→      return;
+   803→    }
+   804→    if (!contactEmail.trim()) {
+   805→      toast.error('Contact email is required');
+   806→      return;
+   807→    }
+   808→    setSaving(true);
+   809→    try {
+   810→      const data = await apiFetch<{ profile: OrganizerProfile }>('/api/organizer/profile', {
+   811→        method: 'PATCH',
+   812→        body: JSON.stringify({
+   813→          organizationName: orgName,
+   814→          description: description || null,
+   815→          website: website || null,
+   816→          contactEmail,
+   817→          contactPhone: contactPhone || null,
+   818→          logoUrl: logoUrl || null,
+   819→          coverImageUrl: coverImageUrl || null,
+   820→          businessAddress: businessAddress || null,
+   821→          businessCity: businessCity || null,
+   822→          businessState: businessState || null,
+   823→          businessCountry: businessCountry || 'US',
+   824→          socialLinks: getSocialLinksJson(),
+   825→        }),
+   826→      });
+   827→      if (data.profile) {
+   828→        setProfile(data.profile);
+   829→        setEditMode(false);
+   830→        toast.success('Organizer profile updated');
+   831→      }
+   832→    } catch (err) {
+   833→      toast.error(err instanceof Error ? err.message : 'Failed to update organizer profile');
+   834→    } finally {
+   835→      setSaving(false);
+   836→    }
+   837→  };
+   838→
+   839→  // Verification status badge
+   840→  const VerificationBadge = ({ status }: { status: string }) => {
+   841→    switch (status) {
+   842→      case 'VERIFIED':
+   843→        return (
+   844→          <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300">
+   845→            <CheckCircle2 className="h-3 w-3 mr-1" /> Verified
+   846→          </Badge>
+   847→        );
+   848→      case 'PENDING':
+   849→        return (
+   850→          <Badge className="bg-amber-100 text-amber-700 border-amber-300">
+   851→            <Loader2 className="h-3 w-3 mr-1 animate-spin" /> Pending Review
+   852→          </Badge>
+   853→        );
+   854→      case 'REJECTED':
+   855→        return (
+   856→          <Badge className="bg-red-100 text-red-700 border-red-300">
+   857→            <AlertCircle className="h-3 w-3 mr-1" /> Rejected
+   858→          </Badge>
+   859→        );
+   860→      default:
+   861→        return (
+   862→          <Badge className="bg-amber-100 text-amber-700 border-amber-300">
+   863→            <AlertCircle className="h-3 w-3 mr-1" /> Unverified
+   864→          </Badge>
+   865→        );
+   866→    }
+   867→  };
+   868→
+   869→  if (loading) {
+   870→    return (
+   871→      <div className="space-y-6">
+   872→        {[1, 2, 3].map((i) => (
+   873→          <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />
+   874→        ))}
+   875→      </div>
+   876→    );
+   877→  }
+   878→
+   879→  // ─── Has existing profile: show profile info ───
+   880→  if (profile) {
+   881→    return (
+   882→      <div className="space-y-6">
+   883→        {/* Profile Header */}
+   884→        <Card>
+   885→          <CardContent className="pt-6">
+   886→            <div className="flex items-start gap-4">
+   887→              <div className="flex-shrink-0 h-14 w-14 rounded-lg bg-emerald-100 flex items-center justify-center">
+   888→                <Building2 className="h-7 w-7 text-emerald-600" />
+   889→              </div>
+   890→              <div className="flex-1 min-w-0">
+   891→                <div className="flex items-center gap-2 flex-wrap">
+   892→                  <h3 className="text-lg font-semibold">{profile.organizationName}</h3>
+   893→                  <VerificationBadge status={profile.verificationStatus} />
+   894→                </div>
+   895→                <p className="text-sm text-muted-foreground mt-1">/{profile.slug}</p>
+   896→                {profile.verificationStatus === 'UNVERIFIED' && (
+   897→                  <p className="text-xs text-amber-600 mt-2">
+   898→                    Your organizer profile is unverified. You can create and manage events, but some features may be limited until verified.
+   899→                  </p>
+   900→                )}
+   901→                {profile.verificationStatus === 'PENDING' && (
+   902→                  <p className="text-xs text-amber-600 mt-2">
+   903→                    Your profile is under review. You&apos;ll be notified once verified.
+   904→                  </p>
+   905→                )}
+   906→                {profile.verificationStatus === 'REJECTED' && (
+   907→                  <p className="text-xs text-red-600 mt-2">
+   908→                    Your organizer profile was rejected. Please update your information and contact support if needed.
+   909→                  </p>
+   910→                )}
+   911→              </div>
+   912→              {!editMode && (
+   913→                <Button
+   914→                  variant="outline"
+   915→                  size="sm"
+   916→                  onClick={() => { setEditMode(true); populateForm(profile); }}
+   917→                  className="flex-shrink-0"
+   918→                >
+   919→                  Edit Profile
+   920→                </Button>
+   921→              )}
+   922→            </div>
+   923→          </CardContent>
+   924→        </Card>
+   925→
+   926→        {editMode ? (
+   927→          /* Edit Form */
+   928→          <OrganizerForm
+   929→            orgName={orgName} setOrgName={setOrgName}
+   930→            description={description} setDescription={setDescription}
+   931→            website={website} setWebsite={setWebsite}
+   932→            contactEmail={contactEmail} setContactEmail={setContactEmail}
+   933→            contactPhone={contactPhone} setContactPhone={setContactPhone}
+   934→            logoUrl={logoUrl} setLogoUrl={setLogoUrl}
+   935→            coverImageUrl={coverImageUrl} setCoverImageUrl={setCoverImageUrl}
+   936→            businessAddress={businessAddress} setBusinessAddress={setBusinessAddress}
+   937→            businessCity={businessCity} setBusinessCity={setBusinessCity}
+   938→            businessState={businessState} setBusinessState={setBusinessState}
+   939→            businessCountry={businessCountry} setBusinessCountry={setBusinessCountry}
+   940→            twitter={twitter} setTwitter={setTwitter}
+   941→            instagram={instagram} setInstagram={setInstagram}
+   942→            facebook={facebook} setFacebook={setFacebook}
+   943→            linkedin={linkedin} setLinkedin={setLinkedin}
+   944→            saving={saving}
+   945→            onSubmit={handleUpdate}
+   946→            onCancel={() => { setEditMode(false); populateForm(profile); }}
+   947→            submitLabel="Save Changes"
+   948→          />
+   949→        ) : (
+   950→          /* Read-only profile details */
+   951→          <>
+   952→            <Card>
+   953→              <CardHeader>
+   954→                <CardTitle className="text-base">Organization Details</CardTitle>
+   955→              </CardHeader>
+   956→              <CardContent className="space-y-3">
+   957→                {profile.description && (
+   958→                  <>
+   959→                    <div className="text-sm"><span className="text-muted-foreground">Description:</span>{' '}{profile.description}</div>
+   960→                    <Separator />
+   961→                  </>
+   962→                )}
+   963→                {profile.website && (
+   964→                  <>
+   965→                    <div className="flex items-center gap-2 text-sm">
+   966→                      <Globe className="h-4 w-4 text-muted-foreground" />
+   967→                      <a href={profile.website} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">{profile.website}</a>
+   968→                    </div>
+   969→                    <Separator />
+   970→                  </>
+   971→                )}
+   972→                <div className="flex items-center gap-2 text-sm">
+   973→                  <Mail className="h-4 w-4 text-muted-foreground" />
+   974→                  <span>{profile.contactEmail}</span>
+   975→                </div>
+   976→                {profile.contactPhone && (
+   977→                  <>
+   978→                    <Separator />
+   979→                    <div className="flex items-center gap-2 text-sm">
+   980→                      <Phone className="h-4 w-4 text-muted-foreground" />
+   981→                      <span>{profile.contactPhone}</span>
+   982→                    </div>
+   983→                  </>
+   984→                )}
+   985→              </CardContent>
+   986→            </Card>
+   987→
+   988→            {(profile.businessAddress || profile.businessCity || profile.businessState) && (
+   989→              <Card>
+   990→                <CardHeader>
+   991→                  <CardTitle className="text-base">Business Address</CardTitle>
+   992→                </CardHeader>
+   993→                <CardContent>
+   994→                  <div className="flex items-start gap-2 text-sm">
+   995→                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+   996→                    <span>
+   997→                      {[profile.businessAddress, profile.businessCity, profile.businessState, profile.businessCountry].filter(Boolean).join(', ')}
+   998→                    </span>
+   999→                  </div>
+  1000→                </CardContent>
+  1001→              </Card>
+  1002→            )}
+  1003→
+  1004→            {(() => {
+  1005→              try {
+  1006→                const links = JSON.parse(profile.socialLinks || '{}');
+  1007→                const hasLinks = Object.keys(links).length > 0;
+  1008→                if (!hasLinks) return null;
+  1009→                return (
+  1010→                  <Card>
+  1011→                    <CardHeader>
+  1012→                      <CardTitle className="text-base">Social Links</CardTitle>
+  1013→                    </CardHeader>
+  1014→                    <CardContent className="space-y-2">
+  1015→                      {links.twitter && <SocialLinkRow icon="Twitter" url={links.twitter} label={links.twitter} />}
+  1016→                      {links.instagram && <SocialLinkRow icon="Instagram" url={links.instagram} label={links.instagram} />}
+  1017→                      {links.facebook && <SocialLinkRow icon="Facebook" url={links.facebook} label={links.facebook} />}
+  1018→                      {links.linkedin && <SocialLinkRow icon="LinkedIn" url={links.linkedin} label={links.linkedin} />}
+  1019→                    </CardContent>
+  1020→                  </Card>
+  1021→                );
+  1022→              } catch { return null; }
+  1023→            })()}
+  1024→          </>
+  1025→        )}
+  1026→      </div>
+  1027→    );
+  1028→  }
+  1029→
+  1030→  // ─── SUPER_ADMIN without a profile ───
+  1031→  if (user?.role === 'SUPER_ADMIN') {
+  1032→    return (
+  1033→      <div className="space-y-6">
+  1034→        <Card>
+  1035→          <CardContent className="pt-6">
+  1036→            <div className="text-center py-8">
+  1037→              <Shield className="h-12 w-12 mx-auto text-emerald-600 mb-4" />
+  1038→              <h3 className="text-lg font-semibold">Super Admin Account</h3>
+  1039→              <p className="text-muted-foreground mt-2 text-sm">
+  1040→                As a Super Admin, you have full platform access. You can create an organizer profile if you also want to host events.
+  1041→              </p>
+  1042→              <Button
+  1043→                onClick={() => setEditMode(true)}
+  1044→                className="bg-emerald-600 hover:bg-emerald-700 mt-4"
+  1045→              >
+  1046→                <Building2 className="h-4 w-4 mr-2" /> Create Organizer Profile
+  1047→              </Button>
+  1048→            </div>
+  1049→          </CardContent>
+  1050→        </Card>
+  1051→        {editMode && (
+  1052→          <OrganizerForm
+  1053→            orgName={orgName} setOrgName={setOrgName}
+  1054→            description={description} setDescription={setDescription}
+  1055→            website={website} setWebsite={setWebsite}
+  1056→            contactEmail={contactEmail} setContactEmail={setContactEmail}
+  1057→            contactPhone={contactPhone} setContactPhone={setContactPhone}
+  1058→            logoUrl={logoUrl} setLogoUrl={setLogoUrl}
+  1059→            coverImageUrl={coverImageUrl} setCoverImageUrl={setCoverImageUrl}
+  1060→            businessAddress={businessAddress} setBusinessAddress={setBusinessAddress}
+  1061→            businessCity={businessCity} setBusinessCity={setBusinessCity}
+  1062→            businessState={businessState} setBusinessState={setBusinessState}
+  1063→            businessCountry={businessCountry} setBusinessCountry={setBusinessCountry}
+  1064→            twitter={twitter} setTwitter={setTwitter}
+  1065→            instagram={instagram} setInstagram={setInstagram}
+  1066→            facebook={facebook} setFacebook={setFacebook}
+  1067→            linkedin={linkedin} setLinkedin={setLinkedin}
+  1068→            saving={saving}
+  1069→            onSubmit={handleCreate}
+  1070→            onCancel={() => setEditMode(false)}
+  1071→            submitLabel="Create Profile"
+  1072→          />
+  1073→        )}
+  1074→      </div>
+  1075→    );
+  1076→  }
+  1077→
+  1078→  // ─── Not yet an organizer: show Become an Organizer ───
+  1079→  return (
+  1080→    <div className="space-y-6">
+  1081→      <Card>
+  1082→        <CardContent className="pt-6">
+  1083→          <div className="text-center py-6">
+  1084→            <Building2 className="h-12 w-12 mx-auto text-emerald-600 mb-4" />
+  1085→            <h3 className="text-lg font-semibold">Become an Organizer</h3>
+  1086→            <p className="text-muted-foreground mt-2 text-sm max-w-md mx-auto">
+  1087→              Create and manage events on AppleCalendar. Set up your organization profile to get started with hosting, ticketing, and analytics.
+  1088→            </p>
+  1089→          </div>
+  1090→        </CardContent>
+  1091→      </Card>
+  1092→
+  1093→      <OrganizerForm
+  1094→        orgName={orgName} setOrgName={setOrgName}
+  1095→        description={description} setDescription={setDescription}
+  1096→        website={website} setWebsite={setWebsite}
+  1097→        contactEmail={contactEmail} setContactEmail={setContactEmail}
+  1098→        contactPhone={contactPhone} setContactPhone={setContactPhone}
+  1099→        logoUrl={logoUrl} setLogoUrl={setLogoUrl}
+  1100→        coverImageUrl={coverImageUrl} setCoverImageUrl={setCoverImageUrl}
+  1101→        businessAddress={businessAddress} setBusinessAddress={setBusinessAddress}
+  1102→        businessCity={businessCity} setBusinessCity={setBusinessCity}
+  1103→        businessState={businessState} setBusinessState={setBusinessState}
+  1104→        businessCountry={businessCountry} setBusinessCountry={setBusinessCountry}
+  1105→        twitter={twitter} setTwitter={setTwitter}
+  1106→        instagram={instagram} setInstagram={setInstagram}
+  1107→        facebook={facebook} setFacebook={setFacebook}
+  1108→        linkedin={linkedin} setLinkedin={setLinkedin}
+  1109→        saving={saving}
+  1110→        onSubmit={handleCreate}
+  1111→        onCancel={undefined}
+  1112→        submitLabel="Become an Organizer"
+  1113→      />
+  1114→    </div>
+  1115→  );
+  1116→}
+  1117→
+  1118→// ─── Organizer Form Component ───
+  1119→
+  1120→function OrganizerForm({
+  1121→  orgName, setOrgName,
+  1122→  description, setDescription,
+  1123→  website, setWebsite,
+  1124→  contactEmail, setContactEmail,
+  1125→  contactPhone, setContactPhone,
+  1126→  logoUrl, setLogoUrl,
+  1127→  coverImageUrl, setCoverImageUrl,
+  1128→  businessAddress, setBusinessAddress,
+  1129→  businessCity, setBusinessCity,
+  1130→  businessState, setBusinessState,
+  1131→  businessCountry, setBusinessCountry,
+  1132→  twitter, setTwitter,
+  1133→  instagram, setInstagram,
+  1134→  facebook, setFacebook,
+  1135→  linkedin, setLinkedin,
+  1136→  saving,
+  1137→  onSubmit,
+  1138→  onCancel,
+  1139→  submitLabel,
+  1140→}: {
+  1141→  orgName: string; setOrgName: (v: string) => void;
+  1142→  description: string; setDescription: (v: string) => void;
+  1143→  website: string; setWebsite: (v: string) => void;
+  1144→  contactEmail: string; setContactEmail: (v: string) => void;
+  1145→  contactPhone: string; setContactPhone: (v: string) => void;
+  1146→  logoUrl: string; setLogoUrl: (v: string) => void;
+  1147→  coverImageUrl: string; setCoverImageUrl: (v: string) => void;
+  1148→  businessAddress: string; setBusinessAddress: (v: string) => void;
+  1149→  businessCity: string; setBusinessCity: (v: string) => void;
+  1150→  businessState: string; setBusinessState: (v: string) => void;
+  1151→  businessCountry: string; setBusinessCountry: (v: string) => void;
+  1152→  twitter: string; setTwitter: (v: string) => void;
+  1153→  instagram: string; setInstagram: (v: string) => void;
+  1154→  facebook: string; setFacebook: (v: string) => void;
+  1155→  linkedin: string; setLinkedin: (v: string) => void;
+  1156→  saving: boolean;
+  1157→  onSubmit: () => void;
+  1158→  onCancel: (() => void) | undefined;
+  1159→  submitLabel: string;
+  1160→}) {
+  1161→  return (
+  1162→    <>
+  1163→      {/* Basic Info */}
+  1164→      <Card>
+  1165→        <CardHeader>
+  1166→          <CardTitle className="text-base">Organization Information</CardTitle>
+  1167→          <CardDescription>Provide details about your organization.</CardDescription>
+  1168→        </CardHeader>
+  1169→        <CardContent className="space-y-4">
+  1170→          <div className="space-y-2">
+  1171→            <Label htmlFor="org-name">Organization Name *</Label>
+  1172→            <Input id="org-name" value={orgName} onChange={e => setOrgName(e.target.value)} placeholder="Acme Events Inc." maxLength={200} />
+  1173→          </div>
+  1174→          <div className="space-y-2">
+  1175→            <Label htmlFor="org-desc">Description</Label>
+  1176→            <Textarea id="org-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder="Tell us about your organization..." maxLength={500} rows={3} />
+  1177→            <p className="text-xs text-muted-foreground text-right">{description.length}/500</p>
+  1178→          </div>
+  1179→          <div className="space-y-2">
+  1180→            <Label htmlFor="org-website">Website</Label>
+  1181→            <Input id="org-website" value={website} onChange={e => setWebsite(e.target.value)} placeholder="https://example.com" maxLength={500} />
+  1182→          </div>
+  1183→        </CardContent>
+  1184→      </Card>
+  1185→
+  1186→      {/* Contact Info */}
+  1187→      <Card>
+  1188→        <CardHeader>
+  1189→          <CardTitle className="text-base">Contact Information</CardTitle>
+  1190→        </CardHeader>
+  1191→        <CardContent className="space-y-4">
+  1192→          <div className="grid gap-4 sm:grid-cols-2">
+  1193→            <div className="space-y-2">
+  1194→              <Label htmlFor="org-contact-email">Contact Email *</Label>
+  1195→              <Input id="org-contact-email" type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="contact@example.com" />
+  1196→            </div>
+  1197→            <div className="space-y-2">
+  1198→              <Label htmlFor="org-contact-phone">Contact Phone</Label>
+  1199→              <Input id="org-contact-phone" value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="+1 (555) 000-0000" maxLength={30} />
+  1200→            </div>
+  1201→          </div>
+  1202→        </CardContent>
+  1203→      </Card>
+  1204→
+  1205→      {/* Branding */}
+  1206→      <Card>
+  1207→        <CardHeader>
+  1208→          <CardTitle className="text-base">Branding</CardTitle>
+  1209→          <CardDescription>Optional logo and cover image for your organization.</CardDescription>
+  1210→        </CardHeader>
+  1211→        <CardContent className="space-y-4">
+  1212→          <div className="space-y-2">
+  1213→            <Label htmlFor="org-logo">Logo URL</Label>
+  1214→            <Input id="org-logo" value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://example.com/logo.png" maxLength={500} />
+  1215→          </div>
+  1216→          <div className="space-y-2">
+  1217→            <Label htmlFor="org-cover">Cover Image URL</Label>
+  1218→            <Input id="org-cover" value={coverImageUrl} onChange={e => setCoverImageUrl(e.target.value)} placeholder="https://example.com/cover.jpg" maxLength={500} />
+  1219→          </div>
+  1220→        </CardContent>
+  1221→      </Card>
+  1222→
+  1223→      {/* Business Address */}
+  1224→      <Card>
+  1225→        <CardHeader>
+  1226→          <CardTitle className="text-base">Business Address</CardTitle>
+  1227→          <CardDescription>Optional. Used for verification and billing.</CardDescription>
+  1228→        </CardHeader>
+  1229→        <CardContent className="space-y-4">
+  1230→          <div className="space-y-2">
+  1231→            <Label htmlFor="org-address">Street Address</Label>
+  1232→            <Input id="org-address" value={businessAddress} onChange={e => setBusinessAddress(e.target.value)} placeholder="123 Main St" maxLength={200} />
+  1233→          </div>
+  1234→          <div className="grid gap-4 sm:grid-cols-3">
+  1235→            <div className="space-y-2">
+  1236→              <Label htmlFor="org-city">City</Label>
+  1237→              <Input id="org-city" value={businessCity} onChange={e => setBusinessCity(e.target.value)} placeholder="New York" maxLength={100} />
+  1238→            </div>
+  1239→            <div className="space-y-2">
+  1240→              <Label htmlFor="org-state">State</Label>
+  1241→              <Input id="org-state" value={businessState} onChange={e => setBusinessState(e.target.value)} placeholder="NY" maxLength={100} />
+  1242→            </div>
+  1243→            <div className="space-y-2">
+  1244→              <Label htmlFor="org-country">Country</Label>
+  1245→              <Input id="org-country" value={businessCountry} onChange={e => setBusinessCountry(e.target.value)} placeholder="US" maxLength={2} />
+  1246→            </div>
+  1247→          </div>
+  1248→        </CardContent>
+  1249→      </Card>
+  1250→
+  1251→      {/* Social Links */}
+  1252→      <Card>
+  1253→        <CardHeader>
+  1254→          <CardTitle className="text-base">Social Links</CardTitle>
+  1255→          <CardDescription>Optional. Help people find your organization online.</CardDescription>
+  1256→        </CardHeader>
+  1257→        <CardContent className="space-y-4">
+  1258→          <div className="grid gap-4 sm:grid-cols-2">
+  1259→            <div className="space-y-2">
+  1260→              <Label htmlFor="org-twitter">Twitter / X</Label>
+  1261→              <Input id="org-twitter" value={twitter} onChange={e => setTwitter(e.target.value)} placeholder="@handle" maxLength={100} />
+  1262→            </div>
+  1263→            <div className="space-y-2">
+  1264→              <Label htmlFor="org-instagram">Instagram</Label>
+  1265→              <Input id="org-instagram" value={instagram} onChange={e => setInstagram(e.target.value)} placeholder="@handle" maxLength={100} />
+  1266→            </div>
+  1267→            <div className="space-y-2">
+  1268→              <Label htmlFor="org-facebook">Facebook</Label>
+  1269→              <Input id="org-facebook" value={facebook} onChange={e => setFacebook(e.target.value)} placeholder="Page URL or name" maxLength={200} />
+  1270→            </div>
+  1271→            <div className="space-y-2">
+  1272→              <Label htmlFor="org-linkedin">LinkedIn</Label>
+  1273→              <Input id="org-linkedin" value={linkedin} onChange={e => setLinkedin(e.target.value)} placeholder="Company page URL" maxLength={200} />
+  1274→            </div>
+  1275→          </div>
+  1276→        </CardContent>
+  1277→      </Card>
+  1278→
+  1279→      {/* Actions */}
+  1280→      <div className="flex items-center justify-end gap-3">
+  1281→        {onCancel && (
+  1282→          <Button variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button>
+  1283→        )}
+  1284→        <Button onClick={onSubmit} disabled={saving || !orgName.trim() || !contactEmail.trim()} className="bg-emerald-600 hover:bg-emerald-700">
+  1285→          {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Building2 className="h-4 w-4 mr-2" />}
+  1286→          {submitLabel}
+  1287→        </Button>
+  1288→      </div>
+  1289→    </>
+  1290→  );
+  1291→}
+  1292→
+  1293→// ─── Social Link Row ───
+  1294→
+  1295→function SocialLinkRow({ icon, url, label }: { icon: string; url: string; label: string }) {
+  1296→  return (
+  1297→    <div className="flex items-center gap-2 text-sm">
+  1298→      <Link2 className="h-4 w-4 text-muted-foreground" />
+  1299→      <span className="text-muted-foreground mr-1">{icon}:</span>
+  1300→      <a href={url.startsWith('http') ? url : `https://${url}`} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">
+  1301→        {label}
+  1302→      </a>
+  1303→    </div>
+  1304→  );
+  1305→}
+  1306→
+  1307→// ─── Main Profile View ───
+  1308→
+  1309→export function ProfileView({ defaultTab }: { defaultTab?: string }) {
+  1310→  const { user, currentView } = useAppStore();
+  1311→  // If navigated via 'organizer-profile' view, default to organization tab
+  1312→  const initialTab = defaultTab ?? (currentView === 'organizer-profile' ? 'organization' : 'profile');
+  1313→
+  1314→  return (
+  1315→    <div className="max-w-2xl mx-auto space-y-6">
+  1316→      <div>
+  1317→        <h1 className="text-2xl font-bold">Account Settings</h1>
+  1318→        <p className="text-muted-foreground mt-1">Manage your profile, security, and active sessions.</p>
+  1319→      </div>
+  1320→
+  1321→      <Tabs defaultValue={initialTab} className="w-full">
+  1322→        <TabsList className="w-full sm:w-auto">
+  1323→          <TabsTrigger value="profile" className="flex-1 sm:flex-initial gap-2">
+  1324→            <User className="h-4 w-4" />
+  1325→            <span className="hidden sm:inline">Profile</span>
+  1326→          </TabsTrigger>
+  1327→          <TabsTrigger value="password" className="flex-1 sm:flex-initial gap-2">
+  1328→            <Lock className="h-4 w-4" />
+  1329→            <span className="hidden sm:inline">Password</span>
+  1330→          </TabsTrigger>
+  1331→          <TabsTrigger value="sessions" className="flex-1 sm:flex-initial gap-2">
+  1332→            <Monitor className="h-4 w-4" />
+  1333→            <span className="hidden sm:inline">Sessions</span>
+  1334→          </TabsTrigger>
+  1335→          <TabsTrigger value="organization" className="flex-1 sm:flex-initial gap-2">
+  1336→            <Building2 className="h-4 w-4" />
+  1337→            <span className="hidden sm:inline">Organization</span>
+  1338→          </TabsTrigger>
+  1339→        </TabsList>
+  1340→
+  1341→        <TabsContent value="profile" className="mt-6">
+  1342→          <ProfileTab />
+  1343→        </TabsContent>
+  1344→        <TabsContent value="password" className="mt-6">
+  1345→          <PasswordTab />
+  1346→        </TabsContent>
+  1347→        <TabsContent value="sessions" className="mt-6">
+  1348→          <SessionsTab />
+  1349→        </TabsContent>
+  1350→        <TabsContent value="organization" className="mt-6">
+  1351→          <OrganizationTab />
+  1352→        </TabsContent>
+  1353→      </Tabs>
+  1354→    </div>
+  1355→  );
+  1356→}
+  1357→

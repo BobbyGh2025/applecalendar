@@ -426,3 +426,41 @@ Stage Summary:
 - Tenant isolation: all checks tied to authenticated user's OrganizerProfile
 - 247 tests passing (49 new Phase 4B), 15 pre-existing failures
 - Commit: e78f7e1 feat(phase4b): implement subscription entitlement enforcement
+---
+Task ID: phase4b-closure
+Agent: main
+Task: Phase 4B Closure, Regression & Production Readiness Verification
+
+Work Log:
+- Read entitlements.ts, schema.prisma, auth.ts, api.ts, seed.ts, package.json
+- Read all 5 enforced API routes (events, ticket-types, invite, ads, analytics)
+- Read booking endpoint (events/[id]/book/route.ts) to verify maxTicketsPerEvent
+- Checked git history: session-tokens.test.ts introduced in commit 153c702 (between Phase 4A and Phase 4B)
+- Verified auth.ts was NOT modified by Phase 4B (git diff empty)
+- Ran test against Phase 4A baseline: identical 15 failures — confirmed pre-existing
+- Ran full test suite: 247 passed, 15 failed (all pre-existing in session-tokens.test.ts)
+- Ran ESLint: 2 pre-existing errors in server-keeper.js, 0 Phase 4B errors
+- Ran TypeScript: 37 pre-existing errors, 0 Phase 4B errors
+- Verified Prisma schema valid, client generates
+- Verified .env was tracked by git (CRITICAL security issue — JWT_SECRET committed)
+- Verified no .env.example existed
+- Checked legacy Subscription references: zero in application code
+- Checked EventMedia API endpoints: none exist (no bypass risk)
+- Verified OrganizerSubscription is 1:1 via organizerId @unique
+- Verified free plan fallback values match seed data exactly
+- Verified tenant isolation: all routes use user.id from JWT, not client-supplied organizerId
+- FIXED: Removed .env from git tracking (git rm --cached)
+- FIXED: Created .env.example with documented required variables
+- FIXED: Updated .gitignore to exclude .env while allowing .env.example
+- Committed fix: 94568cb fix(phase4b): close entitlement verification gaps
+- Verified dev server still operational (HTTP 200 on / and /api/events)
+
+Stage Summary:
+- Phase 4B closure verification COMPLETE
+- 1 critical security fix applied: .env removed from git tracking
+- 15 test failures confirmed pre-existing (Phase 2A session architecture never implemented)
+- maxTicketsPerEvent NOT enforced at booking time — documented as deferred to Phase 4D
+- maxAttendeesTotal NOT enforced — documented as deferred to Phase 4D/4E
+- maxMediaPerEvent NOT enforced — no EventMedia CRUD endpoints exist yet
+- All 5 claimed enforcement points verified server-side with tenant isolation
+- READY FOR PHASE 4C

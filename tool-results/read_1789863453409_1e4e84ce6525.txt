@@ -1,0 +1,1065 @@
+     1→/**
+     2→ * Phase 4A Tests: Database Foundation + Security Corrections
+     3→ *
+     4→ * Tests cover:
+     5→ * - Invitation token hashing security
+     6→ * - Event deletion safety (soft-delete when bookings exist)
+     7→ * - Schema integrity (new model relationships)
+     8→ * - OrganizerSubscription design
+     9→ * - OrganizerProfile status lifecycle
+    10→ */
+    11→import { describe, it, expect, beforeAll } from 'vitest';
+    12→import { PrismaClient } from '@prisma/client';
+    13→import { hashToken, generateSecureToken, verifyTokenHash } from '@/lib/tokens';
+    14→
+    15→const prisma = new PrismaClient();
+    16→
+    17→// ─── Invitation Token Hashing ───
+    18→
+    19→describe('Invitation Token Security', () => {
+    20→  it('generates a secure random token', () => {
+    21→    const token = generateSecureToken();
+    22→    expect(token).toBeDefined();
+    23→    expect(typeof token).toBe('string');
+    24→    expect(token.length).toBeGreaterThan(0);
+    25→    // UUID format
+    26→    expect(token).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    27→  });
+    28→
+    29→  it('hashes tokens using SHA-256 (not stored as plaintext)', async () => {
+    30→    const rawToken = generateSecureToken();
+    31→    const hashedToken = await hashToken(rawToken);
+    32→
+    33→    // Hash should be different from raw token
+    34→    expect(hashedToken).not.toBe(rawToken);
+    35→
+    36→    // Hash should be 64 hex chars (SHA-256)
+    37→    expect(hashedToken).toMatch(/^[0-9a-f]{64}$/);
+    38→  });
+    39→
+    40→  it('verifyTokenHash correctly validates a token against its hash', async () => {
+    41→    const rawToken = generateSecureToken();
+    42→    const hashedToken = await hashToken(rawToken);
+    43→
+    44→    const isValid = await verifyTokenHash(rawToken, hashedToken);
+    45→    expect(isValid).toBe(true);
+    46→
+    47→    const isInvalid = await verifyTokenHash('wrong-token', hashedToken);
+    48→    expect(isInvalid).toBe(false);
+    49→  });
+    50→
+    51→  it('different tokens produce different hashes', async () => {
+    52→    const token1 = generateSecureToken();
+    53→    const token2 = generateSecureToken();
+    54→    const hash1 = await hashToken(token1);
+    55→    const hash2 = await hashToken(token2);
+    56→
+    57→    expect(hash1).not.toBe(hash2);
+    58→  });
+    59→
+    60→  it('same token always produces the same hash', async () => {
+    61→    const token = generateSecureToken();
+    62→    const hash1 = await hashToken(token);
+    63→    const hash2 = await hashToken(token);
+    64→
+    65→    expect(hash1).toBe(hash2);
+    66→  });
+    67→});
+    68→
+    69→describe('OrganizerInvitation DB Token Hashing', () => {
+    70→  it('stores tokenHash (not plaintext token) in the database', async () => {
+    71→    // Create a minimal test organizer profile + user for the invitation
+    72→    const testUser = await prisma.user.upsert({
+    73→      where: { email: 'test-invite-org@applecalendar.com' },
+    74→      update: {},
+    75→      create: {
+    76→        email: 'test-invite-org@applecalendar.com',
+    77→        password: 'hashed_password_placeholder',
+    78→        name: 'Test Invite Org',
+    79→        role: 'ORGANIZER',
+    80→      },
+    81→    });
+    82→
+    83→    const testProfile = await prisma.organizerProfile.upsert({
+    84→      where: { userId: testUser.id },
+    85→      update: {},
+    86→      create: {
+    87→        userId: testUser.id,
+    88→        organizationName: 'Test Invite Org',
+    89→        slug: 'test-invite-org-' + Date.now(),
+    90→        status: 'PENDING_APPROVAL',
+    91→      },
+    92→    });
+    93→
+    94→    // Generate and hash token
+    95→    const rawToken = generateSecureToken();
+    96→    const tokenHash = await hashToken(rawToken);
+    97→
+    98→    // Create invitation with hashed token
+    99→    const invitation = await prisma.organizerInvitation.create({
+   100→      data: {
+   101→        organizerId: testProfile.id,
+   102→        email: 'invitee@test.com',
+   103→        role: 'STAFF',
+   104→        permissions: '[]',
+   105→        tokenHash,
+   106→        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+   107→      },
+   108→    });
+   109→
+   110→    // Verify stored value is the hash, not the raw token
+   111→    expect(invitation.tokenHash).toBe(tokenHash);
+   112→    expect(invitation.tokenHash).not.toBe(rawToken);
+   113→    expect(invitation.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+   114→
+   115→    // Verify we can look up the invitation by hash
+   116→    const found = await prisma.organizerInvitation.findUnique({
+   117→      where: { tokenHash },
+   118→    });
+   119→    expect(found).not.toBeNull();
+   120→    expect(found!.id).toBe(invitation.id);
+   121→
+   122→    // Verify we CANNOT look up by raw token (proves it's hashed)
+   123→    // The raw token should not match any tokenHash in the DB
+   124→    const notFound = await prisma.organizerInvitation.findUnique({
+   125→      where: { tokenHash: rawToken },
+   126→    });
+   127→    expect(notFound).toBeNull();
+   128→
+   129→    // Clean up
+   130→    await prisma.organizerInvitation.delete({ where: { id: invitation.id } });
+   131→    await prisma.organizerProfile.delete({ where: { id: testProfile.id } });
+   132→    await prisma.user.delete({ where: { id: testUser.id } });
+   133→  });
+   134→
+   135→  it('expired invitation cannot be accepted', async () => {
+   136→    const testUser = await prisma.user.upsert({
+   137→      where: { email: 'test-expired-invite@applecalendar.com' },
+   138→      update: {},
+   139→      create: {
+   140→        email: 'test-expired-invite@applecalendar.com',
+   141→        password: 'hashed_password_placeholder',
+   142→        name: 'Test Expired Invite',
+   143→        role: 'ORGANIZER',
+   144→      },
+   145→    });
+   146→
+   147→    const testProfile = await prisma.organizerProfile.upsert({
+   148→      where: { userId: testUser.id },
+   149→      update: {},
+   150→      create: {
+   151→        userId: testUser.id,
+   152→        organizationName: 'Test Expired Invite Org',
+   153→        slug: 'test-expired-invite-' + Date.now(),
+   154→        status: 'PENDING_APPROVAL',
+   155→      },
+   156→    });
+   157→
+   158→    const rawToken = generateSecureToken();
+   159→    const tokenHash = await hashToken(rawToken);
+   160→
+   161→    const invitation = await prisma.organizerInvitation.create({
+   162→      data: {
+   163→        organizerId: testProfile.id,
+   164→        email: 'expired-invitee@test.com',
+   165→        role: 'STAFF',
+   166→        permissions: '[]',
+   167→        tokenHash,
+   168→        expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
+   169→      },
+   170→    });
+   171→
+   172→    // Verify the invitation is expired
+   173→    expect(invitation.expiresAt < new Date()).toBe(true);
+   174→    expect(invitation.acceptedAt).toBeNull();
+   175→
+   176→    // Clean up
+   177→    await prisma.organizerInvitation.delete({ where: { id: invitation.id } });
+   178→    await prisma.organizerProfile.delete({ where: { id: testProfile.id } });
+   179→    await prisma.user.delete({ where: { id: testUser.id } });
+   180→  });
+   181→
+   182→  it('consumed invitation cannot be reused', async () => {
+   183→    const testUser = await prisma.user.upsert({
+   184→      where: { email: 'test-consumed-invite@applecalendar.com' },
+   185→      update: {},
+   186→      create: {
+   187→        email: 'test-consumed-invite@applecalendar.com',
+   188→        password: 'hashed_password_placeholder',
+   189→        name: 'Test Consumed Invite',
+   190→        role: 'ORGANIZER',
+   191→      },
+   192→    });
+   193→
+   194→    const testProfile = await prisma.organizerProfile.upsert({
+   195→      where: { userId: testUser.id },
+   196→      update: {},
+   197→      create: {
+   198→        userId: testUser.id,
+   199→        organizationName: 'Test Consumed Invite Org',
+   200→        slug: 'test-consumed-invite-' + Date.now(),
+   201→        status: 'PENDING_APPROVAL',
+   202→      },
+   203→    });
+   204→
+   205→    const rawToken = generateSecureToken();
+   206→    const tokenHash = await hashToken(rawToken);
+   207→
+   208→    // Create invitation and immediately mark as accepted
+   209→    const invitation = await prisma.organizerInvitation.create({
+   210→      data: {
+   211→        organizerId: testProfile.id,
+   212→        email: 'consumed-invitee@test.com',
+   213→        role: 'STAFF',
+   214→        permissions: '[]',
+   215→        tokenHash,
+   216→        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+   217→        acceptedAt: new Date(), // Already consumed
+   218→      },
+   219→    });
+   220→
+   221→    expect(invitation.acceptedAt).not.toBeNull();
+   222→
+   223→    // Clean up
+   224→    await prisma.organizerInvitation.delete({ where: { id: invitation.id } });
+   225→    await prisma.organizerProfile.delete({ where: { id: testProfile.id } });
+   226→    await prisma.user.delete({ where: { id: testUser.id } });
+   227→  });
+   228→});
+   229→
+   230→// ─── Event Deletion Safety ───
+   231→
+   232→describe('Event Delete Protection', () => {
+   233→  it('event with bookings cannot be hard-deleted (status set to CANCELLED)', async () => {
+   234→    // Create test organizer
+   235→    const orgUser = await prisma.user.upsert({
+   236→      where: { email: 'test-delete-safety@applecalendar.com' },
+   237→      update: {},
+   238→      create: {
+   239→        email: 'test-delete-safety@applecalendar.com',
+   240→        password: 'hashed_password_placeholder',
+   241→        name: 'Test Delete Safety',
+   242→        role: 'ORGANIZER',
+   243→      },
+   244→    });
+   245→
+   246→    // Create event with a booking
+   247→    const event = await prisma.event.create({
+   248→      data: {
+   249→        title: 'Event With Booking',
+   250→        slug: 'event-with-booking-' + Date.now(),
+   251→        description: 'Test event with booking',
+   252→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   253→        status: 'PUBLISHED',
+   254→        organizerId: orgUser.id,
+   255→      },
+   256→    });
+   257→
+   258→    // Create a public user who books
+   259→    const booker = await prisma.user.upsert({
+   260→      where: { email: 'test-delete-booker@applecalendar.com' },
+   261→      update: {},
+   262→      create: {
+   263→        email: 'test-delete-booker@applecalendar.com',
+   264→        password: 'hashed_password_placeholder',
+   265→        name: 'Test Booker',
+   266→        role: 'PUBLIC',
+   267→      },
+   268→    });
+   269→
+   270→    // Create a booking for the event
+   271→    const booking = await prisma.booking.create({
+   272→      data: {
+   273→        userId: booker.id,
+   274→        eventId: event.id,
+   275→        totalAmount: 100,
+   276→        currency: 'GHS',
+   277→        status: 'CONFIRMED',
+   278→        bookingRef: 'APC-DELETE-TEST-' + Date.now(),
+   279→      },
+   280→    });
+   281→
+   282→    // Verify event has bookings
+   283→    const eventWithBookings = await prisma.event.findUnique({
+   284→      where: { id: event.id },
+   285→      include: {
+   286→        ticketTypes: { select: { soldCount: true } },
+   287→        _count: { select: { bookings: true } },
+   288→      },
+   289→    });
+   290→
+   291→    expect(eventWithBookings!._count.bookings).toBeGreaterThan(0);
+   292→
+   293→    // Simulate the soft-delete behavior (what the API does)
+   294→    // Instead of hard-delete, set status to CANCELLED
+   295→    await prisma.event.update({
+   296→      where: { id: event.id },
+   297→      data: { status: 'CANCELLED', isBookable: false },
+   298→    });
+   299→
+   300→    // Verify event still exists (not hard-deleted)
+   301→    const eventAfterDelete = await prisma.event.findUnique({
+   302→      where: { id: event.id },
+   303→    });
+   304→    expect(eventAfterDelete).not.toBeNull();
+   305→    expect(eventAfterDelete!.status).toBe('CANCELLED');
+   306→    expect(eventAfterDelete!.isBookable).toBe(false);
+   307→
+   308→    // Verify booking is preserved
+   309→    const bookingAfterDelete = await prisma.booking.findUnique({
+   310→      where: { id: booking.id },
+   311→    });
+   312→    expect(bookingAfterDelete).not.toBeNull();
+   313→
+   314→    // Clean up
+   315→    await prisma.booking.delete({ where: { id: booking.id } });
+   316→    await prisma.event.delete({ where: { id: event.id } });
+   317→    await prisma.user.delete({ where: { id: booker.id } });
+   318→    await prisma.user.delete({ where: { id: orgUser.id } });
+   319→  });
+   320→
+   321→  it('event without transactional records can be hard-deleted', async () => {
+   322→    const orgUser = await prisma.user.upsert({
+   323→      where: { email: 'test-hard-delete@applecalendar.com' },
+   324→      update: {},
+   325→      create: {
+   326→        email: 'test-hard-delete@applecalendar.com',
+   327→        password: 'hashed_password_placeholder',
+   328→        name: 'Test Hard Delete',
+   329→        role: 'ORGANIZER',
+   330→      },
+   331→    });
+   332→
+   333→    // Create event with NO bookings and NO sold tickets
+   334→    const event = await prisma.event.create({
+   335→      data: {
+   336→        title: 'Event Without Bookings',
+   337→        slug: 'event-without-bookings-' + Date.now(),
+   338→        description: 'Test event without bookings',
+   339→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   340→        status: 'DRAFT',
+   341→        organizerId: orgUser.id,
+   342→      },
+   343→    });
+   344→
+   345→    // Verify event has no bookings
+   346→    const eventCheck = await prisma.event.findUnique({
+   347→      where: { id: event.id },
+   348→      include: {
+   349→        ticketTypes: { select: { soldCount: true } },
+   350→        _count: { select: { bookings: true } },
+   351→      },
+   352→    });
+   353→
+   354→    expect(eventCheck!._count.bookings).toBe(0);
+   355→    expect(eventCheck!.ticketTypes.every(tt => tt.soldCount === 0)).toBe(true);
+   356→
+   357→    // Safe to hard-delete
+   358→    await prisma.event.delete({ where: { id: event.id } });
+   359→
+   360→    // Verify event is gone
+   361→    const eventAfterDelete = await prisma.event.findUnique({
+   362→      where: { id: event.id },
+   363→    });
+   364→    expect(eventAfterDelete).toBeNull();
+   365→
+   366→    // Clean up
+   367→    await prisma.user.delete({ where: { id: orgUser.id } });
+   368→  });
+   369→
+   370→  it('tickets and payments are preserved when event is soft-deleted', async () => {
+   371→    const orgUser = await prisma.user.upsert({
+   372→      where: { email: 'test-preserve-txns@applecalendar.com' },
+   373→      update: {},
+   374→      create: {
+   375→        email: 'test-preserve-txns@applecalendar.com',
+   376→        password: 'hashed_password_placeholder',
+   377→        name: 'Test Preserve Txns',
+   378→        role: 'ORGANIZER',
+   379→      },
+   380→    });
+   381→
+   382→    const booker = await prisma.user.upsert({
+   383→      where: { email: 'test-preserve-booker@applecalendar.com' },
+   384→      update: {},
+   385→      create: {
+   386→        email: 'test-preserve-booker@applecalendar.com',
+   387→        password: 'hashed_password_placeholder',
+   388→        name: 'Test Preserve Booker',
+   389→        role: 'PUBLIC',
+   390→      },
+   391→    });
+   392→
+   393→    const event = await prisma.event.create({
+   394→      data: {
+   395→        title: 'Event With Full Transaction',
+   396→        slug: 'event-with-full-txn-' + Date.now(),
+   397→        description: 'Test event with full transaction chain',
+   398→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   399→        status: 'PUBLISHED',
+   400→        organizerId: orgUser.id,
+   401→      },
+   402→    });
+   403→
+   404→    const ticketType = await prisma.ticketType.create({
+   405→      data: {
+   406→        eventId: event.id,
+   407→        name: 'General Admission',
+   408→        price: 100,
+   409→        quantity: 100,
+   410→        soldCount: 1,
+   411→      },
+   412→    });
+   413→
+   414→    const booking = await prisma.booking.create({
+   415→      data: {
+   416→        userId: booker.id,
+   417→        eventId: event.id,
+   418→        totalAmount: 100,
+   419→        currency: 'GHS',
+   420→        status: 'CONFIRMED',
+   421→        bookingRef: 'APC-PRESERVE-TEST-' + Date.now(),
+   422→      },
+   423→    });
+   424→
+   425→    const ticket = await prisma.ticket.create({
+   426→      data: {
+   427→        ticketTypeId: ticketType.id,
+   428→        bookingId: booking.id,
+   429→        qrCode: 'QR-PRESERVE-TEST-' + Date.now(),
+   430→        status: 'VALID',
+   431→      },
+   432→    });
+   433→
+   434→    const payment = await prisma.payment.create({
+   435→      data: {
+   436→        bookingId: booking.id,
+   437→        userId: booker.id,
+   438→        amount: 100,
+   439→        currency: 'GHS',
+   440→        method: 'PAYSTACK',
+   441→        status: 'COMPLETED',
+   442→        transactionId: 'txn-preserve-test',
+   443→      },
+   444→    });
+   445→
+   446→    // Soft-delete the event
+   447→    await prisma.event.update({
+   448→      where: { id: event.id },
+   449→      data: { status: 'CANCELLED', isBookable: false },
+   450→    });
+   451→
+   452→    // Verify all transactional records still exist
+   453→    const bookingCheck = await prisma.booking.findUnique({ where: { id: booking.id } });
+   454→    expect(bookingCheck).not.toBeNull();
+   455→
+   456→    const ticketCheck = await prisma.ticket.findUnique({ where: { id: ticket.id } });
+   457→    expect(ticketCheck).not.toBeNull();
+   458→
+   459→    const paymentCheck = await prisma.payment.findUnique({ where: { id: payment.id } });
+   460→    expect(paymentCheck).not.toBeNull();
+   461→
+   462→    const ticketTypeCheck = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
+   463→    expect(ticketTypeCheck).not.toBeNull();
+   464→
+   465→    // Clean up (reverse order of dependencies)
+   466→    await prisma.payment.delete({ where: { id: payment.id } });
+   467→    await prisma.ticket.delete({ where: { id: ticket.id } });
+   468→    await prisma.booking.delete({ where: { id: booking.id } });
+   469→    await prisma.ticketType.delete({ where: { id: ticketType.id } });
+   470→    await prisma.event.delete({ where: { id: event.id } });
+   471→    await prisma.user.delete({ where: { id: booker.id } });
+   472→    await prisma.user.delete({ where: { id: orgUser.id } });
+   473→  });
+   474→});
+   475→
+   476→// ─── Schema Integrity ───
+   477→
+   478→describe('Schema Integrity - New Models', () => {
+   479→  it('OrganizerSubscription belongs to OrganizerProfile (not User)', async () => {
+   480→    // The OrganizerSubscription model should have organizerId pointing to OrganizerProfile
+   481→    // We verify this by creating an OrganizerSubscription linked to an OrganizerProfile
+   482→    const testUser = await prisma.user.upsert({
+   483→      where: { email: 'test-org-sub@applecalendar.com' },
+   484→      update: {},
+   485→      create: {
+   486→        email: 'test-org-sub@applecalendar.com',
+   487→        password: 'hashed_password_placeholder',
+   488→        name: 'Test Org Sub',
+   489→        role: 'ORGANIZER',
+   490→      },
+   491→    });
+   492→
+   493→    const testProfile = await prisma.organizerProfile.upsert({
+   494→      where: { userId: testUser.id },
+   495→      update: {},
+   496→      create: {
+   497→        userId: testUser.id,
+   498→        organizationName: 'Test Org Sub Org',
+   499→        slug: 'test-org-sub-' + Date.now(),
+   500→        status: 'PENDING_APPROVAL',
+   501→      },
+   502→    });
+   503→
+   504→    // Get or create a plan
+   505→    const plan = await prisma.subscriptionPlan.upsert({
+   506→      where: { slug: 'test-phase4a-plan' },
+   507→      update: {},
+   508→      create: {
+   509→        name: 'Test Phase4A Plan',
+   510→        slug: 'test-phase4a-plan',
+   511→        price: 0,
+   512→        maxEvents: 1,
+   513→        maxTicketsPerEvent: 10,
+   514→      },
+   515→    });
+   516→
+   517→    const orgSub = await prisma.organizerSubscription.create({
+   518→      data: {
+   519→        organizerId: testProfile.id,
+   520→        planId: plan.id,
+   521→        status: 'ACTIVE',
+   522→        billingProvider: 'MANUAL',
+   523→        paymentStatus: 'CURRENT',
+   524→      },
+   525→    });
+   526→
+   527→    expect(orgSub.organizerId).toBe(testProfile.id);
+   528→    expect(orgSub.planId).toBe(plan.id);
+   529→    expect(orgSub.status).toBe('ACTIVE');
+   530→    expect(orgSub.billingProvider).toBe('MANUAL');
+   531→
+   532→    // Verify one-subscription-per-org constraint (unique on organizerId)
+   533→    await expect(
+   534→      prisma.organizerSubscription.create({
+   535→        data: {
+   536→          organizerId: testProfile.id, // Same org — should fail
+   537→          planId: plan.id,
+   538→          status: 'TRIAL',
+   539→        },
+   540→      })
+   541→    ).rejects.toThrow(); // Unique constraint violation
+   542→
+   543→    // Clean up
+   544→    await prisma.organizerSubscription.delete({ where: { id: orgSub.id } });
+   545→    await prisma.organizerProfile.delete({ where: { id: testProfile.id } });
+   546→    await prisma.user.delete({ where: { id: testUser.id } });
+   547→    await prisma.subscriptionPlan.delete({ where: { id: plan.id } });
+   548→  });
+   549→
+   550→  it('EventSession belongs to Event', async () => {
+   551→    const orgUser = await prisma.user.upsert({
+   552→      where: { email: 'test-session-schema@applecalendar.com' },
+   553→      update: {},
+   554→      create: {
+   555→        email: 'test-session-schema@applecalendar.com',
+   556→        password: 'hashed_password_placeholder',
+   557→        name: 'Test Session Schema',
+   558→        role: 'ORGANIZER',
+   559→      },
+   560→    });
+   561→
+   562→    const event = await prisma.event.create({
+   563→      data: {
+   564→        title: 'Session Test Event',
+   565→        slug: 'session-test-event-' + Date.now(),
+   566→        description: 'Test event for sessions',
+   567→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   568→        organizerId: orgUser.id,
+   569→      },
+   570→    });
+   571→
+   572→    const session = await prisma.eventSession.create({
+   573→      data: {
+   574→        eventId: event.id,
+   575→        title: 'Opening Keynote',
+   576→        startTime: '09:00',
+   577→        endTime: '10:00',
+   578→        sessionType: 'KEYNOTE',
+   579→        sortOrder: 0,
+   580→      },
+   581→    });
+   582→
+   583→    expect(session.eventId).toBe(event.id);
+   584→    expect(session.sessionType).toBe('KEYNOTE');
+   585→    expect(session.status).toBe('SCHEDULED');
+   586→
+   587→    // Verify cascade: when event is deleted, sessions are deleted
+   588→    await prisma.event.delete({ where: { id: event.id } });
+   589→    const sessionAfterDelete = await prisma.eventSession.findUnique({ where: { id: session.id } });
+   590→    expect(sessionAfterDelete).toBeNull();
+   591→
+   592→    await prisma.user.delete({ where: { id: orgUser.id } });
+   593→  });
+   594→
+   595→  it('EventParticipant belongs to Event', async () => {
+   596→    const orgUser = await prisma.user.upsert({
+   597→      where: { email: 'test-participant-schema@applecalendar.com' },
+   598→      update: {},
+   599→      create: {
+   600→        email: 'test-participant-schema@applecalendar.com',
+   601→        password: 'hashed_password_placeholder',
+   602→        name: 'Test Participant Schema',
+   603→        role: 'ORGANIZER',
+   604→      },
+   605→    });
+   606→
+   607→    const event = await prisma.event.create({
+   608→      data: {
+   609→        title: 'Participant Test Event',
+   610→        slug: 'participant-test-event-' + Date.now(),
+   611→        description: 'Test event for participants',
+   612→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   613→        organizerId: orgUser.id,
+   614→      },
+   615→    });
+   616→
+   617→    const participant = await prisma.eventParticipant.create({
+   618→      data: {
+   619→        eventId: event.id,
+   620→        name: 'Dr. Kwame Nkrumah',
+   621→        role: 'SPEAKER',
+   622→        title: 'Distinguished Lecturer',
+   623→        isFeatured: true,
+   624→      },
+   625→    });
+   626→
+   627→    expect(participant.eventId).toBe(event.id);
+   628→    expect(participant.role).toBe('SPEAKER');
+   629→    expect(participant.isFeatured).toBe(true);
+   630→
+   631→    // Verify cascade: when event is deleted, participants are deleted
+   632→    await prisma.event.delete({ where: { id: event.id } });
+   633→    const participantAfterDelete = await prisma.eventParticipant.findUnique({ where: { id: participant.id } });
+   634→    expect(participantAfterDelete).toBeNull();
+   635→
+   636→    await prisma.user.delete({ where: { id: orgUser.id } });
+   637→  });
+   638→
+   639→  it('EventMedia belongs to Event', async () => {
+   640→    const orgUser = await prisma.user.upsert({
+   641→      where: { email: 'test-media-schema@applecalendar.com' },
+   642→      update: {},
+   643→      create: {
+   644→        email: 'test-media-schema@applecalendar.com',
+   645→        password: 'hashed_password_placeholder',
+   646→        name: 'Test Media Schema',
+   647→        role: 'ORGANIZER',
+   648→      },
+   649→    });
+   650→
+   651→    const event = await prisma.event.create({
+   652→      data: {
+   653→        title: 'Media Test Event',
+   654→        slug: 'media-test-event-' + Date.now(),
+   655→        description: 'Test event for media',
+   656→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   657→        organizerId: orgUser.id,
+   658→      },
+   659→    });
+   660→
+   661→    const media = await prisma.eventMedia.create({
+   662→      data: {
+   663→        eventId: event.id,
+   664→        url: 'https://example.com/poster.jpg',
+   665→        type: 'IMAGE',
+   666→        category: 'POSTER',
+   667→        caption: 'Event poster',
+   668→        uploadedBy: orgUser.id,
+   669→      },
+   670→    });
+   671→
+   672→    expect(media.eventId).toBe(event.id);
+   673→    expect(media.type).toBe('IMAGE');
+   674→    expect(media.category).toBe('POSTER');
+   675→    expect(media.uploadedBy).toBe(orgUser.id);
+   676→
+   677→    // Verify cascade
+   678→    await prisma.event.delete({ where: { id: event.id } });
+   679→    const mediaAfterDelete = await prisma.eventMedia.findUnique({ where: { id: media.id } });
+   680→    expect(mediaAfterDelete).toBeNull();
+   681→
+   682→    await prisma.user.delete({ where: { id: orgUser.id } });
+   683→  });
+   684→
+   685→  it('Venue relationship works', async () => {
+   686→    const orgUser = await prisma.user.upsert({
+   687→      where: { email: 'test-venue-schema@applecalendar.com' },
+   688→      update: {},
+   689→      create: {
+   690→        email: 'test-venue-schema@applecalendar.com',
+   691→        password: 'hashed_password_placeholder',
+   692→        name: 'Test Venue Schema',
+   693→        role: 'ORGANIZER',
+   694→      },
+   695→    });
+   696→
+   697→    const venue = await prisma.venue.create({
+   698→      data: {
+   699→        name: 'Test Venue',
+   700→        slug: 'test-venue-' + Date.now(),
+   701→        address: '123 Test Street',
+   702→        city: 'Accra',
+   703→        country: 'GH',
+   704→        capacity: 500,
+   705→        isPublic: true,
+   706→        organizerId: orgUser.id,
+   707→      },
+   708→    });
+   709→
+   710→    expect(venue.country).toBe('GH');
+   711→    expect(venue.isPublic).toBe(true);
+   712→    expect(venue.organizerId).toBe(orgUser.id);
+   713→
+   714→    // Create an event linked to this venue
+   715→    const event = await prisma.event.create({
+   716→      data: {
+   717→        title: 'Venue Test Event',
+   718→        slug: 'venue-test-event-' + Date.now(),
+   719→        description: 'Test event at venue',
+   720→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   721→        organizerId: orgUser.id,
+   722→        venueId: venue.id,
+   723→      },
+   724→    });
+   725→
+   726→    expect(event.venueId).toBe(venue.id);
+   727→
+   728→    // Clean up
+   729→    await prisma.event.delete({ where: { id: event.id } });
+   730→    await prisma.venue.delete({ where: { id: venue.id } });
+   731→    await prisma.user.delete({ where: { id: orgUser.id } });
+   732→  });
+   733→
+   734→  it('AuditLog relationship works', async () => {
+   735→    const adminUser = await prisma.user.upsert({
+   736→      where: { email: 'test-audit-schema@applecalendar.com' },
+   737→      update: {},
+   738→      create: {
+   739→        email: 'test-audit-schema@applecalendar.com',
+   740→        password: 'hashed_password_placeholder',
+   741→        name: 'Test Audit Admin',
+   742→        role: 'SUPER_ADMIN',
+   743→      },
+   744→    });
+   745→
+   746→    const auditLog = await prisma.auditLog.create({
+   747→      data: {
+   748→        actorId: adminUser.id,
+   749→        action: 'APPROVE',
+   750→        entityType: 'OrganizerProfile',
+   751→        entityId: 'test-org-id',
+   752→        reason: 'Application meets requirements',
+   753→      },
+   754→    });
+   755→
+   756→    expect(auditLog.actorId).toBe(adminUser.id);
+   757→    expect(auditLog.action).toBe('APPROVE');
+   758→    expect(auditLog.entityType).toBe('OrganizerProfile');
+   759→    expect(auditLog.reason).toBe('Application meets requirements');
+   760→    // No secrets stored
+   761→    expect(auditLog.oldValue).toBeNull();
+   762→    expect(auditLog.newValue).toBeNull();
+   763→
+   764→    // Clean up
+   765→    await prisma.auditLog.delete({ where: { id: auditLog.id } });
+   766→    await prisma.user.delete({ where: { id: adminUser.id } });
+   767→  });
+   768→});
+   769→
+   770→// ─── OrganizerProfile Status Lifecycle ───
+   771→
+   772→describe('OrganizerProfile Status', () => {
+   773→  it('new profile defaults to PENDING_APPROVAL status', async () => {
+   774→    const testUser = await prisma.user.upsert({
+   775→      where: { email: 'test-org-status@applecalendar.com' },
+   776→      update: {},
+   777→      create: {
+   778→        email: 'test-org-status@applecalendar.com',
+   779→        password: 'hashed_password_placeholder',
+   780→        name: 'Test Org Status',
+   781→        role: 'ORGANIZER',
+   782→      },
+   783→    });
+   784→
+   785→    const profile = await prisma.organizerProfile.upsert({
+   786→      where: { userId: testUser.id },
+   787→      update: {},
+   788→      create: {
+   789→        userId: testUser.id,
+   790→        organizationName: 'Test Org Status',
+   791→        slug: 'test-org-status-' + Date.now(),
+   792→        // status defaults to PENDING_APPROVAL
+   793→      },
+   794→    });
+   795→
+   796→    expect(profile.status).toBe('PENDING_APPROVAL');
+   797→    // approvalStatus still exists for backward compat
+   798→    expect(profile.approvalStatus).toBe('PENDING');
+   799→
+   800→    // Clean up
+   801→    await prisma.organizerProfile.delete({ where: { id: profile.id } });
+   802→    await prisma.user.delete({ where: { id: testUser.id } });
+   803→  });
+   804→
+   805→  it('organizer can transition through lifecycle states', async () => {
+   806→    const testUser = await prisma.user.upsert({
+   807→      where: { email: 'test-lifecycle@applecalendar.com' },
+   808→      update: {},
+   809→      create: {
+   810→        email: 'test-lifecycle@applecalendar.com',
+   811→        password: 'hashed_password_placeholder',
+   812→        name: 'Test Lifecycle',
+   813→        role: 'ORGANIZER',
+   814→      },
+   815→    });
+   816→
+   817→    const profile = await prisma.organizerProfile.upsert({
+   818→      where: { userId: testUser.id },
+   819→      update: {},
+   820→      create: {
+   821→        userId: testUser.id,
+   822→        organizationName: 'Test Lifecycle Org',
+   823→        slug: 'test-lifecycle-' + Date.now(),
+   824→        status: 'PENDING_APPROVAL',
+   825→      },
+   826→    });
+   827→
+   828→    // PENDING_APPROVAL → APPROVED
+   829→    const approved = await prisma.organizerProfile.update({
+   830→      where: { id: profile.id },
+   831→      data: { status: 'APPROVED', approvalStatus: 'APPROVED' },
+   832→    });
+   833→    expect(approved.status).toBe('APPROVED');
+   834→
+   835→    // APPROVED → ACTIVE
+   836→    const active = await prisma.organizerProfile.update({
+   837→      where: { id: profile.id },
+   838→      data: { status: 'ACTIVE' },
+   839→    });
+   840→    expect(active.status).toBe('ACTIVE');
+   841→
+   842→    // ACTIVE → SUSPENDED
+   843→    const suspended = await prisma.organizerProfile.update({
+   844→      where: { id: profile.id },
+   845→      data: { status: 'SUSPENDED', statusReason: 'Policy violation', statusChangedAt: new Date() },
+   846→    });
+   847→    expect(suspended.status).toBe('SUSPENDED');
+   848→    expect(suspended.statusReason).toBe('Policy violation');
+   849→
+   850→    // SUSPENDED → ACTIVE (reinstated)
+   851→    const reinstated = await prisma.organizerProfile.update({
+   852→      where: { id: profile.id },
+   853→      data: { status: 'ACTIVE', statusReason: null, statusChangedAt: new Date() },
+   854→    });
+   855→    expect(reinstated.status).toBe('ACTIVE');
+   856→
+   857→    // ACTIVE → DEACTIVATED
+   858→    const deactivated = await prisma.organizerProfile.update({
+   859→      where: { id: profile.id },
+   860→      data: { status: 'DEACTIVATED', statusReason: 'Organizer request', statusChangedAt: new Date() },
+   861→    });
+   862→    expect(deactivated.status).toBe('DEACTIVATED');
+   863→
+   864→    // Clean up
+   865→    await prisma.organizerProfile.delete({ where: { id: profile.id } });
+   866→    await prisma.user.delete({ where: { id: testUser.id } });
+   867→  });
+   868→});
+   869→
+   870→// ─── Booking Cancellation Audit ───
+   871→
+   872→describe('Booking Cancellation Audit', () => {
+   873→  it('stores cancelledBy when a booking is cancelled', async () => {
+   874→    const orgUser = await prisma.user.upsert({
+   875→      where: { email: 'test-cancel-audit@applecalendar.com' },
+   876→      update: {},
+   877→      create: {
+   878→        email: 'test-cancel-audit@applecalendar.com',
+   879→        password: 'hashed_password_placeholder',
+   880→        name: 'Test Cancel Audit',
+   881→        role: 'ORGANIZER',
+   882→      },
+   883→    });
+   884→
+   885→    const booker = await prisma.user.upsert({
+   886→      where: { email: 'test-cancel-audit-booker@applecalendar.com' },
+   887→      update: {},
+   888→      create: {
+   889→        email: 'test-cancel-audit-booker@applecalendar.com',
+   890→        password: 'hashed_password_placeholder',
+   891→        name: 'Test Cancel Booker',
+   892→        role: 'PUBLIC',
+   893→      },
+   894→    });
+   895→
+   896→    const event = await prisma.event.create({
+   897→      data: {
+   898→        title: 'Cancel Audit Event',
+   899→        slug: 'cancel-audit-event-' + Date.now(),
+   900→        description: 'Test',
+   901→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   902→        organizerId: orgUser.id,
+   903→      },
+   904→    });
+   905→
+   906→    const booking = await prisma.booking.create({
+   907→      data: {
+   908→        userId: booker.id,
+   909→        eventId: event.id,
+   910→        totalAmount: 50,
+   911→        currency: 'GHS',
+   912→        status: 'CONFIRMED',
+   913→        bookingRef: 'APC-CANCEL-AUDIT-' + Date.now(),
+   914→      },
+   915→    });
+   916→
+   917→    // Cancel the booking with audit fields
+   918→    const cancelled = await prisma.booking.update({
+   919→      where: { id: booking.id },
+   920→      data: {
+   921→        status: 'CANCELLED',
+   922→        cancelledBy: booker.id,
+   923→        cancellationReason: 'Schedule conflict',
+   924→      },
+   925→    });
+   926→
+   927→    expect(cancelled.status).toBe('CANCELLED');
+   928→    expect(cancelled.cancelledBy).toBe(booker.id);
+   929→    expect(cancelled.cancellationReason).toBe('Schedule conflict');
+   930→
+   931→    // Clean up
+   932→    await prisma.booking.delete({ where: { id: booking.id } });
+   933→    await prisma.event.delete({ where: { id: event.id } });
+   934→    await prisma.user.delete({ where: { id: booker.id } });
+   935→    await prisma.user.delete({ where: { id: orgUser.id } });
+   936→  });
+   937→});
+   938→
+   939→// ─── Payment Provider Metadata ───
+   940→
+   941→describe('Payment Provider Metadata', () => {
+   942→  it('stores provider-agnostic metadata fields', async () => {
+   943→    const orgUser = await prisma.user.upsert({
+   944→      where: { email: 'test-payment-meta@applecalendar.com' },
+   945→      update: {},
+   946→      create: {
+   947→        email: 'test-payment-meta@applecalendar.com',
+   948→        password: 'hashed_password_placeholder',
+   949→        name: 'Test Payment Meta',
+   950→        role: 'ORGANIZER',
+   951→      },
+   952→    });
+   953→
+   954→    const booker = await prisma.user.upsert({
+   955→      where: { email: 'test-payment-booker@applecalendar.com' },
+   956→      update: {},
+   957→      create: {
+   958→        email: 'test-payment-booker@applecalendar.com',
+   959→        password: 'hashed_password_placeholder',
+   960→        name: 'Test Payment Booker',
+   961→        role: 'PUBLIC',
+   962→      },
+   963→    });
+   964→
+   965→    const event = await prisma.event.create({
+   966→      data: {
+   967→        title: 'Payment Meta Event',
+   968→        slug: 'payment-meta-event-' + Date.now(),
+   969→        description: 'Test',
+   970→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+   971→        organizerId: orgUser.id,
+   972→      },
+   973→    });
+   974→
+   975→    const booking = await prisma.booking.create({
+   976→      data: {
+   977→        userId: booker.id,
+   978→        eventId: event.id,
+   979→        totalAmount: 200,
+   980→        currency: 'GHS',
+   981→        status: 'CONFIRMED',
+   982→        bookingRef: 'APC-PAYMENT-META-' + Date.now(),
+   983→      },
+   984→    });
+   985→
+   986→    const payment = await prisma.payment.create({
+   987→      data: {
+   988→        bookingId: booking.id,
+   989→        userId: booker.id,
+   990→        amount: 200,
+   991→        currency: 'GHS',
+   992→        method: 'PAYSTACK',
+   993→        status: 'COMPLETED',
+   994→        providerRef: 'paystack-ref-123',
+   995→        providerCustomerId: 'cust-456',
+   996→        idempotencyKey: 'idem-' + Date.now(),
+   997→        metadata: JSON.stringify({ channel: 'mobile_money', network: 'MTN' }),
+   998→      },
+   999→    });
+  1000→
+  1001→    expect(payment.providerRef).toBe('paystack-ref-123');
+  1002→    expect(payment.providerCustomerId).toBe('cust-456');
+  1003→    expect(payment.idempotencyKey).toBeDefined();
+  1004→    expect(payment.method).toBe('PAYSTACK');
+  1005→    expect(payment.refundedAmount).toBe(0);
+  1006→
+  1007→    // Clean up
+  1008→    await prisma.payment.delete({ where: { id: payment.id } });
+  1009→    await prisma.booking.delete({ where: { id: booking.id } });
+  1010→    await prisma.event.delete({ where: { id: event.id } });
+  1011→    await prisma.user.delete({ where: { id: booker.id } });
+  1012→    await prisma.user.delete({ where: { id: orgUser.id } });
+  1013→  });
+  1014→});
+  1015→
+  1016→// ─── Ghana-First Defaults ───
+  1017→
+  1018→describe('Ghana-First Defaults', () => {
+  1019→  it('Venue defaults to GH country', async () => {
+  1020→    const venue = await prisma.venue.create({
+  1021→      data: {
+  1022→        name: 'Ghana Default Test',
+  1023→        slug: 'ghana-default-test-' + Date.now(),
+  1024→        address: 'Test Address',
+  1025→        city: 'Accra',
+  1026→        // country not specified — should default to GH
+  1027→      },
+  1028→    });
+  1029→
+  1030→    expect(venue.country).toBe('GH');
+  1031→
+  1032→    await prisma.venue.delete({ where: { id: venue.id } });
+  1033→  });
+  1034→
+  1035→  it('Event defaults to GH country and GHS currency', async () => {
+  1036→    const orgUser = await prisma.user.upsert({
+  1037→      where: { email: 'test-ghana-defaults@applecalendar.com' },
+  1038→      update: {},
+  1039→      create: {
+  1040→        email: 'test-ghana-defaults@applecalendar.com',
+  1041→        password: 'hashed_password_placeholder',
+  1042→        name: 'Test Ghana Defaults',
+  1043→        role: 'ORGANIZER',
+  1044→      },
+  1045→    });
+  1046→
+  1047→    const event = await prisma.event.create({
+  1048→      data: {
+  1049→        title: 'Ghana Defaults Event',
+  1050→        slug: 'ghana-defaults-event-' + Date.now(),
+  1051→        description: 'Test',
+  1052→        startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  1053→        organizerId: orgUser.id,
+  1054→        // venueCountry and currency not specified — should use defaults
+  1055→      },
+  1056→    });
+  1057→
+  1058→    expect(event.venueCountry).toBe('GH');
+  1059→    expect(event.currency).toBe('GHS');
+  1060→
+  1061→    await prisma.event.delete({ where: { id: event.id } });
+  1062→    await prisma.user.delete({ where: { id: orgUser.id } });
+  1063→  });
+  1064→});
+  1065→

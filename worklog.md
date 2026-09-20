@@ -397,3 +397,32 @@ All 9 route handler files updated with:
 - Anti-enumeration on email verification and password reset
 
 **Status:** PLAN COMPLETE — Awaiting user approval to begin implementation.
+
+---
+
+Task ID: P4B
+Agent: main
+Task: Phase 4B — Entitlement & Subscription Enforcement
+
+Work Log:
+- Inspected all relevant files: schema, API routes, auth helpers, permissions, errors, tests, seed data
+- Confirmed zero plan enforcement existed (no API route referenced OrganizerSubscription)
+- Confirmed legacy Subscription model not used for entitlement decisions
+- Created centralized entitlement service at src/lib/services/entitlements.ts
+- Wired entitlement enforcement into 5 API routes
+- Updated frontend API helper with structured error handling
+- Added 49 comprehensive Phase 4B tests
+- Fixed missing JWT_SECRET in .env (pre-existing issue causing 500 errors)
+- Added prisma.seed config to package.json
+- Reseeded database successfully
+- Verified app renders correctly in browser with no errors
+- Git commit e78f7e1
+
+Stage Summary:
+- Entitlement service created with full resolution chain: User → OrganizerProfile → OrganizerSubscription → SubscriptionPlan
+- Server-side enforcement of maxEvents, maxTicketTypesPerEvent, maxStaff, canAdvertise, analyticsLevel
+- Free plan fallback for missing/expired subscriptions (never grants unlimited)
+- Organizer lifecycle status checked before subscription (SUSPENDED/DEACTIVATED blocked)
+- Tenant isolation: all checks tied to authenticated user's OrganizerProfile
+- 247 tests passing (49 new Phase 4B), 15 pre-existing failures
+- Commit: e78f7e1 feat(phase4b): implement subscription entitlement enforcement

@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { createAdSchema, adsQuerySchema } from '@/lib/validations';
+import { getOperableOrganizerEntitlements, requireFeature, resolveOrganizerProfile } from '@/lib/services/entitlements';
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,6 +37,12 @@ export async function POST(request: NextRequest) {
     const user = await authenticate(request);
     requireRole('ORGANIZER', 'SUPER_ADMIN')(user);
 
+    // Phase 4B: Entitlement enforcement — check canAdvertise feature flag
+    if (user.role === 'ORGANIZER') {
+      const entitlements = await getOperableOrganizerEntitlements(user.id);
+      requireFeature(entitlements, 'canAdvertise');
+    }
+
     const body = await request.json();
 
     const parsed = createAdSchema.safeParse(body);
@@ -53,6 +60,9 @@ export async function POST(request: NextRequest) {
       eventId,
     } = parsed.data;
 
+    // Resolve organizer profile for proper ad ownership
+    const organizerProfile = user.role === 'ORGANIZER' ? await resolveOrganizerProfile(user.id) : null;
+
     const ad = await db.advertisement.create({
       data: {
         title,
@@ -64,6 +74,7 @@ export async function POST(request: NextRequest) {
         endDate: endDate ? new Date(endDate) : null,
         eventId,
         advertiserId: user.id,
+        organizerId: organizerProfile?.id,
       },
     });
 

@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { createEventSchema, eventQuerySchema } from '@/lib/validations';
+import { getOperableOrganizerEntitlements, getOrganizerUsage, requireWithinLimit } from '@/lib/services/entitlements';
 
 function slugify(text: string): string {
   return text
@@ -126,14 +127,13 @@ export async function POST(request: NextRequest) {
     const user = await authenticate(request);
     requireRole('ORGANIZER', 'SUPER_ADMIN')(user);
 
-    // Verify ORGANIZER role has an OrganizerProfile
+    // Phase 4B: Entitlement enforcement — organizer must be operable
     if (user.role === 'ORGANIZER') {
-      const profile = await db.organizerProfile.findUnique({
-        where: { userId: user.id },
-      });
-      if (!profile) {
-        throw new ApiError(403, 'FORBIDDEN', 'Please create your organizer profile before creating events');
-      }
+      const entitlements = await getOperableOrganizerEntitlements(user.id);
+
+      // Enforce maxEvents limit
+      const usage = await getOrganizerUsage(entitlements.organizerId);
+      requireWithinLimit(usage.events, entitlements.limits.maxEvents, 'events', entitlements.planSlug);
     }
 
     const body = await request.json();

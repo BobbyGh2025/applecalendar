@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { z } from 'zod';
+import { getOperableOrganizerEntitlements, getEventUsage, requireWithinLimit, resolveOrganizerFromEvent } from '@/lib/services/entitlements';
 
 const createTicketTypeSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
@@ -38,6 +39,16 @@ export async function POST(
     // Authenticate → Authorize → Verify ownership
     if (event.organizerId !== user.id && user.role !== 'SUPER_ADMIN') {
       throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to manage ticket types for this event');
+    }
+
+    // Phase 4B: Entitlement enforcement — check ticket type limit
+    if (user.role !== 'SUPER_ADMIN') {
+      const organizerId = await resolveOrganizerFromEvent(event.organizerId);
+      if (organizerId) {
+        const entitlements = await getOperableOrganizerEntitlements(user.id);
+        const eventUsage = await getEventUsage(eventId);
+        requireWithinLimit(eventUsage.ticketTypes, entitlements.limits.maxTicketTypesPerEvent, 'ticket types per event', entitlements.planSlug);
+      }
     }
 
     const body = await request.json();

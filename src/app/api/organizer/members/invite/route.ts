@@ -4,6 +4,7 @@ import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { inviteStaffSchema } from '@/lib/validations';
 import { generateSecureToken, hashToken } from '@/lib/tokens';
+import { getOperableOrganizerEntitlements, getOrganizerUsage, requireWithinLimit } from '@/lib/services/entitlements';
 
 /**
  * POST /api/organizer/members/invite
@@ -25,6 +26,13 @@ export async function POST(request: NextRequest) {
 
     if (!profile) {
       throw new ApiError(404, 'NOT_FOUND', 'Organizer profile not found');
+    }
+
+    // Phase 4B: Entitlement enforcement — check staff limit
+    if (user.role !== 'SUPER_ADMIN') {
+      const entitlements = await getOperableOrganizerEntitlements(user.id);
+      const usage = await getOrganizerUsage(entitlements.organizerId);
+      requireWithinLimit(usage.staff, entitlements.limits.maxStaff, 'staff', entitlements.planSlug);
     }
 
     const body = await request.json();

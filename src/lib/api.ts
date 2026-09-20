@@ -9,6 +9,37 @@ export function createRequestController(): AbortController {
   return globalController;
 }
 
+/**
+ * Structured API error with machine-readable code and optional details.
+ * Used for entitlement/subscription errors that the UI can handle specifically.
+ */
+export class ApiFetchError extends Error {
+  code: string;
+  details?: unknown;
+  statusCode: number;
+
+  constructor(message: string, code: string, statusCode: number, details?: unknown) {
+    super(message);
+    this.code = code;
+    this.statusCode = statusCode;
+    this.details = details;
+    this.name = 'ApiFetchError';
+  }
+
+  /** Check if this is an entitlement/subscription error */
+  get isEntitlementError(): boolean {
+    return [
+      'ORGANIZER_SUSPENDED',
+      'ORGANIZER_DEACTIVATED',
+      'ORGANIZER_NOT_OPERABLE',
+      'SUBSCRIPTION_REQUIRED',
+      'SUBSCRIPTION_EXPIRED',
+      'FEATURE_NOT_AVAILABLE',
+      'PLAN_LIMIT_REACHED',
+    ].includes(this.code);
+  }
+}
+
 export async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const store = useAppStore.getState();
   const token = store.token;
@@ -29,6 +60,18 @@ export async function apiFetch<T>(url: string, options?: RequestInit): Promise<T
   }
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) {
+    // Handle structured API error responses: { success: false, error: { code, message, details } }
+    if (data?.error?.code && data?.error?.message) {
+      throw new ApiFetchError(
+        data.error.message,
+        data.error.code,
+        res.status,
+        data.error.details,
+      );
+    }
+    // Fallback for older error formats
+    throw new Error(data.error || 'Request failed');
+  }
   return data as T;
 }

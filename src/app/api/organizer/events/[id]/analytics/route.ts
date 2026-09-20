@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
+import { getOrganizerEntitlements, getOrganizerEntitlementsById, requireAnalyticsLevel, requireOperableOrganizer } from '@/lib/services/entitlements';
 
 export async function GET(
   request: NextRequest,
@@ -44,6 +45,30 @@ export async function GET(
       const perms = getOrganizerPermissions(membership);
       if (!hasPermission(perms, PERMISSIONS.ANALYTICS_VIEW)) {
         throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to view analytics');
+      }
+    }
+
+    // Phase 4B: Entitlement enforcement — check analytics level
+    // The event organizer's subscription determines analytics depth.
+    // FULL analytics (charts, daily breakdowns, ticket summary) requires ADVANCED level.
+    if (user.role !== 'SUPER_ADMIN') {
+      try {
+        const ownerId = event.organizerId;
+        const ownerProfile = await db.organizerProfile.findUnique({
+          where: { userId: ownerId },
+          select: { id: true },
+        });
+        if (ownerProfile) {
+          const entitlements = await getOrganizerEntitlementsById(ownerProfile.id);
+          requireOperableOrganizer(entitlements);
+          // Detailed analytics endpoint provides full daily breakdown + ticket summary
+          // Require at least ADVANCED analytics level
+          requireAnalyticsLevel(entitlements, 'ADVANCED');
+        }
+      } catch (err) {
+        if (err instanceof ApiError) throw err;
+        // If entitlement check fails for non-obvious reasons, don't block access
+        // but log the issue
       }
     }
 

@@ -120,6 +120,7 @@ function NavContent({ onClose }: { onClose?: () => void }) {
               <button
                 key={item.view}
                 onClick={() => handleNav(item.view)}
+                suppressHydrationWarning
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left ${
                   isActive
                     ? 'bg-emerald-600 text-white'
@@ -141,6 +142,7 @@ function NavContent({ onClose }: { onClose?: () => void }) {
         <div className="p-2">
           <button
             onClick={handleLogout}
+            suppressHydrationWarning
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
           >
             <LogOut className="h-5 w-5 text-zinc-400" />

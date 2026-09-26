@@ -669,7 +669,7 @@ async function main() {
       name: 'Dr. Aisha Osei',
       bio: 'AI researcher and CTO of TechForward Ghana. Leading expert in large language models and responsible AI.',
       image: 'https://images.unsplash.com/photo-1573497019940-19449e47e019?w=200&h=200&fit=crop',
-      role: 'KEYNOTE',
+      role: 'SPEAKER', // KEYNOTE is a session type, not a participant role
       title: 'Chief Technology Officer',
       organization: 'TechForward Ghana',
       socialLinks: JSON.stringify({ twitter: '@aisha_osei', linkedin: 'aisha-osei' }),

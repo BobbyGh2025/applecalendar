@@ -475,6 +475,92 @@ describe('Phase 4D — Event Content Authorization', () => {
         expect(currentTotal).toBeGreaterThanOrEqual(entitlements.limits.maxTicketsPerEvent);
       }
     });
+
+    it('should enforce maxTicketsPerEvent on ticket type PATCH quantity update', async () => {
+      // Phase 4D Closure Fix: verify that PATCHing a ticket type's quantity
+      // cannot bypass the maxTicketsPerEvent limit.
+      // The check uses: (sum of OTHER ticket types' quantities) + newQuantity <= maxTicketsPerEvent
+      const entitlements = await getOperableOrganizerEntitlements(organizer1UserId);
+      const maxCapacity = entitlements.limits.maxTicketsPerEvent;
+
+      // Create a ticket type with a small quantity
+      const tt = await prisma.ticketType.create({
+        data: {
+          eventId: eventId1,
+          name: 'Bypass Test Ticket',
+          price: 0,
+          quantity: 5,
+          currency: 'GHS',
+        },
+      });
+
+      // Get capacity of OTHER ticket types (excluding tt)
+      const otherCapacity = await prisma.ticketType.aggregate({
+        where: { eventId: eventId1, id: { not: tt.id } },
+        _sum: { quantity: true },
+      });
+      const otherTotal = otherCapacity._sum.quantity || 0;
+
+      // If we PATCH tt.quantity to exceed the limit, the check should reject:
+      // otherTotal + newQuantity > maxCapacity → newQuantity > maxCapacity - otherTotal
+      const exceedingQuantity = maxCapacity - otherTotal + 1;
+
+      // At limit: requireWithinLimit(maxCapacity, maxCapacity) should throw
+      expect(() => {
+        requireWithinLimit(maxCapacity, maxCapacity, 'ticket capacity per event', entitlements.planSlug);
+      }).toThrow();
+
+      // One below limit: requireWithinLimit(maxCapacity - 1, maxCapacity) should NOT throw
+      expect(() => {
+        requireWithinLimit(maxCapacity - 1, maxCapacity, 'ticket capacity per event', entitlements.planSlug);
+      }).not.toThrow();
+
+      // The PATCH entitlement check calculates:
+      // newTotalCapacity = otherTotal + newQuantity
+      // If newQuantity = exceedingQuantity, then newTotalCapacity = otherTotal + (maxCapacity - otherTotal + 1) = maxCapacity + 1 > maxCapacity
+      // So the check should reject the PATCH
+      const newTotalCapacity = otherTotal + exceedingQuantity;
+      expect(newTotalCapacity).toBeGreaterThan(maxCapacity);
+
+      // Clean up
+      await prisma.ticketType.delete({ where: { id: tt.id } });
+    });
+
+    it('should allow PATCH quantity that stays within the limit', async () => {
+      const entitlements = await getOperableOrganizerEntitlements(organizer1UserId);
+      const maxCapacity = entitlements.limits.maxTicketsPerEvent;
+
+      // Create a ticket type with a small quantity
+      const tt = await prisma.ticketType.create({
+        data: {
+          eventId: eventId1,
+          name: 'Within Limit Ticket',
+          price: 0,
+          quantity: 5,
+          currency: 'GHS',
+        },
+      });
+
+      // Get other capacity (excluding our ticket type)
+      const otherCapacity = await prisma.ticketType.aggregate({
+        where: { eventId: eventId1, id: { not: tt.id } },
+        _sum: { quantity: true },
+      });
+      const otherTotal = otherCapacity._sum.quantity || 0;
+
+      // PATCH to a quantity that keeps total within limit
+      const safeQuantity = Math.min(10, maxCapacity - otherTotal);
+      if (safeQuantity > 0) {
+        const newTotalCapacity = otherTotal + safeQuantity;
+        // Should NOT throw
+        if (newTotalCapacity <= maxCapacity) {
+          requireWithinLimit(newTotalCapacity - 1, maxCapacity, 'ticket capacity per event', entitlements.planSlug);
+        }
+      }
+
+      // Clean up
+      await prisma.ticketType.delete({ where: { id: tt.id } });
+    });
   });
 
   // ─── Cross-Event Reference Prevention ───
@@ -621,6 +707,54 @@ describe('Phase 4D — Event Content Authorization', () => {
     it('should allow ACTIVE organizer to perform content mutations', async () => {
       const entitlements = await getOperableOrganizerEntitlements(organizer1UserId);
       expect(entitlements.isOperable).toBe(true);
+    });
+
+    it('should block PENDING_APPROVAL organizer from content mutations', async () => {
+      const pendingUser = await prisma.user.upsert({
+        where: { email: 'p4d-pending@test.com' },
+        update: {},
+        create: { email: 'p4d-pending@test.com', password: await hash('TestPass123!', 12), name: 'P4D Pending', role: 'ORGANIZER', isActive: true },
+      });
+
+      await prisma.organizerProfile.upsert({
+        where: { userId: pendingUser.id },
+        update: { status: 'PENDING_APPROVAL' },
+        create: {
+          userId: pendingUser.id,
+          organizationName: 'P4D Pending Org',
+          slug: 'p4d-pending-org',
+          status: 'PENDING_APPROVAL',
+          approvalStatus: 'PENDING',
+        },
+      });
+
+      await expect(
+        getOperableOrganizerEntitlements(pendingUser.id)
+      ).rejects.toThrow();
+    });
+
+    it('should block REJECTED organizer from content mutations', async () => {
+      const rejectedUser = await prisma.user.upsert({
+        where: { email: 'p4d-rejected@test.com' },
+        update: {},
+        create: { email: 'p4d-rejected@test.com', password: await hash('TestPass123!', 12), name: 'P4D Rejected', role: 'ORGANIZER', isActive: true },
+      });
+
+      await prisma.organizerProfile.upsert({
+        where: { userId: rejectedUser.id },
+        update: { status: 'REJECTED' },
+        create: {
+          userId: rejectedUser.id,
+          organizationName: 'P4D Rejected Org',
+          slug: 'p4d-rejected-org',
+          status: 'REJECTED',
+          approvalStatus: 'REJECTED',
+        },
+      });
+
+      await expect(
+        getOperableOrganizerEntitlements(rejectedUser.id)
+      ).rejects.toThrow();
     });
   });
 

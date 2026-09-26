@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { z } from 'zod';
+import { getOperableOrganizerEntitlements, resolveOrganizerFromEvent } from '@/lib/services/entitlements';
 
 const updateTicketTypeSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -59,6 +60,32 @@ export async function PATCH(
         'VALIDATION_ERROR',
         `Cannot reduce quantity below ${existing.soldCount} (already sold)`
       );
+    }
+
+    // Phase 4D Closure: Enforce maxTicketsPerEvent when quantity is increased.
+    // Without this check, an organizer could CREATE a ticket type with a small
+    // quantity (passing the CREATE-time check), then PATCH the quantity to
+    // exceed the plan limit — a bypass of the entitlement system.
+    if (parsed.data.quantity !== undefined && user.role !== 'SUPER_ADMIN') {
+      const organizerId = await resolveOrganizerFromEvent(event.organizerId);
+      if (organizerId) {
+        const entitlements = await getOperableOrganizerEntitlements(user.id);
+        // Get total capacity of ALL OTHER ticket types for this event (excluding this one)
+        const otherCapacity = await db.ticketType.aggregate({
+          where: { eventId, id: { not: ttId } },
+          _sum: { quantity: true },
+        });
+        const newTotalCapacity = (otherCapacity._sum.quantity || 0) + parsed.data.quantity;
+        if (newTotalCapacity > entitlements.limits.maxTicketsPerEvent) {
+          throw new ApiError(403, 'PLAN_LIMIT_REACHED', 'Updating this ticket type would exceed the ticket capacity limit for your plan', {
+            limit: 'maxTicketsPerEvent',
+            current: (otherCapacity._sum.quantity || 0) + existing.quantity,
+            requested: newTotalCapacity,
+            max: entitlements.limits.maxTicketsPerEvent,
+            planSlug: entitlements.planSlug,
+          });
+        }
+      }
     }
 
     const updateData: Record<string, unknown> = { ...parsed.data };

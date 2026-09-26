@@ -657,113 +657,441 @@
    657→  }
    658→  console.log('✅ Ticket Types created');
    659→
-   660→  // 9. Create bookings
-   661→  const bookingsData = [
-   662→    { userId: publicUser.id, eventId: 'evt-4', status: 'CONFIRMED', amount: 0 },
-   663→    { userId: publicUser.id, eventId: 'evt-1', status: 'CONFIRMED', amount: 299 },
-   664→    { userId: publicUser.id, eventId: 'evt-2', status: 'PENDING', amount: 159 },
-   665→  ];
-   666→
-   667→  for (let i = 0; i < bookingsData.length; i++) {
-   668→    const b = bookingsData[i];
-   669→    const bookingRef = `APC-${Date.now()}-${i}`;
-   670→    const booking = await prisma.booking.create({
-   671→      data: { userId: b.userId, eventId: b.eventId, totalAmount: b.amount, currency: 'USD', status: b.status, bookingRef },
-   672→    });
-   673→    const ticketType = await prisma.ticketType.findFirst({ where: { eventId: b.eventId } });
-   674→    if (ticketType) {
-   675→      await prisma.ticket.create({
-   676→        data: { ticketTypeId: ticketType.id, bookingId: booking.id, qrCode: `QR-${bookingRef}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`, status: b.status === 'CONFIRMED' ? 'VALID' : 'VALID' },
-   677→      });
-   678→    }
-   679→    if (b.amount > 0) {
-   680→      await prisma.payment.create({
-   681→        data: { bookingId: booking.id, userId: b.userId, amount: b.amount, currency: 'USD', method: 'STRIPE', status: b.status === 'CONFIRMED' ? 'COMPLETED' : 'PENDING', transactionId: `txn_${Math.random().toString(36).substring(2, 15)}` },
-   682→      });
-   683→    }
-   684→  }
-   685→  console.log('✅ Bookings created');
-   686→
-   687→  // 10. Create reviews
-   688→  try { await prisma.review.create({ data: { userId: publicUser.id, eventId: 'evt-4', rating: 5, comment: 'Amazing event! Great networking opportunities and the pitches were fantastic.' } }); } catch {}
-   689→  try { await prisma.review.create({ data: { userId: publicUser.id, eventId: 'evt-1', rating: 4, comment: 'Well organized conference with great speakers. Looking forward to next year.' } }); } catch {}
-   690→  console.log('✅ Reviews created');
-   691→
-   692→  // 11. Create event analytics
-   693→  const publishedEvents = await prisma.event.findMany({ where: { status: 'PUBLISHED' } });
-   694→  for (const event of publishedEvents) {
-   695→    for (let d = 0; d < 30; d++) {
-   696→      const date = new Date(now.getTime() - (29 - d) * 24 * 60 * 60 * 1000);
-   697→      const dateStr = date.toISOString().split('T')[0];
-   698→      await prisma.eventAnalytics.upsert({
-   699→        where: { eventId_date: { eventId: event.id, date: dateStr } },
-   700→        update: {},
-   701→        create: {
-   702→          eventId: event.id, date: dateStr,
-   703→          views: Math.floor(Math.random() * 500) + 50,
-   704→          clicks: Math.floor(Math.random() * 100) + 10,
-   705→          bookings: Math.floor(Math.random() * 20) + 1,
-   706→          revenue: Math.floor(Math.random() * 5000) + 100,
-   707→        },
-   708→      });
-   709→    }
-   710→  }
-   711→  console.log('✅ Analytics created');
-   712→
-   713→  // 12. Create advertisements (Phase 4A — with organizerId, approvalStatus, reviewedBy)
-   714→  try {
-   715→    await prisma.advertisement.create({
-   716→      data: {
-   717→        title: 'Premium Event Promotion',
-   718→        imageUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&h=200&fit=crop',
-   719→        linkUrl: 'evt-1', position: 'BANNER', status: 'ACTIVE',
-   720→        impressions: 15420, clicks: 892,
-   721→        startDate: new Date(), endDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-   722→        eventId: 'evt-1', advertiserId: organizer1.id,
-   723→        organizerId: orgProfile1.id, approvalStatus: 'APPROVED', reviewedBy: superAdmin.id,
-   724→      },
-   725→    });
-   726→  } catch {}
-   727→  try {
-   728→    await prisma.advertisement.create({
-   729→      data: {
-   730→        title: 'Summer Festival Early Bird',
-   731→        imageUrl: 'https://images.unsplash.com/photo-1429962714451-bb934ecdc4ec?w=300&h=250&fit=crop',
-   732→        linkUrl: 'evt-2', position: 'SIDEBAR', status: 'ACTIVE',
-   733→        impressions: 8930, clicks: 456,
-   734→        startDate: new Date(), endDate: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
-   735→        eventId: 'evt-2', advertiserId: organizer1.id,
-   736→        organizerId: orgProfile1.id, approvalStatus: 'APPROVED', reviewedBy: superAdmin.id,
-   737→      },
-   738→    });
-   739→  } catch {}
-   740→  console.log('✅ Advertisements created');
-   741→
-   742→  // 13. Create notifications
-   743→  const notifs = [
-   744→    { userId: publicUser.id, title: 'Booking Confirmed', message: 'Your booking for Global Tech Summit 2025 has been confirmed!', type: 'BOOKING', link: 'evt-1' },
-   745→    { userId: publicUser.id, title: 'New Event Nearby', message: 'A new event "Startup Pitch Night" has been published near you!', type: 'EVENT_UPDATE', link: 'evt-4' },
-   746→    { userId: organizer1.id, title: 'New Booking', message: 'Someone just booked a ticket for Global Tech Summit 2025.', type: 'BOOKING', link: 'evt-1' },
-   747→    { userId: organizer1.id, title: 'Subscription Renewing', message: 'Your Professional plan subscription will renew in 5 days.', type: 'SYSTEM', link: '' },
-   748→    { userId: publicUser.id, title: 'Payment Received', message: 'Payment of $299.00 for Global Tech Summit 2025 received.', type: 'PAYMENT', link: 'evt-1' },
-   749→  ];
-   750→  for (const n of notifs) { try { await prisma.notification.create({ data: n }); } catch {} }
-   751→  console.log('✅ Notifications created');
-   752→
-   753→  // 14. System settings
-   754→  const settings = [
-   755→    { key: 'platform_name', value: 'AppleCalendar' },
-   756→    { key: 'platform_fee_percent', value: '5' },
-   757→    { key: 'default_currency', value: 'USD' },
-   758→    { key: 'support_email', value: 'support@applecalendar.com' },
-   759→  ];
-   760→  for (const s of settings) { try { await prisma.systemSetting.create({ data: s }); } catch {} }
-   761→  console.log('✅ System settings created');
+   660→  // 8.5 Create event participants, sessions, and media (Phase 4D)
+   661→
+   662→  // Participants for Global Tech Summit
+   663→  const participant1 = await prisma.eventParticipant.upsert({
+   664→    where: { id: 'participant-1' },
+   665→    update: {},
+   666→    create: {
+   667→      id: 'participant-1',
+   668→      eventId: 'evt-1',
+   669→      name: 'Dr. Aisha Osei',
+   670→      bio: 'AI researcher and CTO of TechForward Ghana. Leading expert in large language models and responsible AI.',
+   671→      image: 'https://images.unsplash.com/photo-1573497019940-19449e47e019?w=200&h=200&fit=crop',
+   672→      role: 'SPEAKER', // KEYNOTE is a session type, not a participant role
+   673→      title: 'Chief Technology Officer',
+   674→      organization: 'TechForward Ghana',
+   675→      socialLinks: JSON.stringify({ twitter: '@aisha_osei', linkedin: 'aisha-osei' }),
+   676→      sortOrder: 0,
+   677→      isFeatured: true,
+   678→    },
+   679→  });
+   680→
+   681→  const participant2 = await prisma.eventParticipant.upsert({
+   682→    where: { id: 'participant-2' },
+   683→    update: {},
+   684→    create: {
+   685→      id: 'participant-2',
+   686→      eventId: 'evt-1',
+   687→      name: 'Kwame Asante',
+   688→      bio: 'Venture capitalist focused on African tech startups. Managing partner at Accra Ventures.',
+   689→      image: 'https://images.unsplash.com/photo-1507003214450-2b4d9c707cd9?w=200&h=200&fit=crop',
+   690→      role: 'PANELIST',
+   691→      title: 'Managing Partner',
+   692→      organization: 'Accra Ventures',
+   693→      socialLinks: JSON.stringify({ twitter: '@kwame_asante', linkedin: 'kwame-asante' }),
+   694→      sortOrder: 1,
+   695→      isFeatured: true,
+   696→    },
+   697→  });
+   698→
+   699→  const participant3 = await prisma.eventParticipant.upsert({
+   700→    where: { id: 'participant-3' },
+   701→    update: {},
+   702→    create: {
+   703→      id: 'participant-3',
+   704→      eventId: 'evt-1',
+   705→      name: 'Fatima Mensah',
+   706→      bio: 'Cloud infrastructure architect at AWS. 15+ years building scalable distributed systems.',
+   707→      role: 'SPEAKER',
+   708→      title: 'Senior Solutions Architect',
+   709→      organization: 'Amazon Web Services',
+   710→      sortOrder: 2,
+   711→      isFeatured: false,
+   712→    },
+   713→  });
+   714→
+   715→  // Participants for Summer Music Festival
+   716→  const participant4 = await prisma.eventParticipant.upsert({
+   717→    where: { id: 'participant-4' },
+   718→    update: {},
+   719→    create: {
+   720→      id: 'participant-4',
+   721→      eventId: 'evt-2',
+   722→      name: 'Sarkodie',
+   723→      bio: 'Ghana\'s most decorated rapper and international music icon.',
+   724→      image: 'https://images.unsplash.com/photo-1493225457124-5f141f9f5280?w=200&h=200&fit=crop',
+   725→      role: 'ARTIST',
+   726→      organization: 'Sarkcess Music',
+   727→      sortOrder: 0,
+   728→      isFeatured: true,
+   729→    },
+   730→  });
+   731→
+   732→  const participant5 = await prisma.eventParticipant.upsert({
+   733→    where: { id: 'participant-5' },
+   734→    update: {},
+   735→    create: {
+   736→      id: 'participant-5',
+   737→      eventId: 'evt-2',
+   738→      name: 'Amaarae',
+   739→      bio: 'Genre-bending artist blending pop, R&B, and Afrobeats. Global chart-topper.',
+   740→      image: 'https://images.unsplash.com/photo-1516453937725-5a5afe8b88a7?w=200&h=200&fit=crop',
+   741→      role: 'ARTIST',
+   742→      organization: 'Golden Child Records',
+   743→      sortOrder: 1,
+   744→      isFeatured: true,
+   745→    },
+   746→  });
+   747→
+   748→  const participant6 = await prisma.eventParticipant.upsert({
+   749→    where: { id: 'participant-6' },
+   750→    update: {},
+   751→    create: {
+   752→      id: 'participant-6',
+   753→      eventId: 'evt-2',
+   754→      name: 'DJ Mic Smith',
+   755→      bio: 'Top Ghanaian DJ and music producer. Known for high-energy sets.',
+   756→      role: 'DJ',
+   757→      organization: 'MixMaster Entertainment',
+   758→      sortOrder: 2,
+   759→      isFeatured: false,
+   760→    },
+   761→  });
    762→
-   763→  console.log('\n🎉 Seed completed successfully!');
-   764→}
-   765→
-   766→main()
-   767→  .catch((e) => { console.error(e); process.exit(1); })
-   768→  .finally(async () => { await prisma.$disconnect(); });
-   769→
+   763→  // Sessions for Global Tech Summit
+   764→  await prisma.eventSession.upsert({
+   765→    where: { id: 'session-1' },
+   766→    update: {},
+   767→    create: {
+   768→      id: 'session-1',
+   769→      eventId: 'evt-1',
+   770→      title: 'Opening Keynote: The Future of AI in Africa',
+   771→      description: 'Dr. Osei shares her vision for responsible AI development across the African continent.',
+   772→      startTime: '09:00',
+   773→      endTime: '10:00',
+   774→      date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+   775→      sortOrder: 0,
+   776→      venueName: 'Main Hall',
+   777→      participantId: participant1.id,
+   778→      sessionType: 'KEYNOTE',
+   779→      status: 'SCHEDULED',
+   780→    },
+   781→  });
+   782→
+   783→  await prisma.eventSession.upsert({
+   784→    where: { id: 'session-2' },
+   785→    update: {},
+   786→    create: {
+   787→      id: 'session-2',
+   788→      eventId: 'evt-1',
+   789→      title: 'Building Scalable Cloud Infrastructure',
+   790→      description: 'A deep dive into cloud architecture patterns for high-traffic applications.',
+   791→      startTime: '10:30',
+   792→      endTime: '11:30',
+   793→      date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+   794→      sortOrder: 1,
+   795→      venueName: 'Room A',
+   796→      participantId: participant3.id,
+   797→      sessionType: 'SESSION',
+   798→      status: 'SCHEDULED',
+   799→    },
+   800→  });
+   801→
+   802→  await prisma.eventSession.upsert({
+   803→    where: { id: 'session-3' },
+   804→    update: {},
+   805→    create: {
+   806→      id: 'session-3',
+   807→      eventId: 'evt-1',
+   808→      title: 'Funding African Tech: VC Panel',
+   809→      description: 'Top VCs discuss investment trends and opportunities in African tech.',
+   810→      startTime: '14:00',
+   811→      endTime: '15:30',
+   812→      date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+   813→      sortOrder: 2,
+   814→      venueName: 'Main Hall',
+   815→      participantId: participant2.id,
+   816→      sessionType: 'PANEL',
+   817→      status: 'SCHEDULED',
+   818→    },
+   819→  });
+   820→
+   821→  await prisma.eventSession.upsert({
+   822→    where: { id: 'session-4' },
+   823→    update: {},
+   824→    create: {
+   825→      id: 'session-4',
+   826→      eventId: 'evt-1',
+   827→      title: 'Networking Break',
+   828→      startTime: '11:30',
+   829→      endTime: '12:00',
+   830→      date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+   831→      sortOrder: 3,
+   832→      venueName: 'Lobby',
+   833→      sessionType: 'BREAK',
+   834→      status: 'SCHEDULED',
+   835→    },
+   836→  });
+   837→
+   838→  await prisma.eventSession.upsert({
+   839→    where: { id: 'session-5' },
+   840→    update: {},
+   841→    create: {
+   842→      id: 'session-5',
+   843→      eventId: 'evt-1',
+   844→      title: 'Hands-on ML Workshop',
+   845→      description: 'Build and deploy your first ML model using Python and TensorFlow.',
+   846→      startTime: '13:00',
+   847→      endTime: '14:00',
+   848→      date: new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000),
+   849→      sortOrder: 0,
+   850→      venueName: 'Workshop Room',
+   851→      sessionType: 'WORKSHOP',
+   852→      status: 'SCHEDULED',
+   853→    },
+   854→  });
+   855→
+   856→  // Sessions for Summer Music Festival
+   857→  await prisma.eventSession.upsert({
+   858→    where: { id: 'session-6' },
+   859→    update: {},
+   860→    create: {
+   861→      id: 'session-6',
+   862→      eventId: 'evt-2',
+   863→      title: 'Main Stage: Sarkodie Live',
+   864→      startTime: '20:00',
+   865→      endTime: '22:00',
+   866→      date: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+   867→      sortOrder: 0,
+   868→      venueName: 'Main Stage',
+   869→      participantId: participant4.id,
+   870→      sessionType: 'ENTERTAINMENT',
+   871→      status: 'SCHEDULED',
+   872→    },
+   873→  });
+   874→
+   875→  await prisma.eventSession.upsert({
+   876→    where: { id: 'session-7' },
+   877→    update: {},
+   878→    create: {
+   879→      id: 'session-7',
+   880→      eventId: 'evt-2',
+   881→      title: 'Acoustic Set: Amaarae',
+   882→      startTime: '16:00',
+   883→      endTime: '17:30',
+   884→      date: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+   885→      sortOrder: 1,
+   886→      venueName: 'Garden Stage',
+   887→      participantId: participant5.id,
+   888→      sessionType: 'ENTERTAINMENT',
+   889→      status: 'SCHEDULED',
+   890→    },
+   891→  });
+   892→
+   893→  // Media for Global Tech Summit
+   894→  await prisma.eventMedia.upsert({
+   895→    where: { id: 'media-1' },
+   896→    update: {},
+   897→    create: {
+   898→      id: 'media-1',
+   899→      eventId: 'evt-1',
+   900→      url: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=600&fit=crop',
+   901→      type: 'IMAGE',
+   902→      category: 'COVER',
+   903→      caption: 'Global Tech Summit 2025 main stage',
+   904→      sortOrder: 0,
+   905→      uploadedBy: organizer1.id,
+   906→    },
+   907→  });
+   908→
+   909→  await prisma.eventMedia.upsert({
+   910→    where: { id: 'media-2' },
+   911→    update: {},
+   912→    create: {
+   913→      id: 'media-2',
+   914→      eventId: 'evt-1',
+   915→      url: 'https://images.unsplash.com/photo-1591115765373-520776b6d1c9?w=800&h=600&fit=crop',
+   916→      type: 'IMAGE',
+   917→      category: 'GALLERY',
+   918→      caption: 'Attendees networking at the 2024 summit',
+   919→      sortOrder: 1,
+   920→      uploadedBy: organizer1.id,
+   921→    },
+   922→  });
+   923→
+   924→  await prisma.eventMedia.upsert({
+   925→    where: { id: 'media-3' },
+   926→    update: {},
+   927→    create: {
+   928→      id: 'media-3',
+   929→      eventId: 'evt-1',
+   930→      url: 'https://images.unsplash.com/photo-147572em71310d9ba4db05803?w=800&h=600&fit=crop',
+   931→      type: 'IMAGE',
+   932→      category: 'GALLERY',
+   933→      caption: 'Workshop session in progress',
+   934→      sortOrder: 2,
+   935→      uploadedBy: organizer1.id,
+   936→    },
+   937→  });
+   938→
+   939→  // Media for Summer Music Festival
+   940→  await prisma.eventMedia.upsert({
+   941→    where: { id: 'media-4' },
+   942→    update: {},
+   943→    create: {
+   944→      id: 'media-4',
+   945→      eventId: 'evt-2',
+   946→      url: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=1200&h=600&fit=crop',
+   947→      type: 'IMAGE',
+   948→      category: 'POSTER',
+   949→      caption: 'Summer Music Festival 2025 poster',
+   950→      sortOrder: 0,
+   951→      uploadedBy: organizer1.id,
+   952→    },
+   953→  });
+   954→
+   955→  await prisma.eventMedia.upsert({
+   956→    where: { id: 'media-5' },
+   957→    update: {},
+   958→    create: {
+   959→      id: 'media-5',
+   960→      eventId: 'evt-2',
+   961→      url: 'https://images.unsplash.com/photo-1493225457124-5f141f9f5280?w=800&h=600&fit=crop',
+   962→      type: 'IMAGE',
+   963→      category: 'GALLERY',
+   964→      caption: 'Festival stage setup',
+   965→      sortOrder: 1,
+   966→      uploadedBy: organizer1.id,
+   967→    },
+   968→  });
+   969→
+   970→  // Media for AI Workshop
+   971→  await prisma.eventMedia.upsert({
+   972→    where: { id: 'media-6' },
+   973→    update: {},
+   974→    create: {
+   975→      id: 'media-6',
+   976→      eventId: 'evt-3',
+   977→      url: 'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=1200&h=600&fit=crop',
+   978→      type: 'IMAGE',
+   979→      category: 'COVER',
+   980→      caption: 'AI & ML Workshop',
+   981→      sortOrder: 0,
+   982→      uploadedBy: organizer2.id,
+   983→    },
+   984→  });
+   985→
+   986→  console.log('✅ Event Content (Participants, Sessions, Media) created');
+   987→
+   988→  // 9. Create bookings
+   989→  const bookingsData = [
+   990→    { userId: publicUser.id, eventId: 'evt-4', status: 'CONFIRMED', amount: 0 },
+   991→    { userId: publicUser.id, eventId: 'evt-1', status: 'CONFIRMED', amount: 299 },
+   992→    { userId: publicUser.id, eventId: 'evt-2', status: 'PENDING', amount: 159 },
+   993→  ];
+   994→
+   995→  for (let i = 0; i < bookingsData.length; i++) {
+   996→    const b = bookingsData[i];
+   997→    const bookingRef = `APC-${Date.now()}-${i}`;
+   998→    const booking = await prisma.booking.create({
+   999→      data: { userId: b.userId, eventId: b.eventId, totalAmount: b.amount, currency: 'USD', status: b.status, bookingRef },
+  1000→    });
+  1001→    const ticketType = await prisma.ticketType.findFirst({ where: { eventId: b.eventId } });
+  1002→    if (ticketType) {
+  1003→      await prisma.ticket.create({
+  1004→        data: { ticketTypeId: ticketType.id, bookingId: booking.id, qrCode: `QR-${bookingRef}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`, status: b.status === 'CONFIRMED' ? 'VALID' : 'VALID' },
+  1005→      });
+  1006→    }
+  1007→    if (b.amount > 0) {
+  1008→      await prisma.payment.create({
+  1009→        data: { bookingId: booking.id, userId: b.userId, amount: b.amount, currency: 'USD', method: 'STRIPE', status: b.status === 'CONFIRMED' ? 'COMPLETED' : 'PENDING', transactionId: `txn_${Math.random().toString(36).substring(2, 15)}` },
+  1010→      });
+  1011→    }
+  1012→  }
+  1013→  console.log('✅ Bookings created');
+  1014→
+  1015→  // 10. Create reviews
+  1016→  try { await prisma.review.create({ data: { userId: publicUser.id, eventId: 'evt-4', rating: 5, comment: 'Amazing event! Great networking opportunities and the pitches were fantastic.' } }); } catch {}
+  1017→  try { await prisma.review.create({ data: { userId: publicUser.id, eventId: 'evt-1', rating: 4, comment: 'Well organized conference with great speakers. Looking forward to next year.' } }); } catch {}
+  1018→  console.log('✅ Reviews created');
+  1019→
+  1020→  // 11. Create event analytics
+  1021→  const publishedEvents = await prisma.event.findMany({ where: { status: 'PUBLISHED' } });
+  1022→  for (const event of publishedEvents) {
+  1023→    for (let d = 0; d < 30; d++) {
+  1024→      const date = new Date(now.getTime() - (29 - d) * 24 * 60 * 60 * 1000);
+  1025→      const dateStr = date.toISOString().split('T')[0];
+  1026→      await prisma.eventAnalytics.upsert({
+  1027→        where: { eventId_date: { eventId: event.id, date: dateStr } },
+  1028→        update: {},
+  1029→        create: {
+  1030→          eventId: event.id, date: dateStr,
+  1031→          views: Math.floor(Math.random() * 500) + 50,
+  1032→          clicks: Math.floor(Math.random() * 100) + 10,
+  1033→          bookings: Math.floor(Math.random() * 20) + 1,
+  1034→          revenue: Math.floor(Math.random() * 5000) + 100,
+  1035→        },
+  1036→      });
+  1037→    }
+  1038→  }
+  1039→  console.log('✅ Analytics created');
+  1040→
+  1041→  // 12. Create advertisements (Phase 4A — with organizerId, approvalStatus, reviewedBy)
+  1042→  try {
+  1043→    await prisma.advertisement.create({
+  1044→      data: {
+  1045→        title: 'Premium Event Promotion',
+  1046→        imageUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&h=200&fit=crop',
+  1047→        linkUrl: 'evt-1', position: 'BANNER', status: 'ACTIVE',
+  1048→        impressions: 15420, clicks: 892,
+  1049→        startDate: new Date(), endDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+  1050→        eventId: 'evt-1', advertiserId: organizer1.id,
+  1051→        organizerId: orgProfile1.id, approvalStatus: 'APPROVED', reviewedBy: superAdmin.id,
+  1052→      },
+  1053→    });
+  1054→  } catch {}
+  1055→  try {
+  1056→    await prisma.advertisement.create({
+  1057→      data: {
+  1058→        title: 'Summer Festival Early Bird',
+  1059→        imageUrl: 'https://images.unsplash.com/photo-1429962714451-bb934ecdc4ec?w=300&h=250&fit=crop',
+  1060→        linkUrl: 'evt-2', position: 'SIDEBAR', status: 'ACTIVE',
+  1061→        impressions: 8930, clicks: 456,
+  1062→        startDate: new Date(), endDate: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+  1063→        eventId: 'evt-2', advertiserId: organizer1.id,
+  1064→        organizerId: orgProfile1.id, approvalStatus: 'APPROVED', reviewedBy: superAdmin.id,
+  1065→      },
+  1066→    });
+  1067→  } catch {}
+  1068→  console.log('✅ Advertisements created');
+  1069→
+  1070→  // 13. Create notifications
+  1071→  const notifs = [
+  1072→    { userId: publicUser.id, title: 'Booking Confirmed', message: 'Your booking for Global Tech Summit 2025 has been confirmed!', type: 'BOOKING', link: 'evt-1' },
+  1073→    { userId: publicUser.id, title: 'New Event Nearby', message: 'A new event "Startup Pitch Night" has been published near you!', type: 'EVENT_UPDATE', link: 'evt-4' },
+  1074→    { userId: organizer1.id, title: 'New Booking', message: 'Someone just booked a ticket for Global Tech Summit 2025.', type: 'BOOKING', link: 'evt-1' },
+  1075→    { userId: organizer1.id, title: 'Subscription Renewing', message: 'Your Professional plan subscription will renew in 5 days.', type: 'SYSTEM', link: '' },
+  1076→    { userId: publicUser.id, title: 'Payment Received', message: 'Payment of $299.00 for Global Tech Summit 2025 received.', type: 'PAYMENT', link: 'evt-1' },
+  1077→  ];
+  1078→  for (const n of notifs) { try { await prisma.notification.create({ data: n }); } catch {} }
+  1079→  console.log('✅ Notifications created');
+  1080→
+  1081→  // 14. System settings
+  1082→  const settings = [
+  1083→    { key: 'platform_name', value: 'AppleCalendar' },
+  1084→    { key: 'platform_fee_percent', value: '5' },
+  1085→    { key: 'default_currency', value: 'USD' },
+  1086→    { key: 'support_email', value: 'support@applecalendar.com' },
+  1087→  ];
+  1088→  for (const s of settings) { try { await prisma.systemSetting.create({ data: s }); } catch {} }
+  1089→  console.log('✅ System settings created');
+  1090→
+  1091→  console.log('\n🎉 Seed completed successfully!');
+  1092→}
+  1093→
+  1094→main()
+  1095→  .catch((e) => { console.error(e); process.exit(1); })
+  1096→  .finally(async () => { await prisma.$disconnect(); });
+  1097→

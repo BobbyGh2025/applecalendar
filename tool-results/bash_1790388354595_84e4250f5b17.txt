@@ -1,0 +1,581 @@
+Server keeper started, PID: 8730
+Health check server on port 3001
+▲ Next.js 16.1.3 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://21.0.18.187:3000
+- Environments: .env
+
+✓ Starting...
+✅ Server ready on port 3000
+✓ Ready in 710ms
+
+==========================================
+STEP 1: Open page
+==========================================
+○ Compiling / ...
+ GET / 200 in 6.9s (compile: 6.5s, render: 366ms)
+⚠ Blocked cross-origin request from 127.0.0.1 to /_next/* resource. To allow this, configure "allowedDevOrigins" in next.config
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+✓ AppleCalendar — Discover & Manage Events
+  http://127.0.0.1:3000/
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`title`, `main`.`Event`.`slug`, `main`.`Event`.`description`, `main`.`Event`.`shortDescription`, `main`.`Event`.`coverImage`, `main`.`Event`.`startDate`, `main`.`Event`.`endDate`, `main`.`Event`.`startTime`, `main`.`Event`.`endTime`, `main`.`Event`.`timezone`, `main`.`Event`.`venueName`, `main`.`Event`.`venueAddress`, `main`.`Event`.`venueCity`, `main`.`Event`.`venueState`, `main`.`Event`.`venueCountry`, `main`.`Event`.`venueLat`, `main`.`Event`.`venueLng`, `main`.`Event`.`isVirtual`, `main`.`Event`.`virtualUrl`, `main`.`Event`.`capacity`, `main`.`Event`.`status`, `main`.`Event`.`isFeatured`, `main`.`Event`.`isPaid`, `main`.`Event`.`currency`, `main`.`Event`.`organizerId`, `main`.`Event`.`categoryId`, `main`.`Event`.`venueId`, `main`.`Event`.`contactEmail`, `main`.`Event`.`contactPhone`, `main`.`Event`.`ageRestriction`, `main`.`Event`.`visibility`, `main`.`Event`.`rejectionReason`, `main`.`Event`.`moderatedBy`, `main`.`Event`.`moderatedAt`, `main`.`Event`.`isBookable`, `main`.`Event`.`createdAt`, `main`.`Event`.`updatedAt`, COALESCE(`aggr_selection_0_Review`.`_aggr_count_reviews`, 0) AS `_aggr_count_reviews`, COALESCE(`aggr_selection_1_Booking`.`_aggr_count_bookings`, 0) AS `_aggr_count_bookings` FROM `main`.`Event` LEFT JOIN (SELECT `main`.`Review`.`eventId`, COUNT(*) AS `_aggr_count_reviews` FROM `main`.`Review` WHERE 1=1 GROUP BY `main`.`Review`.`eventId`) AS `aggr_selection_0_Review` ON (`main`.`Event`.`id` = `aggr_selection_0_Review`.`eventId`) LEFT JOIN (SELECT `main`.`Booking`.`eventId`, COUNT(*) AS `_aggr_count_bookings` FROM `main`.`Booking` WHERE 1=1 GROUP BY `main`.`Booking`.`eventId`) AS `aggr_selection_1_Booking` ON (`main`.`Event`.`id` = `aggr_selection_1_Booking`.`eventId`) WHERE `main`.`Event`.`status` = ? ORDER BY `main`.`Event`.`startDate` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Category`.`id`, `main`.`Category`.`name`, `main`.`Category`.`slug`, `main`.`Category`.`icon`, `main`.`Category`.`color` FROM `main`.`Category` WHERE `main`.`Category`.`id` IN (?,?,?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`TicketType`.`id`, `main`.`TicketType`.`name`, `main`.`TicketType`.`price`, `main`.`TicketType`.`quantity`, `main`.`TicketType`.`soldCount`, `main`.`TicketType`.`currency`, `main`.`TicketType`.`eventId` FROM `main`.`TicketType` WHERE `main`.`TicketType`.`eventId` IN (?,?,?,?,?,?,?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Category`.`id`, `main`.`Category`.`name`, `main`.`Category`.`slug`, `main`.`Category`.`icon`, `main`.`Category`.`color`, `main`.`Category`.`sortOrder`, `main`.`Category`.`isActive`, `main`.`Category`.`createdAt`, `main`.`Category`.`updatedAt`, COALESCE(`aggr_selection_0_Event`.`_aggr_count_events`, 0) AS `_aggr_count_events` FROM `main`.`Category` LEFT JOIN (SELECT `main`.`Event`.`categoryId`, COUNT(*) AS `_aggr_count_events` FROM `main`.`Event` WHERE 1=1 GROUP BY `main`.`Event`.`categoryId`) AS `aggr_selection_0_Event` ON (`main`.`Category`.`id` = `aggr_selection_0_Event`.`categoryId`) WHERE `main`.`Category`.`isActive` = ? ORDER BY `main`.`Category`.`sortOrder` ASC LIMIT ? OFFSET ?
+ GET /api/categories 200 in 409ms (compile: 209ms, render: 200ms)
+ GET /api/events?page=1&limit=12&featured=false 200 in 407ms (compile: 368ms, render: 39ms)
+ GET /api/events?featured=true&limit=6 200 in 416ms (compile: 381ms, render: 35ms)
+prisma:query SELECT COUNT(*) AS `_count$_all` FROM (SELECT `main`.`Event`.`id` FROM `main`.`Event` WHERE `main`.`Event`.`status` = ? LIMIT ? OFFSET ?) AS `sub`
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`name`, `main`.`User`.`avatar` FROM `main`.`User` WHERE `main`.`User`.`id` IN (?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT COUNT(*) AS `_count$_all` FROM (SELECT `main`.`Event`.`id` FROM `main`.`Event` WHERE `main`.`Event`.`status` = ? LIMIT ? OFFSET ?) AS `sub`
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`title`, `main`.`Event`.`slug`, `main`.`Event`.`description`, `main`.`Event`.`shortDescription`, `main`.`Event`.`coverImage`, `main`.`Event`.`startDate`, `main`.`Event`.`endDate`, `main`.`Event`.`startTime`, `main`.`Event`.`endTime`, `main`.`Event`.`timezone`, `main`.`Event`.`venueName`, `main`.`Event`.`venueAddress`, `main`.`Event`.`venueCity`, `main`.`Event`.`venueState`, `main`.`Event`.`venueCountry`, `main`.`Event`.`venueLat`, `main`.`Event`.`venueLng`, `main`.`Event`.`isVirtual`, `main`.`Event`.`virtualUrl`, `main`.`Event`.`capacity`, `main`.`Event`.`status`, `main`.`Event`.`isFeatured`, `main`.`Event`.`isPaid`, `main`.`Event`.`currency`, `main`.`Event`.`organizerId`, `main`.`Event`.`categoryId`, `main`.`Event`.`venueId`, `main`.`Event`.`contactEmail`, `main`.`Event`.`contactPhone`, `main`.`Event`.`ageRestriction`, `main`.`Event`.`visibility`, `main`.`Event`.`rejectionReason`, `main`.`Event`.`moderatedBy`, `main`.`Event`.`moderatedAt`, `main`.`Event`.`isBookable`, `main`.`Event`.`createdAt`, `main`.`Event`.`updatedAt`, COALESCE(`aggr_selection_0_Review`.`_aggr_count_reviews`, 0) AS `_aggr_count_reviews`, COALESCE(`aggr_selection_1_Booking`.`_aggr_count_bookings`, 0) AS `_aggr_count_bookings` FROM `main`.`Event` LEFT JOIN (SELECT `main`.`Review`.`eventId`, COUNT(*) AS `_aggr_count_reviews` FROM `main`.`Review` WHERE 1=1 GROUP BY `main`.`Review`.`eventId`) AS `aggr_selection_0_Review` ON (`main`.`Event`.`id` = `aggr_selection_0_Review`.`eventId`) LEFT JOIN (SELECT `main`.`Booking`.`eventId`, COUNT(*) AS `_aggr_count_bookings` FROM `main`.`Booking` WHERE 1=1 GROUP BY `main`.`Booking`.`eventId`) AS `aggr_selection_1_Booking` ON (`main`.`Event`.`id` = `aggr_selection_1_Booking`.`eventId`) WHERE `main`.`Event`.`status` = ? ORDER BY `main`.`Event`.`startDate` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Category`.`id`, `main`.`Category`.`name`, `main`.`Category`.`slug`, `main`.`Category`.`icon`, `main`.`Category`.`color` FROM `main`.`Category` WHERE `main`.`Category`.`id` IN (?,?,?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`TicketType`.`id`, `main`.`TicketType`.`name`, `main`.`TicketType`.`price`, `main`.`TicketType`.`quantity`, `main`.`TicketType`.`soldCount`, `main`.`TicketType`.`currency`, `main`.`TicketType`.`eventId` FROM `main`.`TicketType` WHERE `main`.`TicketType`.`eventId` IN (?,?,?,?,?,?,?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`name`, `main`.`User`.`avatar` FROM `main`.`User` WHERE `main`.`User`.`id` IN (?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`title`, `main`.`Event`.`slug`, `main`.`Event`.`description`, `main`.`Event`.`shortDescription`, `main`.`Event`.`coverImage`, `main`.`Event`.`startDate`, `main`.`Event`.`endDate`, `main`.`Event`.`startTime`, `main`.`Event`.`endTime`, `main`.`Event`.`timezone`, `main`.`Event`.`venueName`, `main`.`Event`.`venueAddress`, `main`.`Event`.`venueCity`, `main`.`Event`.`venueState`, `main`.`Event`.`venueCountry`, `main`.`Event`.`venueLat`, `main`.`Event`.`venueLng`, `main`.`Event`.`isVirtual`, `main`.`Event`.`virtualUrl`, `main`.`Event`.`capacity`, `main`.`Event`.`status`, `main`.`Event`.`isFeatured`, `main`.`Event`.`isPaid`, `main`.`Event`.`currency`, `main`.`Event`.`organizerId`, `main`.`Event`.`categoryId`, `main`.`Event`.`venueId`, `main`.`Event`.`contactEmail`, `main`.`Event`.`contactPhone`, `main`.`Event`.`ageRestriction`, `main`.`Event`.`visibility`, `main`.`Event`.`rejectionReason`, `main`.`Event`.`moderatedBy`, `main`.`Event`.`moderatedAt`, `main`.`Event`.`isBookable`, `main`.`Event`.`createdAt`, `main`.`Event`.`updatedAt`, COALESCE(`aggr_selection_0_Review`.`_aggr_count_reviews`, 0) AS `_aggr_count_reviews`, COALESCE(`aggr_selection_1_Booking`.`_aggr_count_bookings`, 0) AS `_aggr_count_bookings` FROM `main`.`Event` LEFT JOIN (SELECT `main`.`Review`.`eventId`, COUNT(*) AS `_aggr_count_reviews` FROM `main`.`Review` WHERE 1=1 GROUP BY `main`.`Review`.`eventId`) AS `aggr_selection_0_Review` ON (`main`.`Event`.`id` = `aggr_selection_0_Review`.`eventId`) LEFT JOIN (SELECT `main`.`Booking`.`eventId`, COUNT(*) AS `_aggr_count_bookings` FROM `main`.`Booking` WHERE 1=1 GROUP BY `main`.`Booking`.`eventId`) AS `aggr_selection_1_Booking` ON (`main`.`Event`.`id` = `aggr_selection_1_Booking`.`eventId`) WHERE `main`.`Event`.`status` = ? ORDER BY `main`.`Event`.`startDate` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Category`.`id`, `main`.`Category`.`name`, `main`.`Category`.`slug`, `main`.`Category`.`icon`, `main`.`Category`.`color` FROM `main`.`Category` WHERE `main`.`Category`.`id` IN (?,?,?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`TicketType`.`id`, `main`.`TicketType`.`name`, `main`.`TicketType`.`price`, `main`.`TicketType`.`quantity`, `main`.`TicketType`.`soldCount`, `main`.`TicketType`.`currency`, `main`.`TicketType`.`eventId` FROM `main`.`TicketType` WHERE `main`.`TicketType`.`eventId` IN (?,?,?,?,?,?,?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`name`, `main`.`User`.`avatar` FROM `main`.`User` WHERE `main`.`User`.`id` IN (?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT COUNT(*) AS `_count$_all` FROM (SELECT `main`.`Event`.`id` FROM `main`.`Event` WHERE `main`.`Event`.`status` = ? LIMIT ? OFFSET ?) AS `sub`
+ GET /api/events?page=1&limit=12&featured=false 200 in 10ms (compile: 3ms, render: 8ms)
+
+==========================================
+STEP 2: Check page title and snapshot
+==========================================
+AppleCalendar — Discover & Manage Events
+http://127.0.0.1:3000/
+
+==========================================
+STEP 3: Check for page errors
+==========================================
+
+==========================================
+STEP 4: Take interactive snapshot
+==========================================
+- button "AppleCalendar" [ref=e171]
+- textbox "Search events..." [ref=e190]
+- button "Login" [ref=e172]
+- button "Register" [ref=e173]
+- heading "AppleCalendar" [level=2, ref=e174]
+- button "Discover Events" [ref=e214]
+- button "My Bookings" [ref=e215]
+- button "My Tickets" [ref=e216]
+- button "Notifications" [ref=e217]
+- button "Profile" [ref=e218]
+- button "Change Password" [ref=e219]
+- heading "Discover Amazing Events" [level=1, ref=e203]
+- textbox "Search events..." [ref=e220]
+- button "All" [ref=e175]
+- button "This Week" [ref=e176]
+- button "This Month" [ref=e177]
+- button "Next Month" [ref=e178]
+- button "All Categories" [ref=e179]
+- button "Music" [ref=e180]
+- button "Technology" [ref=e181]
+- button "Business" [ref=e182]
+- button "Sports" [ref=e183]
+- button "Arts" [ref=e184]
+- button "Food & Drink" [ref=e185]
+- button "Health" [ref=e186]
+- button "Education" [ref=e187]
+- button "Community" [ref=e188]
+- button "Networking" [ref=e189]
+- heading "Featured Events" [level=2, ref=e191]
+- generic "FeaturedBusinessStartup Pitch NightSep 30, 2026Free" [ref=e221] clickable [cursor:pointer, onclick]
+  - heading "Startup Pitch Night" [level=3, ref=e231]
+- generic "FeaturedTechnologyAI & Machine Learning WorkshopOct 5, 2026$199.00" [ref=e222] clickable [cursor:pointer, onclick]
+  - heading "AI & Machine Learning Workshop" [level=3, ref=e232]
+- generic "FeaturedArtsContemporary Art ExhibitionOct 10, 2026$15.00" [ref=e223] clickable [cursor:pointer, onclick]
+  - heading "Contemporary Art Exhibition" [level=3, ref=e233]
+- generic "FeaturedTechnologyVirtual Blockchain ConferenceOct 15, 2026$49.00" [ref=e224] clickable [cursor:pointer, onclick]
+  - heading "Virtual Blockchain Conference" [level=3, ref=e234]
+- generic "FeaturedTechnologyGlobal Tech Summit 2025Oct 20, 2026$149.00" [ref=e225] clickable [cursor:pointer, onclick]
+  - heading "Global Tech Summit 2025" [level=3, ref=e235]
+- generic "FeaturedP4D Test Event 1Oct 26, 2026Free" [ref=e226] clickable [cursor:pointer, onclick]
+  - heading "P4D Test Event 1" [level=3, ref=e236]
+- generic "FeaturedP4D Test Event 2Oct 26, 2026Free" [ref=e227] clickable [cursor:pointer, onclick]
+  - heading "P4D Test Event 2" [level=3, ref=e237]
+- generic "FeaturedSportsCity Marathon 2025Oct 30, 2026$30.00" [ref=e228] clickable [cursor:pointer, onclick]
+  - heading "City Marathon 2025" [level=3, ref=e238]
+- generic "FeaturedMusicSummer Music FestivalNov 4, 2026$89.00" [ref=e229] clickable [cursor:pointer, onclick]
+  - heading "Summer Music Festival" [level=3, ref=e239]
+- generic "FeaturedFood & DrinkInternational Food & Wine ExpoNov 19, 2026$45.00" [ref=e230] clickable [cursor:pointer, onclick]
+  - heading "International Food & Wine Expo" [level=3, ref=e240]
+- heading "Upcoming Events(0)" [level=2, ref=e192]
+- generic "BusinessStartup Pitch NightSep 30, 2026· 18:30WeWork SoHo, New YorkFree1336 tickets sold100%" [ref=e193] clickable [cursor:pointer, onclick]
+  - heading "Startup Pitch Night" [level=3, ref=e204]
+- generic "TechnologyAI & Machine Learning WorkshopOct 5, 2026· 10:00TechHub NYC, New York$199.00381 tickets so" [ref=e194] clickable [cursor:pointer, onclick]
+  - heading "AI & Machine Learning Workshop" [level=3, ref=e205]
+- generic "ArtsContemporary Art ExhibitionOct 10, 2026· 10:00MoMA PS1, New York$15.00669 tickets sold100%" [ref=e195] clickable [cursor:pointer, onclick]
+  - heading "Contemporary Art Exhibition" [level=3, ref=e206]
+- generic "TechnologyVirtualVirtual Blockchain ConferenceOct 15, 2026· 09:00🌐 Online Event$49.0012270 tickets" [ref=e196] clickable [cursor:pointer, onclick]
+  - heading "Virtual Blockchain Conference" [level=3, ref=e207]
+- generic "TechnologyGlobal Tech Summit 2025Oct 20, 2026· 09:00Moscone Center, San Francisco$149.0018346 ticket" [ref=e197] clickable [cursor:pointer, onclick]
+  - heading "Global Tech Summit 2025" [level=3, ref=e208]
+- generic "P4D Test Event 1Oct 26, 2026Free" [ref=e198] clickable [cursor:pointer, onclick]
+  - heading "P4D Test Event 1" [level=3, ref=e209]
+- generic "P4D Test Event 2Oct 26, 2026Free" [ref=e199] clickable [cursor:pointer, onclick]
+  - heading "P4D Test Event 2" [level=3, ref=e210]
+- generic "SportsCity Marathon 2025Oct 30, 2026· 06:00Central Park, New York$30.0057000 tickets sold100%" [ref=e200] clickable [cursor:pointer, onclick]
+  - heading "City Marathon 2025" [level=3, ref=e211]
+- generic "MusicSummer Music FestivalNov 4, 2026· 12:00Central Park Great Lawn, New York$89.0035223 tickets sol" [ref=e201] clickable [cursor:pointer, onclick]
+  - heading "Summer Music Festival" [level=3, ref=e212]
+- generic "Food & DrinkInternational Food & Wine ExpoNov 19, 2026· 11:00Javits Center, New York$45.0011970 tick" [ref=e202] clickable [cursor:pointer, onclick]
+  - heading "International Food & Wine Expo" [level=3, ref=e213]
+- region "Notifications alt+T" [ref=e170]
+
+==========================================
+STEP 5: Click on AI & Machine Learning Workshop (upcoming events)
+==========================================
+✓ Done
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`title`, `main`.`Event`.`slug`, `main`.`Event`.`description`, `main`.`Event`.`shortDescription`, `main`.`Event`.`coverImage`, `main`.`Event`.`startDate`, `main`.`Event`.`endDate`, `main`.`Event`.`startTime`, `main`.`Event`.`endTime`, `main`.`Event`.`timezone`, `main`.`Event`.`venueName`, `main`.`Event`.`venueAddress`, `main`.`Event`.`venueCity`, `main`.`Event`.`venueState`, `main`.`Event`.`venueCountry`, `main`.`Event`.`venueLat`, `main`.`Event`.`venueLng`, `main`.`Event`.`isVirtual`, `main`.`Event`.`virtualUrl`, `main`.`Event`.`capacity`, `main`.`Event`.`status`, `main`.`Event`.`isFeatured`, `main`.`Event`.`isPaid`, `main`.`Event`.`currency`, `main`.`Event`.`organizerId`, `main`.`Event`.`categoryId`, `main`.`Event`.`venueId`, `main`.`Event`.`contactEmail`, `main`.`Event`.`contactPhone`, `main`.`Event`.`ageRestriction`, `main`.`Event`.`visibility`, `main`.`Event`.`rejectionReason`, `main`.`Event`.`moderatedBy`, `main`.`Event`.`moderatedAt`, `main`.`Event`.`isBookable`, `main`.`Event`.`createdAt`, `main`.`Event`.`updatedAt`, COALESCE(`aggr_selection_0_Booking`.`_aggr_count_bookings`, 0) AS `_aggr_count_bookings` FROM `main`.`Event` LEFT JOIN (SELECT `main`.`Booking`.`eventId`, COUNT(*) AS `_aggr_count_bookings` FROM `main`.`Booking` WHERE 1=1 GROUP BY `main`.`Booking`.`eventId`) AS `aggr_selection_0_Booking` ON (`main`.`Event`.`id` = `aggr_selection_0_Booking`.`eventId`) WHERE (`main`.`Event`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Category`.`id`, `main`.`Category`.`name`, `main`.`Category`.`slug`, `main`.`Category`.`icon`, `main`.`Category`.`color` FROM `main`.`Category` WHERE `main`.`Category`.`id` IN (?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`TicketType`.`id`, `main`.`TicketType`.`name`, `main`.`TicketType`.`description`, `main`.`TicketType`.`price`, `main`.`TicketType`.`currency`, `main`.`TicketType`.`quantity`, `main`.`TicketType`.`soldCount`, `main`.`TicketType`.`minPerOrder`, `main`.`TicketType`.`maxPerOrder`, `main`.`TicketType`.`saleStart`, `main`.`TicketType`.`saleEnd`, `main`.`TicketType`.`isActive`, `main`.`TicketType`.`eventId` FROM `main`.`TicketType` WHERE `main`.`TicketType`.`eventId` IN (?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`name`, `main`.`User`.`avatar`, `main`.`User`.`bio` FROM `main`.`User` WHERE `main`.`User`.`id` IN (?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Review`.`id`, `main`.`Review`.`userId`, `main`.`Review`.`eventId`, `main`.`Review`.`rating`, `main`.`Review`.`comment`, `main`.`Review`.`createdAt`, `main`.`Review`.`updatedAt` FROM `main`.`Review` WHERE `main`.`Review`.`eventId` IN (?) ORDER BY `main`.`Review`.`createdAt` DESC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventTag`.`id`, `main`.`EventTag`.`eventId`, `main`.`EventTag`.`tagId`, `main`.`EventTag`.`createdAt` FROM `main`.`EventTag` WHERE `main`.`EventTag`.`eventId` IN (?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventSession`.`id`, `main`.`EventSession`.`eventId`, `main`.`EventSession`.`title`, `main`.`EventSession`.`description`, `main`.`EventSession`.`startTime`, `main`.`EventSession`.`endTime`, `main`.`EventSession`.`date`, `main`.`EventSession`.`sortOrder`, `main`.`EventSession`.`venueId`, `main`.`EventSession`.`venueName`, `main`.`EventSession`.`participantId`, `main`.`EventSession`.`sessionType`, `main`.`EventSession`.`status`, `main`.`EventSession`.`createdAt`, `main`.`EventSession`.`updatedAt` FROM `main`.`EventSession` WHERE (`main`.`EventSession`.`status` = ? AND `main`.`EventSession`.`eventId` IN (?)) ORDER BY `main`.`EventSession`.`date` ASC, `main`.`EventSession`.`sortOrder` ASC, `main`.`EventSession`.`startTime` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventParticipant`.`id`, `main`.`EventParticipant`.`name`, `main`.`EventParticipant`.`bio`, `main`.`EventParticipant`.`image`, `main`.`EventParticipant`.`role`, `main`.`EventParticipant`.`title`, `main`.`EventParticipant`.`organization`, `main`.`EventParticipant`.`isFeatured`, `main`.`EventParticipant`.`eventId`, COALESCE(`aggr_selection_0_EventSession`.`_aggr_count_sessions`, 0) AS `_aggr_count_sessions` FROM `main`.`EventParticipant` LEFT JOIN (SELECT `main`.`EventSession`.`participantId`, COUNT(*) AS `_aggr_count_sessions` FROM `main`.`EventSession` WHERE 1=1 GROUP BY `main`.`EventSession`.`participantId`) AS `aggr_selection_0_EventSession` ON (`main`.`EventParticipant`.`id` = `aggr_selection_0_EventSession`.`participantId`) WHERE `main`.`EventParticipant`.`eventId` IN (?) ORDER BY `main`.`EventParticipant`.`isFeatured` DESC, `main`.`EventParticipant`.`sortOrder` ASC, `main`.`EventParticipant`.`name` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventMedia`.`id`, `main`.`EventMedia`.`eventId`, `main`.`EventMedia`.`url`, `main`.`EventMedia`.`type`, `main`.`EventMedia`.`category`, `main`.`EventMedia`.`caption`, `main`.`EventMedia`.`sortOrder`, `main`.`EventMedia`.`fileSize`, `main`.`EventMedia`.`mimeType`, `main`.`EventMedia`.`uploadedBy`, `main`.`EventMedia`.`createdAt`, `main`.`EventMedia`.`updatedAt` FROM `main`.`EventMedia` WHERE `main`.`EventMedia`.`eventId` IN (?) ORDER BY `main`.`EventMedia`.`sortOrder` ASC, `main`.`EventMedia`.`createdAt` ASC LIMIT ? OFFSET ?
+ GET /api/events/evt-3 200 in 2.1s (compile: 1994ms, render: 102ms)
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`status` FROM `main`.`Event` WHERE (`main`.`Event`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventParticipant`.`id`, `main`.`EventParticipant`.`name`, `main`.`EventParticipant`.`bio`, `main`.`EventParticipant`.`image`, `main`.`EventParticipant`.`role`, `main`.`EventParticipant`.`title`, `main`.`EventParticipant`.`organization`, `main`.`EventParticipant`.`sortOrder`, `main`.`EventParticipant`.`isFeatured`, COALESCE(`aggr_selection_0_EventSession`.`_aggr_count_sessions`, 0) AS `_aggr_count_sessions` FROM `main`.`EventParticipant` LEFT JOIN (SELECT `main`.`EventSession`.`participantId`, COUNT(*) AS `_aggr_count_sessions` FROM `main`.`EventSession` WHERE 1=1 GROUP BY `main`.`EventSession`.`participantId`) AS `aggr_selection_0_EventSession` ON (`main`.`EventParticipant`.`id` = `aggr_selection_0_EventSession`.`participantId`) WHERE `main`.`EventParticipant`.`eventId` = ? ORDER BY `main`.`EventParticipant`.`isFeatured` DESC, `main`.`EventParticipant`.`sortOrder` ASC, `main`.`EventParticipant`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/events/evt-3/participants 200 in 2.2s (compile: 2.1s, render: 89ms)
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`title`, `main`.`Event`.`slug`, `main`.`Event`.`description`, `main`.`Event`.`shortDescription`, `main`.`Event`.`coverImage`, `main`.`Event`.`startDate`, `main`.`Event`.`endDate`, `main`.`Event`.`startTime`, `main`.`Event`.`endTime`, `main`.`Event`.`timezone`, `main`.`Event`.`venueName`, `main`.`Event`.`venueAddress`, `main`.`Event`.`venueCity`, `main`.`Event`.`venueState`, `main`.`Event`.`venueCountry`, `main`.`Event`.`venueLat`, `main`.`Event`.`venueLng`, `main`.`Event`.`isVirtual`, `main`.`Event`.`virtualUrl`, `main`.`Event`.`capacity`, `main`.`Event`.`status`, `main`.`Event`.`isFeatured`, `main`.`Event`.`isPaid`, `main`.`Event`.`currency`, `main`.`Event`.`organizerId`, `main`.`Event`.`categoryId`, `main`.`Event`.`venueId`, `main`.`Event`.`contactEmail`, `main`.`Event`.`contactPhone`, `main`.`Event`.`ageRestriction`, `main`.`Event`.`visibility`, `main`.`Event`.`rejectionReason`, `main`.`Event`.`moderatedBy`, `main`.`Event`.`moderatedAt`, `main`.`Event`.`isBookable`, `main`.`Event`.`createdAt`, `main`.`Event`.`updatedAt`, COALESCE(`aggr_selection_0_Booking`.`_aggr_count_bookings`, 0) AS `_aggr_count_bookings` FROM `main`.`Event` LEFT JOIN (SELECT `main`.`Booking`.`eventId`, COUNT(*) AS `_aggr_count_bookings` FROM `main`.`Booking` WHERE 1=1 GROUP BY `main`.`Booking`.`eventId`) AS `aggr_selection_0_Booking` ON (`main`.`Event`.`id` = `aggr_selection_0_Booking`.`eventId`) WHERE (`main`.`Event`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Category`.`id`, `main`.`Category`.`name`, `main`.`Category`.`slug`, `main`.`Category`.`icon`, `main`.`Category`.`color` FROM `main`.`Category` WHERE `main`.`Category`.`id` IN (?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`TicketType`.`id`, `main`.`TicketType`.`name`, `main`.`TicketType`.`description`, `main`.`TicketType`.`price`, `main`.`TicketType`.`currency`, `main`.`TicketType`.`quantity`, `main`.`TicketType`.`soldCount`, `main`.`TicketType`.`minPerOrder`, `main`.`TicketType`.`maxPerOrder`, `main`.`TicketType`.`saleStart`, `main`.`TicketType`.`saleEnd`, `main`.`TicketType`.`isActive`, `main`.`TicketType`.`eventId` FROM `main`.`TicketType` WHERE `main`.`TicketType`.`eventId` IN (?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`name`, `main`.`User`.`avatar`, `main`.`User`.`bio` FROM `main`.`User` WHERE `main`.`User`.`id` IN (?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Review`.`id`, `main`.`Review`.`userId`, `main`.`Review`.`eventId`, `main`.`Review`.`rating`, `main`.`Review`.`comment`, `main`.`Review`.`createdAt`, `main`.`Review`.`updatedAt` FROM `main`.`Review` WHERE `main`.`Review`.`eventId` IN (?) ORDER BY `main`.`Review`.`createdAt` DESC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventTag`.`id`, `main`.`EventTag`.`eventId`, `main`.`EventTag`.`tagId`, `main`.`EventTag`.`createdAt` FROM `main`.`EventTag` WHERE `main`.`EventTag`.`eventId` IN (?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventSession`.`id`, `main`.`EventSession`.`eventId`, `main`.`EventSession`.`title`, `main`.`EventSession`.`description`, `main`.`EventSession`.`startTime`, `main`.`EventSession`.`endTime`, `main`.`EventSession`.`date`, `main`.`EventSession`.`sortOrder`, `main`.`EventSession`.`venueId`, `main`.`EventSession`.`venueName`, `main`.`EventSession`.`participantId`, `main`.`EventSession`.`sessionType`, `main`.`EventSession`.`status`, `main`.`EventSession`.`createdAt`, `main`.`EventSession`.`updatedAt` FROM `main`.`EventSession` WHERE (`main`.`EventSession`.`status` = ? AND `main`.`EventSession`.`eventId` IN (?)) ORDER BY `main`.`EventSession`.`date` ASC, `main`.`EventSession`.`sortOrder` ASC, `main`.`EventSession`.`startTime` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventParticipant`.`id`, `main`.`EventParticipant`.`name`, `main`.`EventParticipant`.`bio`, `main`.`EventParticipant`.`image`, `main`.`EventParticipant`.`role`, `main`.`EventParticipant`.`title`, `main`.`EventParticipant`.`organization`, `main`.`EventParticipant`.`isFeatured`, `main`.`EventParticipant`.`eventId`, COALESCE(`aggr_selection_0_EventSession`.`_aggr_count_sessions`, 0) AS `_aggr_count_sessions` FROM `main`.`EventParticipant` LEFT JOIN (SELECT `main`.`EventSession`.`participantId`, COUNT(*) AS `_aggr_count_sessions` FROM `main`.`EventSession` WHERE 1=1 GROUP BY `main`.`EventSession`.`participantId`) AS `aggr_selection_0_EventSession` ON (`main`.`EventParticipant`.`id` = `aggr_selection_0_EventSession`.`participantId`) WHERE `main`.`EventParticipant`.`eventId` IN (?) ORDER BY `main`.`EventParticipant`.`isFeatured` DESC, `main`.`EventParticipant`.`sortOrder` ASC, `main`.`EventParticipant`.`name` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventMedia`.`id`, `main`.`EventMedia`.`eventId`, `main`.`EventMedia`.`url`, `main`.`EventMedia`.`type`, `main`.`EventMedia`.`category`, `main`.`EventMedia`.`caption`, `main`.`EventMedia`.`sortOrder`, `main`.`EventMedia`.`fileSize`, `main`.`EventMedia`.`mimeType`, `main`.`EventMedia`.`uploadedBy`, `main`.`EventMedia`.`createdAt`, `main`.`EventMedia`.`updatedAt` FROM `main`.`EventMedia` WHERE `main`.`EventMedia`.`eventId` IN (?) ORDER BY `main`.`EventMedia`.`sortOrder` ASC, `main`.`EventMedia`.`createdAt` ASC LIMIT ? OFFSET ?
+ GET /api/events/evt-3 200 in 165ms (compile: 153ms, render: 12ms)
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`status` FROM `main`.`Event` WHERE (`main`.`Event`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`title`, `main`.`Event`.`slug`, `main`.`Event`.`description`, `main`.`Event`.`shortDescription`, `main`.`Event`.`coverImage`, `main`.`Event`.`startDate`, `main`.`Event`.`endDate`, `main`.`Event`.`startTime`, `main`.`Event`.`endTime`, `main`.`Event`.`timezone`, `main`.`Event`.`venueName`, `main`.`Event`.`venueAddress`, `main`.`Event`.`venueCity`, `main`.`Event`.`venueState`, `main`.`Event`.`venueCountry`, `main`.`Event`.`venueLat`, `main`.`Event`.`venueLng`, `main`.`Event`.`isVirtual`, `main`.`Event`.`virtualUrl`, `main`.`Event`.`capacity`, `main`.`Event`.`status`, `main`.`Event`.`isFeatured`, `main`.`Event`.`isPaid`, `main`.`Event`.`currency`, `main`.`Event`.`organizerId`, `main`.`Event`.`categoryId`, `main`.`Event`.`venueId`, `main`.`Event`.`contactEmail`, `main`.`Event`.`contactPhone`, `main`.`Event`.`ageRestriction`, `main`.`Event`.`visibility`, `main`.`Event`.`rejectionReason`, `main`.`Event`.`moderatedBy`, `main`.`Event`.`moderatedAt`, `main`.`Event`.`isBookable`, `main`.`Event`.`createdAt`, `main`.`Event`.`updatedAt`, COALESCE(`aggr_selection_0_Review`.`_aggr_count_reviews`, 0) AS `_aggr_count_reviews`, COALESCE(`aggr_selection_1_Booking`.`_aggr_count_bookings`, 0) AS `_aggr_count_bookings` FROM `main`.`Event` LEFT JOIN (SELECT `main`.`Review`.`eventId`, COUNT(*) AS `_aggr_count_reviews` FROM `main`.`Review` WHERE 1=1 GROUP BY `main`.`Review`.`eventId`) AS `aggr_selection_0_Review` ON (`main`.`Event`.`id` = `aggr_selection_0_Review`.`eventId`) LEFT JOIN (SELECT `main`.`Booking`.`eventId`, COUNT(*) AS `_aggr_count_bookings` FROM `main`.`Booking` WHERE 1=1 GROUP BY `main`.`Booking`.`eventId`) AS `aggr_selection_1_Booking` ON (`main`.`Event`.`id` = `aggr_selection_1_Booking`.`eventId`) WHERE `main`.`Event`.`status` = ? ORDER BY `main`.`Event`.`startDate` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Category`.`id`, `main`.`Category`.`name`, `main`.`Category`.`slug`, `main`.`Category`.`icon`, `main`.`Category`.`color` FROM `main`.`Category` WHERE `main`.`Category`.`id` IN (?,?,?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`TicketType`.`id`, `main`.`TicketType`.`name`, `main`.`TicketType`.`price`, `main`.`TicketType`.`quantity`, `main`.`TicketType`.`soldCount`, `main`.`TicketType`.`currency`, `main`.`TicketType`.`eventId` FROM `main`.`TicketType` WHERE `main`.`TicketType`.`eventId` IN (?,?,?,?,?,?,?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`name`, `main`.`User`.`avatar` FROM `main`.`User` WHERE `main`.`User`.`id` IN (?,?,?,?) LIMIT ? OFFSET ?
+prisma:query SELECT COUNT(*) AS `_count$_all` FROM (SELECT `main`.`Event`.`id` FROM `main`.`Event` WHERE `main`.`Event`.`status` = ? LIMIT ? OFFSET ?) AS `sub`
+ GET /api/events?category=technology&limit=3&featured=false 200 in 120ms (compile: 82ms, render: 38ms)
+prisma:query SELECT `main`.`EventMedia`.`id`, `main`.`EventMedia`.`eventId`, `main`.`EventMedia`.`url`, `main`.`EventMedia`.`type`, `main`.`EventMedia`.`category`, `main`.`EventMedia`.`caption`, `main`.`EventMedia`.`sortOrder`, `main`.`EventMedia`.`fileSize`, `main`.`EventMedia`.`mimeType`, `main`.`EventMedia`.`uploadedBy`, `main`.`EventMedia`.`createdAt`, `main`.`EventMedia`.`updatedAt` FROM `main`.`EventMedia` WHERE `main`.`EventMedia`.`eventId` = ? ORDER BY `main`.`EventMedia`.`sortOrder` ASC, `main`.`EventMedia`.`createdAt` ASC LIMIT ? OFFSET ?
+ GET /api/events/evt-3/media 200 in 2.5s (compile: 2.4s, render: 113ms)
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`status` FROM `main`.`Event` WHERE (`main`.`Event`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventParticipant`.`id`, `main`.`EventParticipant`.`name`, `main`.`EventParticipant`.`bio`, `main`.`EventParticipant`.`image`, `main`.`EventParticipant`.`role`, `main`.`EventParticipant`.`title`, `main`.`EventParticipant`.`organization`, `main`.`EventParticipant`.`sortOrder`, `main`.`EventParticipant`.`isFeatured`, COALESCE(`aggr_selection_0_EventSession`.`_aggr_count_sessions`, 0) AS `_aggr_count_sessions` FROM `main`.`EventParticipant` LEFT JOIN (SELECT `main`.`EventSession`.`participantId`, COUNT(*) AS `_aggr_count_sessions` FROM `main`.`EventSession` WHERE 1=1 GROUP BY `main`.`EventSession`.`participantId`) AS `aggr_selection_0_EventSession` ON (`main`.`EventParticipant`.`id` = `aggr_selection_0_EventSession`.`participantId`) WHERE `main`.`EventParticipant`.`eventId` = ? ORDER BY `main`.`EventParticipant`.`isFeatured` DESC, `main`.`EventParticipant`.`sortOrder` ASC, `main`.`EventParticipant`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/events/evt-3/participants 200 in 184ms (compile: 93ms, render: 91ms)
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`status`, `main`.`Event`.`organizerId` FROM `main`.`Event` WHERE (`main`.`Event`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventSession`.`id`, `main`.`EventSession`.`eventId`, `main`.`EventSession`.`title`, `main`.`EventSession`.`description`, `main`.`EventSession`.`startTime`, `main`.`EventSession`.`endTime`, `main`.`EventSession`.`date`, `main`.`EventSession`.`sortOrder`, `main`.`EventSession`.`venueId`, `main`.`EventSession`.`venueName`, `main`.`EventSession`.`participantId`, `main`.`EventSession`.`sessionType`, `main`.`EventSession`.`status`, `main`.`EventSession`.`createdAt`, `main`.`EventSession`.`updatedAt` FROM `main`.`EventSession` WHERE `main`.`EventSession`.`eventId` = ? ORDER BY `main`.`EventSession`.`date` ASC, `main`.`EventSession`.`sortOrder` ASC, `main`.`EventSession`.`startTime` ASC LIMIT ? OFFSET ?
+ GET /api/events/evt-3/sessions 200 in 2.7s (compile: 2.6s, render: 82ms)
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`status` FROM `main`.`Event` WHERE (`main`.`Event`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventMedia`.`id`, `main`.`EventMedia`.`eventId`, `main`.`EventMedia`.`url`, `main`.`EventMedia`.`type`, `main`.`EventMedia`.`category`, `main`.`EventMedia`.`caption`, `main`.`EventMedia`.`sortOrder`, `main`.`EventMedia`.`fileSize`, `main`.`EventMedia`.`mimeType`, `main`.`EventMedia`.`uploadedBy`, `main`.`EventMedia`.`createdAt`, `main`.`EventMedia`.`updatedAt` FROM `main`.`EventMedia` WHERE `main`.`EventMedia`.`eventId` = ? ORDER BY `main`.`EventMedia`.`sortOrder` ASC, `main`.`EventMedia`.`createdAt` ASC LIMIT ? OFFSET ?
+ GET /api/events/evt-3/media 200 in 107ms (compile: 75ms, render: 32ms)
+prisma:query SELECT `main`.`Event`.`id`, `main`.`Event`.`status`, `main`.`Event`.`organizerId` FROM `main`.`Event` WHERE (`main`.`Event`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`EventSession`.`id`, `main`.`EventSession`.`eventId`, `main`.`EventSession`.`title`, `main`.`EventSession`.`description`, `main`.`EventSession`.`startTime`, `main`.`EventSession`.`endTime`, `main`.`EventSession`.`date`, `main`.`EventSession`.`sortOrder`, `main`.`EventSession`.`venueId`, `main`.`EventSession`.`venueName`, `main`.`EventSession`.`participantId`, `main`.`EventSession`.`sessionType`, `main`.`EventSession`.`status`, `main`.`EventSession`.`createdAt`, `main`.`EventSession`.`updatedAt` FROM `main`.`EventSession` WHERE `main`.`EventSession`.`eventId` = ? ORDER BY `main`.`EventSession`.`date` ASC, `main`.`EventSession`.`sortOrder` ASC, `main`.`EventSession`.`startTime` ASC LIMIT ? OFFSET ?
+ GET /api/events/evt-3/sessions 200 in 91ms (compile: 81ms, render: 9ms)
+
+==========================================
+STEP 6: Check event detail page
+==========================================
+- banner
+  - button "AppleCalendar" [ref=e171]
+    - StaticText "AppleCalendar"
+  - button "Login" [ref=e172]
+  - button "Register" [ref=e173]
+- complementary
+  - heading "AppleCalendar" [level=2, ref=e174]
+  - StaticText "G"
+  - paragraph
+    - StaticText "Guest"
+  - paragraph
+    - StaticText "Sign in to continue"
+  - LayoutTable
+    - navigation
+      - button "Discover Events" [ref=e214]
+        - StaticText "Discover Events"
+      - button "My Bookings" [ref=e215]
+        - StaticText "My Bookings"
+      - button "My Tickets" [ref=e216]
+        - StaticText "My Tickets"
+      - button "Notifications" [ref=e217]
+        - StaticText "Notifications"
+      - button "Profile" [ref=e218]
+        - StaticText "Profile"
+      - button "Change Password" [ref=e219]
+        - StaticText "Change Password"
+- main
+  - button "Back" [ref=e241]
+  - generic
+    - image "AI & Machine Learning Workshop"
+    - generic
+      - StaticText "Technology"
+      - heading "AI & Machine Learning Workshop" [level=1, ref=e255]
+  - paragraph
+    - StaticText "Date"
+  - paragraph
+    - StaticText "Monday, Oct 5, 2026"
+  - paragraph
+    - StaticText "to Oct 6, 2026"
+  - paragraph
+    - StaticText "Time"
+  - paragraph
+    - StaticText "10:00 - 17:00"
+  - paragraph
+    - StaticText "Location"
+  - paragraph
+    - StaticText "TechHub NYC, New York"
+  - paragraph
+    - StaticText "Capacity"
+  - paragraph
+    - StaticText "200 attendees"
+  - StaticText "Description"
+  - StaticText "A hands-on workshop covering the latest techniques in AI and machine learning. Learn from industry experts about LLMs, computer vision, and practical ML deployment strategies."
+  - StaticText "Gallery"
+  - generic
+    - image "AI & ML Workshop"
+    - paragraph
+      - StaticText "AI & ML Workshop"
+  - StaticText "Reviews ("
+  - StaticText "0"
+  - StaticText ")"
+  - paragraph
+    - StaticText "No reviews yet."
+  - StaticText "Related Events"
+  - generic [ref=e242] clickable [cursor:pointer, onclick]
+    - image "Startup Pitch Night"
+    - heading "Startup Pitch Night" [level=4, ref=e245]
+    - paragraph
+      - StaticText "Sep 30, 2026"
+  - generic [ref=e243] clickable [cursor:pointer, onclick]
+    - image "Contemporary Art Exhibition"
+    - heading "Contemporary Art Exhibition" [level=4, ref=e246]
+    - paragraph
+      - StaticText "Oct 10, 2026"
+  - generic [ref=e244] clickable [cursor:pointer, onclick]
+    - image "Virtual Blockchain Conference"
+    - heading "Virtual Blockchain Conference" [level=4, ref=e247]
+    - paragraph
+      - StaticText "Oct 15, 2026"
+  - paragraph
+    - StaticText "Starting from"
+  - paragraph
+    - StaticText "$0.00"
+  - heading "Ticket Types" [level=4, ref=e248]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e249]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e250]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e251]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e252]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e253]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e254]
+  - paragraph
+    - StaticText "Tech Events Co."
+  - paragraph
+    - StaticText "Organizer"
+  - paragraph
+    - StaticText "Leading technology conference organizers"
+- contentinfo
+  - StaticText "© 2025 AppleCalendar. All rights reserved."
+- region "Notifications alt+T" [ref=e170]
+- alert
+
+==========================================
+STEP 7: Check for errors after navigation
+==========================================
+
+==========================================
+STEP 8: Get current URL
+==========================================
+http://127.0.0.1:3000/
+
+==========================================
+STEP 9: Scroll down to see sessions, participants, media
+==========================================
+✓ Done
+- banner
+  - button "AppleCalendar" [ref=e171]
+    - StaticText "AppleCalendar"
+  - button "Login" [ref=e172]
+  - button "Register" [ref=e173]
+- complementary
+  - heading "AppleCalendar" [level=2, ref=e174]
+  - StaticText "G"
+  - paragraph
+    - StaticText "Guest"
+  - paragraph
+    - StaticText "Sign in to continue"
+  - LayoutTable
+    - navigation
+      - button "Discover Events" [ref=e214]
+        - StaticText "Discover Events"
+      - button "My Bookings" [ref=e215]
+        - StaticText "My Bookings"
+      - button "My Tickets" [ref=e216]
+        - StaticText "My Tickets"
+      - button "Notifications" [ref=e217]
+        - StaticText "Notifications"
+      - button "Profile" [ref=e218]
+        - StaticText "Profile"
+      - button "Change Password" [ref=e219]
+        - StaticText "Change Password"
+- main
+  - button "Back" [ref=e241]
+  - generic
+    - image "AI & Machine Learning Workshop"
+    - generic
+      - StaticText "Technology"
+      - heading "AI & Machine Learning Workshop" [level=1, ref=e255]
+  - paragraph
+    - StaticText "Date"
+  - paragraph
+    - StaticText "Monday, Oct 5, 2026"
+  - paragraph
+    - StaticText "to Oct 6, 2026"
+  - paragraph
+    - StaticText "Time"
+  - paragraph
+    - StaticText "10:00 - 17:00"
+  - paragraph
+    - StaticText "Location"
+  - paragraph
+    - StaticText "TechHub NYC, New York"
+  - paragraph
+    - StaticText "Capacity"
+  - paragraph
+    - StaticText "200 attendees"
+  - StaticText "Description"
+  - StaticText "A hands-on workshop covering the latest techniques in AI and machine learning. Learn from industry experts about LLMs, computer vision, and practical ML deployment strategies."
+  - StaticText "Gallery"
+  - generic
+    - image "AI & ML Workshop"
+    - paragraph
+      - StaticText "AI & ML Workshop"
+  - StaticText "Reviews ("
+  - StaticText "0"
+  - StaticText ")"
+  - paragraph
+    - StaticText "No reviews yet."
+  - StaticText "Related Events"
+  - generic [ref=e242] clickable [cursor:pointer, onclick]
+    - image "Startup Pitch Night"
+    - heading "Startup Pitch Night" [level=4, ref=e245]
+    - paragraph
+      - StaticText "Sep 30, 2026"
+  - generic [ref=e243] clickable [cursor:pointer, onclick]
+    - image "Contemporary Art Exhibition"
+    - heading "Contemporary Art Exhibition" [level=4, ref=e246]
+    - paragraph
+      - StaticText "Oct 10, 2026"
+  - generic [ref=e244] clickable [cursor:pointer, onclick]
+    - image "Virtual Blockchain Conference"
+    - heading "Virtual Blockchain Conference" [level=4, ref=e247]
+    - paragraph
+      - StaticText "Oct 15, 2026"
+  - paragraph
+    - StaticText "Starting from"
+  - paragraph
+    - StaticText "$0.00"
+  - heading "Ticket Types" [level=4, ref=e248]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e249]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e250]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e251]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e252]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e253]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e254]
+  - paragraph
+    - StaticText "Tech Events Co."
+  - paragraph
+    - StaticText "Organizer"
+  - paragraph
+    - StaticText "Leading technology conference organizers"
+- contentinfo
+  - StaticText "© 2025 AppleCalendar. All rights reserved."
+- region "Notifications alt+T" [ref=e170]
+- alert
+
+==========================================
+STEP 10: Scroll more
+==========================================
+✓ Done
+- banner
+  - button "AppleCalendar" [ref=e171]
+    - StaticText "AppleCalendar"
+  - button "Login" [ref=e172]
+  - button "Register" [ref=e173]
+- complementary
+  - heading "AppleCalendar" [level=2, ref=e174]
+  - StaticText "G"
+  - paragraph
+    - StaticText "Guest"
+  - paragraph
+    - StaticText "Sign in to continue"
+  - LayoutTable
+    - navigation
+      - button "Discover Events" [ref=e214]
+        - StaticText "Discover Events"
+      - button "My Bookings" [ref=e215]
+        - StaticText "My Bookings"
+      - button "My Tickets" [ref=e216]
+        - StaticText "My Tickets"
+      - button "Notifications" [ref=e217]
+        - StaticText "Notifications"
+      - button "Profile" [ref=e218]
+        - StaticText "Profile"
+      - button "Change Password" [ref=e219]
+        - StaticText "Change Password"
+- main
+  - button "Back" [ref=e241]
+  - generic
+    - image "AI & Machine Learning Workshop"
+    - generic
+      - StaticText "Technology"
+      - heading "AI & Machine Learning Workshop" [level=1, ref=e255]
+  - paragraph
+    - StaticText "Date"
+  - paragraph
+    - StaticText "Monday, Oct 5, 2026"
+  - paragraph
+    - StaticText "to Oct 6, 2026"
+  - paragraph
+    - StaticText "Time"
+  - paragraph
+    - StaticText "10:00 - 17:00"
+  - paragraph
+    - StaticText "Location"
+  - paragraph
+    - StaticText "TechHub NYC, New York"
+  - paragraph
+    - StaticText "Capacity"
+  - paragraph
+    - StaticText "200 attendees"
+  - StaticText "Description"
+  - StaticText "A hands-on workshop covering the latest techniques in AI and machine learning. Learn from industry experts about LLMs, computer vision, and practical ML deployment strategies."
+  - StaticText "Gallery"
+  - generic
+    - image "AI & ML Workshop"
+    - paragraph
+      - StaticText "AI & ML Workshop"
+  - StaticText "Reviews ("
+  - StaticText "0"
+  - StaticText ")"
+  - paragraph
+    - StaticText "No reviews yet."
+  - StaticText "Related Events"
+  - generic [ref=e242] clickable [cursor:pointer, onclick]
+    - image "Startup Pitch Night"
+    - heading "Startup Pitch Night" [level=4, ref=e245]
+    - paragraph
+      - StaticText "Sep 30, 2026"
+  - generic [ref=e243] clickable [cursor:pointer, onclick]
+    - image "Contemporary Art Exhibition"
+    - heading "Contemporary Art Exhibition" [level=4, ref=e246]
+    - paragraph
+      - StaticText "Oct 10, 2026"
+  - generic [ref=e244] clickable [cursor:pointer, onclick]
+    - image "Virtual Blockchain Conference"
+    - heading "Virtual Blockchain Conference" [level=4, ref=e247]
+    - paragraph
+      - StaticText "Oct 15, 2026"
+  - paragraph
+    - StaticText "Starting from"
+  - paragraph
+    - StaticText "$0.00"
+  - heading "Ticket Types" [level=4, ref=e248]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e249]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e250]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e251]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e252]
+  - StaticText "Standard"
+  - StaticText "$199.00"
+  - paragraph
+    - StaticText "61 available"
+  - button "Book Now" [ref=e253]
+  - StaticText "Premium (with laptop)"
+  - StaticText "$349.00"
+  - paragraph
+    - StaticText "12 available"
+  - button "Book Now" [ref=e254]
+  - paragraph
+    - StaticText "Tech Events Co."
+  - paragraph
+    - StaticText "Organizer"
+  - paragraph
+    - StaticText "Leading technology conference organizers"
+- contentinfo
+  - StaticText "© 2025 AppleCalendar. All rights reserved."
+- region "Notifications alt+T" [ref=e170]
+- alert
+
+==========================================
+STEP 11: Final error check
+==========================================
+[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+
+==========================================
+BROWSER VERIFICATION COMPLETE
+==========================================

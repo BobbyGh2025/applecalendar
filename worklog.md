@@ -529,3 +529,39 @@ Stage Summary:
 - Organizer status banners for non-ACTIVE states
 - 38 tests covering transitions, audit, entitlements, onboarding
 - READY FOR PHASE 4D
+
+---
+Task ID: 8
+Agent: full-stack-developer
+Task: Build organizer event content UI components and update public event detail
+
+Work Log:
+- Read worklog.md and all reference files (organizer-staff.tsx, organizer-edit-event.tsx, event-detail.tsx, app-store.ts, page.tsx, api.ts, API routes for sessions/participants/media)
+- Added 'organizer-event-content' to AppView type in src/stores/app-store.ts
+- Created src/components/organizer-event-content.tsx with full CRUD management UI:
+  - Three-tab interface: Program (sessions), Participants, Media
+  - Sessions tab: list with title, time, type badge, status, assigned participant; add/edit dialog with all fields; delete confirmation
+  - Participants tab: list with name, role badge, title, organization, isFeatured star; add/edit dialog with all fields including socialLinks JSON and isFeatured toggle; delete confirmation
+  - Media tab: grid of thumbnail cards with type/category badges; hover overlay for edit/delete; add/edit dialog with URL validation; delete confirmation
+  - Error handling: PLAN_LIMIT_REACHED shows upgrade message, ORGANIZER_NOT_OPERABLE/SUSPENDED/DEACTIVATED shows support message, uses ApiFetchError.isEntitlementError
+  - Loading skeletons, empty states, Framer Motion transitions, responsive design
+  - All CRUD operations use apiFetch helper calling existing API routes
+- Updated src/app/page.tsx: imported OrganizerEventContent and added render case for 'organizer-event-content'
+- Updated src/components/organizer-edit-event.tsx: added "Manage Event Content" card with 3 buttons (Program, Participants, Media) navigating to organizer-event-content view
+- Updated src/components/event-detail.tsx:
+  - Added EventSession, EventParticipant, EventMediaItem interfaces
+  - Extended Event interface with sessions, participants, media optional fields
+  - Added state and API fetch for sessions, participants, media on mount
+  - Added "Program" card section showing sessions with time, title, type badge, participant name
+  - Added "Speakers & Participants" card section with participant cards showing name, role, title, org, bio, featured star
+  - Added "Gallery" card section with media grid showing images, video thumbnails with play icon, documents
+- Lint passes with only pre-existing server-keeper.js errors
+- Dev server compiles successfully
+
+Stage Summary:
+- Complete organizer event content management UI with tabbed CRUD for sessions, participants, and media
+- Public event detail view now shows program, speakers/participants, and gallery sections
+- Organizer edit event page has navigation to event content management
+- All API integrations use existing /api/events/{id}/sessions|participants|media endpoints
+- Entitlement error handling with user-friendly messages
+- Responsive design with loading skeletons, empty states, and subtle animations

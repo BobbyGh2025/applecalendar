@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { db } from '@/lib/db';
-import { hashToken } from '@/lib/auth';
+import { hashToken } from '@/lib/tokens';
 
 // ─── Configuration ───
 

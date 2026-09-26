@@ -103,6 +103,16 @@ export type {
   CreateReviewInput,
 } from './reviews';
 
+// ---- Organizer ----
+export {
+  createOrganizerProfileSchema,
+  verifyOrganizerSchema,
+} from './organizer';
+export type {
+  CreateOrganizerProfileInput,
+  VerifyOrganizerInput,
+} from './organizer';
+
 // ---- Identity ----
 export {
   forgotPasswordSchema,

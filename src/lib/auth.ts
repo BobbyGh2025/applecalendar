@@ -190,9 +190,46 @@ export async function rotateRefreshToken(oldTokenHash: string, userId: string) {
 /**
  * Revoke all refresh tokens for a user (logout / password change).
  */
+export async function revokeSession(sessionId: string) {
+  await db.refreshToken.update({
+    where: { id: sessionId },
+    data: { isRevoked: true },
+  });
+}
+
 export async function revokeAllRefreshTokens(userId: string) {
   await db.refreshToken.updateMany({
     where: { userId },
+    data: { isRevoked: true },
+  });
+}
+
+/**
+ * Extract session ID from the authorization header.
+ */
+export function extractSessionId(request: NextRequest): string | null {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  return authHeader.slice(7);
+}
+
+/**
+ * List all active sessions for a user.
+ */
+export async function listActiveSessions(userId: string) {
+  return db.refreshToken.findMany({
+    where: { userId, isRevoked: false },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, createdAt: true, expiresAt: true },
+  });
+}
+
+/**
+ * Revoke all sessions except the current one.
+ */
+export async function revokeAllOtherSessions(userId: string, currentSessionId: string) {
+  await db.refreshToken.updateMany({
+    where: { userId, id: { not: currentSessionId }, isRevoked: false },
     data: { isRevoked: true },
   });
 }

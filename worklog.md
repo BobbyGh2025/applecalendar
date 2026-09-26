@@ -565,3 +565,38 @@ Stage Summary:
 - All API integrations use existing /api/events/{id}/sessions|participants|media endpoints
 - Entitlement error handling with user-friendly messages
 - Responsive design with loading skeletons, empty states, and subtle animations
+---
+Task ID: phase4d-closure
+Agent: main
+Task: Phase 4D Final Closure Verification
+
+Work Log:
+- Inspected all Phase 4D API routes (sessions, participants, media, ticket-types)
+- Inspected event-content.ts service, entitlements.ts service, organizer-lifecycle.ts service
+- Ran full test suite: 364 total, 349 passed, 15 pre-existing failures
+- Ran TypeScript check: 34 pre-existing errors, 0 Phase 4D errors
+- Ran ESLint: 2 pre-existing server-keeper.js errors, 0 Phase 4D errors
+- CRITICAL FINDING: PATCH /api/events/:id/ticket-types/:ttId did NOT enforce maxTicketsPerEvent when quantity updated — bypass of entitlement system
+- FIXED: Added maxTicketsPerEvent enforcement to PATCH route using same centralized entitlement check as CREATE
+- FIXED: Seed data used invalid participant role 'KEYNOTE' (not in API enum) — changed to 'SPEAKER'
+- Added 4 new Phase 4D tests: PATCH bypass, within-limit, PENDING_APPROVAL blocked, REJECTED blocked
+- Verified seed idempotency (double run succeeds)
+- Verified tenant isolation (all cross-organizer access blocked by authorizeEventContent)
+- Verified organizer lifecycle integration (5 states: ACTIVE allowed, PENDING_APPROVAL/REJECTED/SUSPENDED/DEACTIVATED blocked)
+- Verified public data security (email/socialLinks hidden from non-organizer users)
+- Verified query-parameter media route security (belongs-to-event check prevents cross-event access)
+- Verified booking regression (atomic soldCount check intact, no Phase 4D changes)
+- Verified maxAttendeesTotal is NOT falsely enforced (0 API route references)
+- Verified database relation safety (session/participant/media deletion does not cascade to financial records)
+- Verified participant deletion detaches sessions (sets participantId=null) rather than deleting sessions
+- Committed fix: 39300de fix(phase4d): close final verification gaps
+- Browser verification limited by environment (server process exits); verified via curl and code inspection
+
+Stage Summary:
+- Phase 4D closure is COMPLETE
+- 1 critical defect found and fixed (ticket type PATCH bypass)
+- 1 minor defect found and fixed (seed role validation)
+- 64 Phase 4D tests all passing
+- 364 total / 349 passed / 15 pre-existing failed
+- 0 new TypeScript errors, 0 new ESLint errors
+- READY FOR PHASE 4E

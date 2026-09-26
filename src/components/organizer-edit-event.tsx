@@ -43,12 +43,24 @@ import {
   Calendar,
   Users,
   Image as ImageIcon,
+  Building2,
 } from 'lucide-react';
 
 interface Category {
   id: string;
   name: string;
   slug: string;
+}
+
+interface VenueOption {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string | null;
+  country: string;
+  lat: number | null;
+  lng: number | null;
 }
 
 interface TicketTypeForm {
@@ -74,6 +86,7 @@ export function OrganizerEditEvent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [venues, setVenues] = useState<VenueOption[]>([]);
   const [eventStatus, setEventStatus] = useState<string>('DRAFT');
   const [statusDialog, setStatusDialog] = useState<{ open: boolean; target: string }>({
     open: false,
@@ -91,11 +104,14 @@ export function OrganizerEditEvent() {
     startTime: '',
     endTime: '',
     timezone: 'UTC',
+    venueId: '',
     venueName: '',
     venueAddress: '',
     venueCity: '',
     venueState: '',
     venueCountry: '',
+    venueLat: '',
+    venueLng: '',
     isVirtual: false,
     virtualUrl: '',
     isPaid: false,
@@ -122,11 +138,14 @@ export function OrganizerEditEvent() {
           startTime: string | null;
           endTime: string | null;
           timezone: string;
+          venueId: string | null;
           venueName: string | null;
           venueAddress: string | null;
           venueCity: string | null;
           venueState: string | null;
           venueCountry: string | null;
+          venueLat: number | null;
+          venueLng: number | null;
           isVirtual: boolean;
           virtualUrl: string | null;
           isPaid: boolean;
@@ -146,9 +165,11 @@ export function OrganizerEditEvent() {
         };
       }>(`/api/events/${selectedEventId}`),
       apiFetch<{ categories: Category[] }>('/api/categories'),
+      apiFetch<{ venues: VenueOption[] }>('/api/organizer/venues').catch(() => ({ venues: [] })),
     ])
-      .then(([eventData, catData]) => {
+      .then(([eventData, catData, venueData]) => {
         const e = eventData.event;
+        if (venueData?.venues) setVenues(venueData.venues);
         setForm({
           title: e.title,
           description: e.description,
@@ -160,11 +181,14 @@ export function OrganizerEditEvent() {
           startTime: e.startTime || '',
           endTime: e.endTime || '',
           timezone: e.timezone || 'UTC',
+          venueId: e.venueId || '',
           venueName: e.venueName || '',
           venueAddress: e.venueAddress || '',
           venueCity: e.venueCity || '',
           venueState: e.venueState || '',
           venueCountry: e.venueCountry || '',
+          venueLat: e.venueLat != null ? String(e.venueLat) : '',
+          venueLng: e.venueLng != null ? String(e.venueLng) : '',
           isVirtual: e.isVirtual,
           virtualUrl: e.virtualUrl || '',
           isPaid: e.isPaid,
@@ -241,11 +265,14 @@ export function OrganizerEditEvent() {
         startTime: form.startTime || undefined,
         endTime: form.endTime || undefined,
         timezone: form.timezone,
+        venueId: form.venueId || undefined,
         venueName: form.isVirtual ? undefined : form.venueName,
         venueAddress: form.isVirtual ? undefined : form.venueAddress,
         venueCity: form.isVirtual ? undefined : form.venueCity,
         venueState: form.isVirtual ? undefined : form.venueState,
         venueCountry: form.isVirtual ? undefined : form.venueCountry,
+        venueLat: form.isVirtual ? undefined : (form.venueLat ? Number(form.venueLat) : undefined),
+        venueLng: form.isVirtual ? undefined : (form.venueLng ? Number(form.venueLng) : undefined),
         isVirtual: form.isVirtual,
         virtualUrl: form.isVirtual ? form.virtualUrl : undefined,
         isPaid: form.isPaid,
@@ -615,53 +642,95 @@ export function OrganizerEditEvent() {
               />
             </div>
           ) : (
-            <div className="grid sm:grid-cols-2 gap-4">
+            <>
+              {/* Venue Selector */}
               <div className="space-y-2">
-                <Label htmlFor="venueName">Venue Name</Label>
-                <Input
-                  id="venueName"
-                  placeholder="Convention Center"
-                  value={form.venueName}
-                  onChange={(e) => updateForm('venueName', e.target.value)}
-                />
+                <Label className="flex items-center gap-1"><Building2 className="h-4 w-4" /> Select Venue</Label>
+                <Select
+                  value={form.venueId || '__none__'}
+                  onValueChange={(v) => {
+                    if (v === '__none__') {
+                      setForm(prev => ({ ...prev, venueId: '', venueName: '', venueAddress: '', venueCity: '', venueState: '', venueCountry: '', venueLat: '', venueLng: '' }));
+                    } else {
+                      const venue = venues.find(vn => vn.id === v);
+                      if (venue) {
+                        setForm(prev => ({
+                          ...prev,
+                          venueId: venue.id,
+                          venueName: venue.name,
+                          venueAddress: venue.address,
+                          venueCity: venue.city,
+                          venueState: venue.state || '',
+                          venueCountry: venue.country,
+                          venueLat: venue.lat != null ? String(venue.lat) : '',
+                          venueLng: venue.lng != null ? String(venue.lng) : '',
+                        }));
+                      }
+                    }
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="No venue selected" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No venue (custom)</SelectItem>
+                    {venues.map(v => <SelectItem key={v.id} value={v.id}>{v.name} — {v.city}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="venueAddr">Address</Label>
-                <Input
-                  id="venueAddr"
-                  placeholder="123 Main St"
-                  value={form.venueAddress}
-                  onChange={(e) => updateForm('venueAddress', e.target.value)}
-                />
+
+              {/* Inline Venue Fields */}
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="venueName">Venue Name</Label>
+                  <Input
+                    id="venueName"
+                    placeholder="Convention Center"
+                    value={form.venueName}
+                    onChange={(e) => updateForm('venueName', e.target.value)}
+                    disabled={!!form.venueId}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="venueAddr">Address</Label>
+                  <Input
+                    id="venueAddr"
+                    placeholder="123 Main St"
+                    value={form.venueAddress}
+                    onChange={(e) => updateForm('venueAddress', e.target.value)}
+                    disabled={!!form.venueId}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="venueCity">City</Label>
+                  <Input
+                    id="venueCity"
+                    placeholder="New York"
+                    value={form.venueCity}
+                    onChange={(e) => updateForm('venueCity', e.target.value)}
+                    disabled={!!form.venueId}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="venueState">State</Label>
+                  <Input
+                    id="venueState"
+                    placeholder="NY"
+                    value={form.venueState}
+                    onChange={(e) => updateForm('venueState', e.target.value)}
+                    disabled={!!form.venueId}
+                  />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="venueCountry">Country</Label>
+                  <Input
+                    id="venueCountry"
+                    placeholder="United States"
+                    value={form.venueCountry}
+                    onChange={(e) => updateForm('venueCountry', e.target.value)}
+                    disabled={!!form.venueId}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="venueCity">City</Label>
-                <Input
-                  id="venueCity"
-                  placeholder="New York"
-                  value={form.venueCity}
-                  onChange={(e) => updateForm('venueCity', e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="venueState">State</Label>
-                <Input
-                  id="venueState"
-                  placeholder="NY"
-                  value={form.venueState}
-                  onChange={(e) => updateForm('venueState', e.target.value)}
-                />
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="venueCountry">Country</Label>
-                <Input
-                  id="venueCountry"
-                  placeholder="United States"
-                  value={form.venueCountry}
-                  onChange={(e) => updateForm('venueCountry', e.target.value)}
-                />
-              </div>
-            </div>
+            </>
           )}
         </CardContent>
       </Card>

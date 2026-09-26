@@ -64,6 +64,19 @@ interface EventMediaItem {
   caption: string | null;
 }
 
+interface VenueRelation {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string | null;
+  country: string;
+  lat: number | null;
+  lng: number | null;
+  capacity: number | null;
+  website: string | null;
+}
+
 interface Event {
   id: string;
   title: string;
@@ -89,6 +102,7 @@ interface Event {
   ticketTypes: TicketType[];
   reviews: Review[];
   organizer: { id: string; name: string; avatar?: string | null; bio?: string | null };
+  venue?: VenueRelation | null;
   _count: { reviews: number; bookings: number };
   sessions?: EventSession[];
   participants?: EventParticipant[];
@@ -293,10 +307,37 @@ export function EventDetail() {
                 <div className={`p-2 rounded-lg ${event.isVirtual ? 'bg-cyan-50 text-cyan-600' : 'bg-amber-50 text-amber-600'}`}>
                   {event.isVirtual ? <Globe className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">{event.isVirtual ? 'Virtual Event' : 'Location'}</p>
                   {event.isVirtual ? (
                     <p className="font-medium text-cyan-600">{event.virtualUrl || 'Online'}</p>
+                  ) : event.venue ? (
+                    <div>
+                      <p className="font-medium">{event.venue.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {event.venue.address}{event.venue.city ? `, ${event.venue.city}` : ''}{event.venue.state ? `, ${event.venue.state}` : ''}{event.venue.country ? `, ${event.venue.country}` : ''}
+                      </p>
+                      {event.venue.lat != null && event.venue.lng != null && (
+                        <a
+                          href={`https://www.google.com/maps?q=${event.venue.lat},${event.venue.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-emerald-600 hover:underline inline-flex items-center gap-1 mt-0.5"
+                        >
+                          <Globe className="h-3 w-3" /> View on Google Maps
+                        </a>
+                      )}
+                      {event.venue.website && (
+                        <a
+                          href={event.venue.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-emerald-600 hover:underline inline-flex items-center gap-1 mt-0.5"
+                        >
+                          <Globe className="h-3 w-3" /> Website
+                        </a>
+                      )}
+                    </div>
                   ) : (
                     <p className="font-medium">{event.venueName}{event.venueCity ? `, ${event.venueCity}` : ''}</p>
                   )}

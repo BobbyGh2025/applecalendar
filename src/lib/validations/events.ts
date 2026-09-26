@@ -71,6 +71,7 @@ export const createEventSchema = z
     startTime: optionalTimeField,
     endTime: optionalTimeField,
     timezone: z.string().max(50, 'Timezone must be 50 characters or fewer').optional(),
+    venueId: z.string().min(1, 'Venue ID cannot be empty').optional(),
     venueName: z.string().max(200, 'Venue name must be 200 characters or fewer').optional(),
     venueAddress: z.string().max(300, 'Address must be 300 characters or fewer').optional(),
     venueCity: z.string().max(100, 'City must be 100 characters or fewer').optional(),
@@ -96,8 +97,8 @@ export const createEventSchema = z
     isPaid: z.boolean().optional(),
   })
   .superRefine((data, ctx) => {
-    // If not virtual, venueName is required
-    if (!data.isVirtual && (!data.venueName || data.venueName.trim().length === 0)) {
+    // If not virtual and no venueId, venueName is required
+    if (!data.isVirtual && !data.venueId && (!data.venueName || data.venueName.trim().length === 0)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Venue name is required for non-virtual events',
@@ -180,6 +181,7 @@ export const updateEventSchema = z
     startTime: optionalTimeField,
     endTime: optionalTimeField,
     timezone: z.string().max(50, 'Timezone must be 50 characters or fewer').optional(),
+    venueId: z.union([z.string().min(1, 'Venue ID cannot be empty'), z.literal('')]).optional(),
     venueName: z.string().max(200, 'Venue name must be 200 characters or fewer').optional(),
     venueAddress: z.string().max(300, 'Address must be 300 characters or fewer').optional(),
     venueCity: z.string().max(100, 'City must be 100 characters or fewer').optional(),

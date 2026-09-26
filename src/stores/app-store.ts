@@ -25,6 +25,7 @@ export type AppView =
   | 'organizer-profile'
   | 'organizer-staff'
   | 'organizer-event-content'
+  | 'organizer-venues'
   | 'notifications'
   | 'user-profile'
   | 'change-password'

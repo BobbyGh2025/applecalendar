@@ -20,6 +20,7 @@ import { OrganizerAnalytics } from '@/components/organizer-analytics';
 import { OrganizerAds } from '@/components/organizer-ads';
 import { OrganizerProfileForm } from '@/components/organizer-profile-form';
 import { OrganizerStaff } from '@/components/organizer-staff';
+import { OrganizerVenues } from '@/components/organizer-venues';
 import { OrganizerEventContent } from '@/components/organizer-event-content';
 import { MyBookings } from '@/components/my-bookings';
 import { MyTickets } from '@/components/my-tickets';
@@ -68,6 +69,8 @@ function renderCurrentView() {
       return <OrganizerProfileForm />;
     case 'organizer-staff':
       return <OrganizerStaff />;
+    case 'organizer-venues':
+      return <OrganizerVenues />;
     case 'organizer-event-content':
       return <OrganizerEventContent />;
     case 'my-bookings':

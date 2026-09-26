@@ -25,6 +25,7 @@ import {
   Lock,
   Building2,
   UserCog,
+  MapPin,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -53,6 +54,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'my-tickets', label: 'My Tickets', icon: QrCode },
     { view: 'notifications', label: 'Notifications', icon: Bell },
     { view: 'organizer-ads', label: 'Advertisements', icon: Megaphone },
+    { view: 'organizer-venues', label: 'Venues', icon: MapPin },
     { view: 'organizer-profile', label: 'Org Profile', icon: Building2 },
     { view: 'organizer-staff', label: 'Staff', icon: UserCog },
     { view: 'user-profile', label: 'Profile', icon: UserCircle },

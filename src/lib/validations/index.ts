@@ -75,6 +75,18 @@ export type {
   UsersQueryInput,
 } from './users';
 
+// ---- Venues ----
+export {
+  createVenueSchema,
+  updateVenueSchema,
+  venueQuerySchema,
+} from './venues';
+export type {
+  CreateVenueInput,
+  UpdateVenueInput,
+  VenueQueryInput,
+} from './venues';
+
 // ---- Ads ----
 export {
   createAdSchema,

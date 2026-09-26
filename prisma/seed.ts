@@ -444,6 +444,80 @@ async function main() {
   }
   console.log('✅ Venues created');
 
+  // 5.7 Create Organizer-specific venues (Phase 4E)
+  const orgVenue1 = await prisma.venue.upsert({
+    where: { slug: 'org1-tech-hub-accra' },
+    update: {},
+    create: {
+      name: 'Tech Hub Accra',
+      slug: 'org1-tech-hub-accra',
+      description: 'A modern tech event space in the heart of Accra, perfect for conferences and workshops.',
+      address: 'Ring Road Central, Osu',
+      city: 'Accra',
+      state: 'Greater Accra',
+      country: 'GH',
+      lat: 5.569,
+      lng: -0.175,
+      capacity: 300,
+      amenities: JSON.stringify(['wifi', 'ac', 'projector', 'sound_system', 'stage']),
+      contactName: 'Tech Hub Manager',
+      contactEmail: 'events@techhubaccra.com',
+      contactPhone: '+233-24-000-1111',
+      organizerId: organizer1.id,
+      isPublic: false,
+      isActive: true,
+    },
+  });
+
+  const orgVenue2 = await prisma.venue.upsert({
+    where: { slug: 'org2-kumasi-cultural-center' },
+    update: {},
+    create: {
+      name: 'Kumasi Cultural Center',
+      slug: 'org2-kumasi-cultural-center',
+      description: 'A vibrant cultural venue in Kumasi, ideal for arts, music, and community events.',
+      address: 'Adum Road',
+      city: 'Kumasi',
+      state: 'Ashanti',
+      country: 'GH',
+      lat: 6.688,
+      lng: -1.624,
+      capacity: 800,
+      amenities: JSON.stringify(['parking', 'ac', 'stage', 'sound_system', 'catering']),
+      contactName: 'Cultural Center Admin',
+      contactEmail: 'info@kumasicultural.org',
+      contactPhone: '+233-51-000-2222',
+      organizerId: organizer2.id,
+      isPublic: false,
+      isActive: true,
+    },
+  });
+
+  const orgVenue3 = await prisma.venue.upsert({
+    where: { slug: 'org1-tema-conference-hall' },
+    update: {},
+    create: {
+      name: 'Tema Conference Hall',
+      slug: 'org1-tema-conference-hall',
+      description: 'A versatile conference facility in Tema for business and community events.',
+      address: 'Community 12, Tema',
+      city: 'Tema',
+      state: 'Greater Accra',
+      country: 'GH',
+      lat: 5.669,
+      lng: -0.017,
+      capacity: 200,
+      amenities: JSON.stringify(['parking', 'wifi', 'ac', 'projector']),
+      contactName: 'Tema Hall Coordinator',
+      contactEmail: 'events@temahall.com',
+      contactPhone: '+233-22-000-3333',
+      organizerId: organizer1.id,
+      isPublic: false,
+      isActive: true,
+    },
+  });
+  console.log('✅ Organizer Venues created');
+
   // 6. Create subscriptions for organizers (legacy User-level subscriptions)
   const legacyProPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'professional' } });
   const legacyStarterPlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'starter' } });
@@ -627,6 +701,23 @@ async function main() {
     });
   }
   console.log('✅ Events created');
+
+  // 7.1 Link events to venues (Phase 4E)
+  // evt-9 (Design Thinking Workshop) → org1's Tech Hub Accra
+  try {
+    await prisma.event.update({
+      where: { id: 'evt-9' },
+      data: { venueId: orgVenue1.id },
+    });
+  } catch {}
+  // evt-4 (Startup Pitch Night) → org2's Kumasi Cultural Center
+  try {
+    await prisma.event.update({
+      where: { id: 'evt-4' },
+      data: { venueId: orgVenue2.id },
+    });
+  } catch {}
+  console.log('✅ Event-Venue links created');
 
   // 8. Create ticket types
   const ticketTypesData = [

@@ -4,6 +4,7 @@ import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { createEventSchema, eventQuerySchema } from '@/lib/validations';
 import { getOperableOrganizerEntitlements, getOrganizerUsage, requireWithinLimit } from '@/lib/services/entitlements';
+import { verifyVenueAssignment } from '@/lib/services/venue-auth';
 
 function slugify(text: string): string {
   return text
@@ -102,6 +103,7 @@ export async function GET(request: NextRequest) {
             select: { id: true, name: true, price: true, quantity: true, soldCount: true, currency: true },
           },
           organizer: { select: { id: true, name: true, avatar: true } },
+          venue: { select: { id: true, name: true, address: true, city: true, state: true, country: true, lat: true, lng: true } },
           _count: { select: { reviews: true, bookings: true } },
         },
       }),
@@ -153,6 +155,7 @@ export async function POST(request: NextRequest) {
       startTime,
       endTime,
       timezone,
+      venueId,
       venueName,
       venueAddress,
       venueCity,
@@ -170,6 +173,29 @@ export async function POST(request: NextRequest) {
       tags,
       ticketTypes,
     } = parsed.data;
+
+    // Phase 4E: If venueId is provided, verify the venue belongs to this organizer
+    // and populate inline venue fields from the venue record
+    let effectiveVenueId: string | undefined = venueId;
+    let effectiveVenueName = venueName;
+    let effectiveVenueAddress = venueAddress;
+    let effectiveVenueCity = venueCity;
+    let effectiveVenueState: string | null | undefined = venueState;
+    let effectiveVenueCountry = venueCountry;
+    let effectiveVenueLat: number | null | undefined = venueLat;
+    let effectiveVenueLng: number | null | undefined = venueLng;
+
+    if (venueId) {
+      const venueInfo = await verifyVenueAssignment(venueId, user.id, user.role);
+      // Populate inline venue fields from the Venue record
+      effectiveVenueName = venueInfo.name;
+      effectiveVenueAddress = venueInfo.address;
+      effectiveVenueCity = venueInfo.city;
+      effectiveVenueState = venueInfo.state;
+      effectiveVenueCountry = venueInfo.country;
+      effectiveVenueLat = venueInfo.lat;
+      effectiveVenueLng = venueInfo.lng;
+    }
 
     let slug = slugify(title);
     // Ensure slug is unique
@@ -190,13 +216,14 @@ export async function POST(request: NextRequest) {
         startTime,
         endTime,
         timezone: timezone || 'UTC',
-        venueName,
-        venueAddress,
-        venueCity,
-        venueState,
-        venueCountry: venueCountry || 'US',
-        venueLat,
-        venueLng,
+        venueId: effectiveVenueId || null,
+        venueName: effectiveVenueName,
+        venueAddress: effectiveVenueAddress,
+        venueCity: effectiveVenueCity,
+        venueState: effectiveVenueState,
+        venueCountry: effectiveVenueCountry || 'GH',
+        venueLat: effectiveVenueLat,
+        venueLng: effectiveVenueLng,
         isVirtual: isVirtual || false,
         virtualUrl,
         capacity,

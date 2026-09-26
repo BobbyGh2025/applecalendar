@@ -4,6 +4,7 @@ import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { updateEventSchema } from '@/lib/validations';
 import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
+import { verifyVenueAssignment } from '@/lib/services/venue-auth';
 
 function slugify(text: string): string {
   return text
@@ -54,6 +55,25 @@ export async function GET(
           orderBy: { createdAt: 'desc' },
         },
         tags: { include: { tag: true } },
+        // Phase 4E: Include venue relation in event detail
+        venue: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            city: true,
+            state: true,
+            country: true,
+            lat: true,
+            lng: true,
+            googleMapsUrl: true,
+            coverImage: true,
+            capacity: true,
+            website: true,
+            isPublic: true,
+            slug: true,
+          },
+        },
         // Phase 4D: Include sessions, participants, and media in event detail
         sessions: {
           where: { status: 'SCHEDULED' },
@@ -152,6 +172,7 @@ export async function PATCH(
       startTime,
       endTime,
       timezone,
+      venueId,
       venueName,
       venueAddress,
       venueCity,
@@ -184,13 +205,37 @@ export async function PATCH(
     if (startTime !== undefined) updateData.startTime = startTime;
     if (endTime !== undefined) updateData.endTime = endTime;
     if (timezone !== undefined) updateData.timezone = timezone;
-    if (venueName !== undefined) updateData.venueName = venueName;
-    if (venueAddress !== undefined) updateData.venueAddress = venueAddress;
-    if (venueCity !== undefined) updateData.venueCity = venueCity;
-    if (venueState !== undefined) updateData.venueState = venueState;
-    if (venueCountry !== undefined) updateData.venueCountry = venueCountry;
-    if (venueLat !== undefined) updateData.venueLat = venueLat;
-    if (venueLng !== undefined) updateData.venueLng = venueLng;
+
+    // Phase 4E: Handle venueId assignment/change/removal
+    if (venueId !== undefined) {
+      if (venueId === '') {
+        // Empty string = remove venue association
+        updateData.venueId = null;
+      } else {
+        // Verify the venue belongs to this organizer
+        const venueInfo = await verifyVenueAssignment(venueId, existingEvent.organizerId, user.role);
+        updateData.venueId = venueId;
+        // Auto-populate inline venue fields from the venue record
+        updateData.venueName = venueInfo.name;
+        updateData.venueAddress = venueInfo.address;
+        updateData.venueCity = venueInfo.city;
+        updateData.venueState = venueInfo.state;
+        updateData.venueCountry = venueInfo.country;
+        updateData.venueLat = venueInfo.lat;
+        updateData.venueLng = venueInfo.lng;
+      }
+    }
+
+    // Inline venue fields only updated if venueId is NOT being set (to avoid overwriting venue-sourced data)
+    if (venueId === undefined) {
+      if (venueName !== undefined) updateData.venueName = venueName;
+      if (venueAddress !== undefined) updateData.venueAddress = venueAddress;
+      if (venueCity !== undefined) updateData.venueCity = venueCity;
+      if (venueState !== undefined) updateData.venueState = venueState;
+      if (venueCountry !== undefined) updateData.venueCountry = venueCountry;
+      if (venueLat !== undefined) updateData.venueLat = venueLat;
+      if (venueLng !== undefined) updateData.venueLng = venueLng;
+    }
     if (isVirtual !== undefined) updateData.isVirtual = isVirtual;
     if (virtualUrl !== undefined) updateData.virtualUrl = virtualUrl;
     if (capacity !== undefined) updateData.capacity = capacity;

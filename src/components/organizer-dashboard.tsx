@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
-import { Calendar, Ticket, DollarSign, TrendingUp, ArrowRight } from 'lucide-react';
+import { Calendar, Ticket, DollarSign, TrendingUp, ArrowRight, AlertTriangle, Clock, XCircle, PauseCircle, PowerOff } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface DashboardData {
@@ -19,15 +19,84 @@ interface DashboardData {
   recentBookings: any[];
 }
 
+interface OrganizerProfile {
+  id: string;
+  organizationName: string;
+  status: string;
+  statusReason?: string | null;
+}
+
+function StatusBanner({ status, reason }: { status: string; reason?: string | null }) {
+  if (status === 'ACTIVE') return null;
+
+  const config: Record<string, { icon: typeof AlertTriangle; bg: string; border: string; text: string; message: string }> = {
+    PENDING_APPROVAL: {
+      icon: Clock,
+      bg: 'bg-yellow-50',
+      border: 'border-yellow-200',
+      text: 'text-yellow-800',
+      message: "Your organizer account is awaiting approval. You'll be notified once an admin reviews your application.",
+    },
+    REJECTED: {
+      icon: XCircle,
+      bg: 'bg-red-50',
+      border: 'border-red-200',
+      text: 'text-red-800',
+      message: 'Your organizer account application has been rejected.',
+    },
+    SUSPENDED: {
+      icon: PauseCircle,
+      bg: 'bg-orange-50',
+      border: 'border-orange-200',
+      text: 'text-orange-800',
+      message: 'Your organizer account has been suspended.',
+    },
+    DEACTIVATED: {
+      icon: PowerOff,
+      bg: 'bg-gray-50',
+      border: 'border-gray-200',
+      text: 'text-gray-700',
+      message: 'Your organizer account has been deactivated.',
+    },
+  };
+
+  const c = config[status];
+  if (!c) return null;
+
+  const Icon = c.icon;
+
+  return (
+    <Card className={`${c.bg} ${c.border} border`}>
+      <CardContent className="p-4 flex items-start gap-3">
+        <Icon className={`h-5 w-5 ${c.text} mt-0.5 flex-shrink-0`} />
+        <div>
+          <p className={`font-medium text-sm ${c.text}`}>{c.message}</p>
+          {reason && (
+            <p className={`text-sm mt-1 ${c.text} opacity-80`}>
+              Reason: {reason}
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function OrganizerDashboard() {
   const { user, navigate } = useAppStore();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [orgProfile, setOrgProfile] = useState<OrganizerProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch<DashboardData>('/api/organizer?type=dashboard')
-      .then(d => setData(d))
-      .catch(() => {})
+    Promise.all([
+      apiFetch<DashboardData>('/api/organizer?type=dashboard').catch(() => null),
+      apiFetch<OrganizerProfile>('/api/organizer/profile').catch(() => null),
+    ])
+      .then(([dashData, profile]) => {
+        setData(dashData);
+        setOrgProfile(profile);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -52,6 +121,11 @@ export function OrganizerDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Status Banner */}
+      {orgProfile && orgProfile.status !== 'ACTIVE' && (
+        <StatusBanner status={orgProfile.status} reason={orgProfile.statusReason} />
+      )}
+
       {/* Welcome Banner */}
       <Card className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-0">
         <CardContent className="p-6">

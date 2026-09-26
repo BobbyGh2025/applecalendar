@@ -71,6 +71,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'admin-events', label: 'Events', icon: CalendarDays },
     { view: 'admin-plans', label: 'Plans', icon: CreditCard },
     { view: 'admin-ads', label: 'Advertisements', icon: Megaphone },
+    { view: 'admin-organizers', label: 'Organizers', icon: Building2 },
     { view: 'notifications', label: 'Notifications', icon: Bell },
     { view: 'user-profile', label: 'Profile', icon: UserCircle },
     { view: 'change-password', label: 'Change Password', icon: Lock },

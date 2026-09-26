@@ -15,6 +15,7 @@ export type AppView =
   | 'admin-events'
   | 'admin-plans'
   | 'admin-ads'
+  | 'admin-organizers'
   | 'organizer-dashboard'
   | 'organizer-events'
   | 'organizer-create-event'

@@ -11,6 +11,7 @@ import { AdminUsers } from '@/components/admin-users';
 import { AdminEvents } from '@/components/admin-events';
 import { AdminPlans } from '@/components/admin-plans';
 import { AdminAds } from '@/components/admin-ads';
+import { AdminOrganizers } from '@/components/admin-organizers';
 import { OrganizerDashboard } from '@/components/organizer-dashboard';
 import { OrganizerEvents } from '@/components/organizer-events';
 import { OrganizerCreateEvent } from '@/components/organizer-create-event';
@@ -48,6 +49,8 @@ function renderCurrentView() {
       return <AdminPlans />;
     case 'admin-ads':
       return <AdminAds />;
+    case 'admin-organizers':
+      return <AdminOrganizers />;
     case 'organizer-dashboard':
       return <OrganizerDashboard />;
     case 'organizer-events':

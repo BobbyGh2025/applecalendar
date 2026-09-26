@@ -10,6 +10,7 @@ async function hashPassword(password: string): Promise<string> {
 // ─── Development-only credentials (DO NOT use in production) ───
 // admin@applecalendar.com  →  AdminPass2025!
 // organizer@events.com      →  OrgPass2025!
+// pending@events.com        →  OrgPass2025!
 // tech@events.com           →  OrgPass2025!
 // staff@events.com          →  StaffPass2025!
 // user@test.com             →  UserPass2025!
@@ -68,6 +69,21 @@ async function main() {
       role: 'ORGANIZER',
       bio: 'Leading technology conference organizers',
       phone: '+1-555-0202',
+      isActive: true,
+      emailVerified: new Date(),
+    },
+  });
+
+  const organizer3 = await prisma.user.upsert({
+    where: { email: 'pending@events.com' },
+    update: {},
+    create: {
+      email: 'pending@events.com',
+      password: orgPassword,
+      name: 'Pending Events Co.',
+      role: 'ORGANIZER',
+      bio: 'A new organizer awaiting approval',
+      phone: '+1-555-0505',
       isActive: true,
       emailVerified: new Date(),
     },
@@ -146,6 +162,26 @@ async function main() {
       isVerified: true,
       approvalStatus: 'APPROVED',
       status: 'ACTIVE',
+    },
+  });
+
+  const orgProfile3 = await prisma.organizerProfile.upsert({
+    where: { userId: organizer3.id },
+    update: {},
+    create: {
+      userId: organizer3.id,
+      organizationName: 'Pending Events Co.',
+      slug: 'pending-events-co',
+      description: 'A new event organizer awaiting admin approval.',
+      website: 'https://pending-events.example.com',
+      contactEmail: 'info@pending-events.example.com',
+      phone: '+1-555-0505',
+      city: 'Chicago',
+      state: 'IL',
+      country: 'US',
+      isVerified: false,
+      approvalStatus: 'PENDING',
+      status: 'PENDING_APPROVAL',
     },
   });
 
@@ -298,6 +334,25 @@ async function main() {
         endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         isInTrial: false,
         autoRenew: true,
+        billingProvider: 'MANUAL',
+        paymentStatus: 'CURRENT',
+      },
+    });
+  }
+
+  // Organizer3 (pending) gets the Free plan
+  const freePlan = await prisma.subscriptionPlan.findUnique({ where: { slug: 'free' } });
+  if (freePlan) {
+    await prisma.organizerSubscription.upsert({
+      where: { organizerId: orgProfile3.id },
+      update: {},
+      create: {
+        organizerId: orgProfile3.id,
+        planId: freePlan.id,
+        status: 'ACTIVE',
+        startDate: new Date(),
+        isInTrial: false,
+        autoRenew: false,
         billingProvider: 'MANUAL',
         paymentStatus: 'CURRENT',
       },

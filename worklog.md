@@ -464,3 +464,35 @@ Stage Summary:
 - maxMediaPerEvent NOT enforced — no EventMedia CRUD endpoints exist yet
 - All 5 claimed enforcement points verified server-side with tenant isolation
 - READY FOR PHASE 4C
+
+---
+
+Task ID: 4C
+Agent: main
+Task: Phase 4C — Organizer Lifecycle Management UI
+
+Work Log:
+- Added 'admin-organizers' to AppView type in src/stores/app-store.ts
+- Created src/components/admin-organizers.tsx with full organizer management UI:
+  - Table listing with columns: Organization Name, Owner, Email, Status, Plan, Created, Actions
+  - Search input (by name/email) with Enter key and button support
+  - Status filter dropdown (All, PENDING_APPROVAL, ACTIVE, REJECTED, SUSPENDED, DEACTIVATED)
+  - Pagination controls (Previous/Next with page info)
+  - Color-coded status badges (yellow/green/red/orange/gray)
+  - Action buttons per status: Approve/Reject for PENDING_APPROVAL, Suspend/Deactivate for ACTIVE, Reinstate/Deactivate for SUSPENDED
+  - Confirmation dialog for Approve and Reinstate actions
+  - Reason dialog for Reject, Suspend, Deactivate actions (reason required)
+  - Error handling with toast notifications including ApiFetchError entitlement errors
+  - Loading skeletons and empty state
+- Updated sidebar-nav.tsx: added 'Organizers' nav item (Building2 icon) to SUPER_ADMIN section
+- Updated page.tsx: added AdminOrganizers import and render case for 'admin-organizers' view
+- Updated organizer-dashboard.tsx: added StatusBanner component that shows status-specific messages for non-ACTIVE organizers (PENDING_APPROVAL, REJECTED, SUSPENDED, DEACTIVATED) with reason display
+- Updated prisma/seed.ts: added organizer3 user (pending@events.com) with PENDING_APPROVAL status and Free plan subscription
+- Reseeded database successfully
+- Lint: only pre-existing server-keeper.js errors, 0 new errors
+
+Stage Summary:
+- Complete admin organizer management UI with search, filter, pagination, and lifecycle actions
+- Organizer dashboard status banner for non-ACTIVE accounts
+- Seed data includes pending organizer for testing
+- Commit: pending

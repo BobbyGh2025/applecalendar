@@ -496,3 +496,36 @@ Stage Summary:
 - Organizer dashboard status banner for non-ACTIVE accounts
 - Seed data includes pending organizer for testing
 - Commit: pending
+---
+Task ID: phase4c
+Agent: main
+Task: Phase 4C — Organizer Lifecycle Management
+
+Work Log:
+- Inspected schema, auth, entitlements, admin routes, organizer routes, frontend, tests, seed
+- Created src/lib/services/organizer-lifecycle.ts with centralized state transition engine
+- Created 7 admin API routes (approve, reject, suspend, reinstate, deactivate, list, detail)
+- Created src/components/admin-organizers.tsx admin management UI
+- Updated organizer-dashboard.tsx with status banners
+- Updated sidebar-nav.tsx with admin-organizers nav item
+- Updated app-store.ts with admin-organizers AppView
+- Updated page.tsx with admin-organizers render case
+- Updated seed.ts with PENDING_APPROVAL organizer
+- Created phase4c-lifecycle.test.ts with 38 comprehensive tests
+- All 38 Phase 4C tests pass
+- Full suite: 285 passed, 15 pre-existing failures (session-tokens.test.ts)
+- ESLint: 0 Phase 4C errors (2 pre-existing in server-keeper.js)
+- TypeScript: 0 Phase 4C errors
+- Committed as 446f52b
+
+Stage Summary:
+- Phase 4C implementation COMPLETE
+- Centralized lifecycle service with legal transition validation
+- Atomic Prisma transactions for status + audit log + notification
+- DEACTIVATED is terminal state (no transitions out)
+- Reason required for reject, suspend, deactivate
+- Backward-compatible approvalStatus sync
+- Admin UI with search, filter, pagination, action dialogs
+- Organizer status banners for non-ACTIVE states
+- 38 tests covering transitions, audit, entitlements, onboarding
+- READY FOR PHASE 4D

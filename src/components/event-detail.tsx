@@ -14,7 +14,7 @@ import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { ArrowLeft, MapPin, CalendarDays, Clock, Globe, Star, Users, Ticket, Minus, Plus, Loader2, Tag, User, MessageSquarePlus } from 'lucide-react';
+import { ArrowLeft, MapPin, CalendarDays, Clock, Globe, Star, Users, Ticket, Minus, Plus, Loader2, Tag, User, MessageSquarePlus, Image as ImageIcon, Video, FileText, Play, Mic, Music } from 'lucide-react';
 
 interface Review {
   id: string;
@@ -30,6 +30,38 @@ interface TicketType {
   price: number;
   quantity: number;
   soldCount: number;
+}
+
+interface EventSession {
+  id: string;
+  title: string;
+  description: string | null;
+  startTime: string;
+  endTime: string;
+  date: string | null;
+  sessionType: string;
+  status: string;
+  venueName: string | null;
+  participant: { id: string; name: string; role: string; image: string | null } | null;
+}
+
+interface EventParticipant {
+  id: string;
+  name: string;
+  bio: string | null;
+  image: string | null;
+  role: string;
+  title: string | null;
+  organization: string | null;
+  isFeatured: boolean;
+}
+
+interface EventMediaItem {
+  id: string;
+  url: string;
+  type: string;
+  category: string;
+  caption: string | null;
 }
 
 interface Event {
@@ -58,6 +90,9 @@ interface Event {
   reviews: Review[];
   organizer: { id: string; name: string; avatar?: string | null; bio?: string | null };
   _count: { reviews: number; bookings: number };
+  sessions?: EventSession[];
+  participants?: EventParticipant[];
+  media?: EventMediaItem[];
 }
 
 export function EventDetail() {
@@ -74,6 +109,9 @@ export function EventDetail() {
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
   const [userHasReviewed, setUserHasReviewed] = useState(false);
+  const [sessions, setSessions] = useState<EventSession[]>([]);
+  const [participants, setParticipants] = useState<EventParticipant[]>([]);
+  const [media, setMedia] = useState<EventMediaItem[]>([]);
 
   useEffect(() => {
     if (!selectedEventId) return;
@@ -88,6 +126,16 @@ export function EventDetail() {
       })
       .catch(() => toast.error('Failed to load event'))
       .finally(() => setLoading(false));
+    // Load sessions, participants, and media for public view
+    apiFetch<{ sessions: EventSession[] }>(`/api/events/${selectedEventId}/sessions`)
+      .then(data => setSessions(data.sessions))
+      .catch(() => {});
+    apiFetch<{ participants: EventParticipant[] }>(`/api/events/${selectedEventId}/participants`)
+      .then(data => setParticipants(data.participants))
+      .catch(() => {});
+    apiFetch<{ media: EventMediaItem[] }>(`/api/events/${selectedEventId}/media`)
+      .then(data => setMedia(data.media))
+      .catch(() => {});
   }, [selectedEventId, user?.id]);
 
   useEffect(() => {
@@ -286,6 +334,128 @@ export function EventDetail() {
               <div className="prose prose-sm max-w-none text-muted-foreground whitespace-pre-wrap">{event.description}</div>
             </CardContent>
           </Card>
+
+          {/* Program / Sessions */}
+          {sessions.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarDays className="h-5 w-5 text-emerald-600" />
+                  Program
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {sessions.map(session => (
+                    <div key={session.id} className="flex items-start gap-3 p-3 rounded-lg border">
+                      <div className="text-center min-w-[60px]">
+                        <p className="text-sm font-semibold">{session.startTime}</p>
+                        <p className="text-xs text-muted-foreground">{session.endTime}</p>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-medium text-sm">{session.title}</h4>
+                          <Badge variant="outline" className="text-xs">{session.sessionType}</Badge>
+                        </div>
+                        {session.participant && (
+                          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                            <Mic className="h-3 w-3" /> {session.participant.name}
+                          </p>
+                        )}
+                        {session.venueName && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{session.venueName}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Speakers & Participants */}
+          {participants.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-emerald-600" />
+                  Speakers & Participants
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  {participants.map(p => (
+                    <div key={p.id} className="flex items-start gap-3 p-3 rounded-lg border">
+                      {p.image ? (
+                        <img src={p.image} alt={p.name} className="h-12 w-12 rounded-full object-cover shrink-0" />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center shrink-0">
+                          <span className="text-emerald-700 dark:text-emerald-300 font-semibold">{p.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-medium text-sm">{p.name}</h4>
+                          {p.isFeatured && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
+                        </div>
+                        <Badge variant="outline" className="text-xs mt-0.5">{p.role}</Badge>
+                        {p.title && (
+                          <p className="text-xs text-muted-foreground mt-1">{p.title}</p>
+                        )}
+                        {p.organization && (
+                          <p className="text-xs text-muted-foreground">{p.organization}</p>
+                        )}
+                        {p.bio && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.bio}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Gallery / Media */}
+          {media.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ImageIcon className="h-5 w-5 text-emerald-600" />
+                  Gallery
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {media.map(m => (
+                    <div key={m.id} className="relative rounded-lg overflow-hidden border aspect-video">
+                      {m.type === 'IMAGE' ? (
+                        <img src={m.url} alt={m.caption || 'Gallery image'} className="w-full h-full object-cover" />
+                      ) : m.type === 'VIDEO' ? (
+                        <div className="w-full h-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                          <Video className="h-8 w-8 text-zinc-400" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="h-10 w-10 rounded-full bg-black/30 flex items-center justify-center">
+                              <Play className="h-5 w-5 text-white ml-0.5" />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full h-full bg-zinc-50 dark:bg-zinc-800 flex items-center justify-center">
+                          <FileText className="h-8 w-8 text-zinc-400" />
+                        </div>
+                      )}
+                      {m.caption && (
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+                          <p className="text-xs text-white truncate">{m.caption}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Reviews */}
           <Card>

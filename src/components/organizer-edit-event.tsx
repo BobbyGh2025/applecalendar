@@ -40,6 +40,9 @@ import {
   XCircle,
   Save,
   AlertTriangle,
+  Calendar,
+  Users,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface Category {
@@ -782,6 +785,50 @@ export function OrganizerEditEvent() {
               </div>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Manage Event Content */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-emerald-500" /> Manage Event Content
+          </CardTitle>
+          <CardDescription>Manage sessions, participants, and media for this event</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto py-4 flex-col gap-2"
+              onClick={() => navigate('organizer-event-content')}
+            >
+              <Calendar className="h-6 w-6 text-emerald-600" />
+              <span className="font-medium">Program</span>
+              <span className="text-xs text-muted-foreground">Sessions & Schedule</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto py-4 flex-col gap-2"
+              onClick={() => navigate('organizer-event-content')}
+            >
+              <Users className="h-6 w-6 text-emerald-600" />
+              <span className="font-medium">Participants</span>
+              <span className="text-xs text-muted-foreground">Speakers & Artists</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto py-4 flex-col gap-2"
+              onClick={() => navigate('organizer-event-content')}
+            >
+              <ImageIcon className="h-6 w-6 text-emerald-600" />
+              <span className="font-medium">Media</span>
+              <span className="text-xs text-muted-foreground">Images & Videos</span>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

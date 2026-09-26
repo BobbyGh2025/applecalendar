@@ -41,7 +41,8 @@ export async function POST(
       throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to manage ticket types for this event');
     }
 
-    // Phase 4B: Entitlement enforcement — check ticket type limit
+    // Phase 4B: Entitlement enforcement — check ticket type count limit
+    // Phase 4D: Also enforce maxTicketsPerEvent (total ticket capacity)
     if (user.role !== 'SUPER_ADMIN') {
       const organizerId = await resolveOrganizerFromEvent(event.organizerId);
       if (organizerId) {
@@ -55,6 +56,28 @@ export async function POST(
     const parsed = createTicketTypeSchema.safeParse(body);
     if (!parsed.success) {
       return ApiError.fromZodError(parsed.error).toResponse();
+    }
+
+    // Phase 4D: Enforce maxTicketsPerEvent — total ticket capacity across all ticket types
+    // maxTicketsPerEvent limits the sum of all TicketType.quantity for a single event.
+    // Enforcement point: when creating a new ticket type.
+    if (user.role !== 'SUPER_ADMIN') {
+      const entitlements = await getOperableOrganizerEntitlements(user.id);
+      // Get current total ticket capacity for this event
+      const currentCapacity = await db.ticketType.aggregate({
+        where: { eventId },
+        _sum: { quantity: true },
+      });
+      const totalCapacity = (currentCapacity._sum.quantity || 0) + parsed.data.quantity;
+      if (totalCapacity > entitlements.limits.maxTicketsPerEvent) {
+        throw new ApiError(403, 'PLAN_LIMIT_REACHED', 'Adding this ticket type would exceed the ticket capacity limit for your plan', {
+          limit: 'maxTicketsPerEvent*',
+          current: currentCapacity._sum.quantity || 0,
+          requested: parsed.data.quantity,
+          max: entitlements.limits.maxTicketsPerEvent,
+          planSlug: entitlements.planSlug,
+        });
+      }
     }
 
     const ticketType = await db.ticketType.create({

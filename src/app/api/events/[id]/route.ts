@@ -54,6 +54,31 @@ export async function GET(
           orderBy: { createdAt: 'desc' },
         },
         tags: { include: { tag: true } },
+        // Phase 4D: Include sessions, participants, and media in event detail
+        sessions: {
+          where: { status: 'SCHEDULED' },
+          orderBy: [{ date: 'asc' }, { sortOrder: 'asc' }, { startTime: 'asc' }],
+          include: {
+            participant: { select: { id: true, name: true, role: true, image: true } },
+          },
+        },
+        participants: {
+          orderBy: [{ isFeatured: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+          select: {
+            id: true,
+            name: true,
+            bio: true,
+            image: true,
+            role: true,
+            title: true,
+            organization: true,
+            isFeatured: true,
+            _count: { select: { sessions: true } },
+          },
+        },
+        media: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
         _count: { select: { bookings: true } },
       },
     });

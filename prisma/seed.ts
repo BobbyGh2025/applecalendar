@@ -657,6 +657,334 @@ async function main() {
   }
   console.log('✅ Ticket Types created');
 
+  // 8.5 Create event participants, sessions, and media (Phase 4D)
+
+  // Participants for Global Tech Summit
+  const participant1 = await prisma.eventParticipant.upsert({
+    where: { id: 'participant-1' },
+    update: {},
+    create: {
+      id: 'participant-1',
+      eventId: 'evt-1',
+      name: 'Dr. Aisha Osei',
+      bio: 'AI researcher and CTO of TechForward Ghana. Leading expert in large language models and responsible AI.',
+      image: 'https://images.unsplash.com/photo-1573497019940-19449e47e019?w=200&h=200&fit=crop',
+      role: 'KEYNOTE',
+      title: 'Chief Technology Officer',
+      organization: 'TechForward Ghana',
+      socialLinks: JSON.stringify({ twitter: '@aisha_osei', linkedin: 'aisha-osei' }),
+      sortOrder: 0,
+      isFeatured: true,
+    },
+  });
+
+  const participant2 = await prisma.eventParticipant.upsert({
+    where: { id: 'participant-2' },
+    update: {},
+    create: {
+      id: 'participant-2',
+      eventId: 'evt-1',
+      name: 'Kwame Asante',
+      bio: 'Venture capitalist focused on African tech startups. Managing partner at Accra Ventures.',
+      image: 'https://images.unsplash.com/photo-1507003214450-2b4d9c707cd9?w=200&h=200&fit=crop',
+      role: 'PANELIST',
+      title: 'Managing Partner',
+      organization: 'Accra Ventures',
+      socialLinks: JSON.stringify({ twitter: '@kwame_asante', linkedin: 'kwame-asante' }),
+      sortOrder: 1,
+      isFeatured: true,
+    },
+  });
+
+  const participant3 = await prisma.eventParticipant.upsert({
+    where: { id: 'participant-3' },
+    update: {},
+    create: {
+      id: 'participant-3',
+      eventId: 'evt-1',
+      name: 'Fatima Mensah',
+      bio: 'Cloud infrastructure architect at AWS. 15+ years building scalable distributed systems.',
+      role: 'SPEAKER',
+      title: 'Senior Solutions Architect',
+      organization: 'Amazon Web Services',
+      sortOrder: 2,
+      isFeatured: false,
+    },
+  });
+
+  // Participants for Summer Music Festival
+  const participant4 = await prisma.eventParticipant.upsert({
+    where: { id: 'participant-4' },
+    update: {},
+    create: {
+      id: 'participant-4',
+      eventId: 'evt-2',
+      name: 'Sarkodie',
+      bio: 'Ghana\'s most decorated rapper and international music icon.',
+      image: 'https://images.unsplash.com/photo-1493225457124-5f141f9f5280?w=200&h=200&fit=crop',
+      role: 'ARTIST',
+      organization: 'Sarkcess Music',
+      sortOrder: 0,
+      isFeatured: true,
+    },
+  });
+
+  const participant5 = await prisma.eventParticipant.upsert({
+    where: { id: 'participant-5' },
+    update: {},
+    create: {
+      id: 'participant-5',
+      eventId: 'evt-2',
+      name: 'Amaarae',
+      bio: 'Genre-bending artist blending pop, R&B, and Afrobeats. Global chart-topper.',
+      image: 'https://images.unsplash.com/photo-1516453937725-5a5afe8b88a7?w=200&h=200&fit=crop',
+      role: 'ARTIST',
+      organization: 'Golden Child Records',
+      sortOrder: 1,
+      isFeatured: true,
+    },
+  });
+
+  const participant6 = await prisma.eventParticipant.upsert({
+    where: { id: 'participant-6' },
+    update: {},
+    create: {
+      id: 'participant-6',
+      eventId: 'evt-2',
+      name: 'DJ Mic Smith',
+      bio: 'Top Ghanaian DJ and music producer. Known for high-energy sets.',
+      role: 'DJ',
+      organization: 'MixMaster Entertainment',
+      sortOrder: 2,
+      isFeatured: false,
+    },
+  });
+
+  // Sessions for Global Tech Summit
+  await prisma.eventSession.upsert({
+    where: { id: 'session-1' },
+    update: {},
+    create: {
+      id: 'session-1',
+      eventId: 'evt-1',
+      title: 'Opening Keynote: The Future of AI in Africa',
+      description: 'Dr. Osei shares her vision for responsible AI development across the African continent.',
+      startTime: '09:00',
+      endTime: '10:00',
+      date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      sortOrder: 0,
+      venueName: 'Main Hall',
+      participantId: participant1.id,
+      sessionType: 'KEYNOTE',
+      status: 'SCHEDULED',
+    },
+  });
+
+  await prisma.eventSession.upsert({
+    where: { id: 'session-2' },
+    update: {},
+    create: {
+      id: 'session-2',
+      eventId: 'evt-1',
+      title: 'Building Scalable Cloud Infrastructure',
+      description: 'A deep dive into cloud architecture patterns for high-traffic applications.',
+      startTime: '10:30',
+      endTime: '11:30',
+      date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      sortOrder: 1,
+      venueName: 'Room A',
+      participantId: participant3.id,
+      sessionType: 'SESSION',
+      status: 'SCHEDULED',
+    },
+  });
+
+  await prisma.eventSession.upsert({
+    where: { id: 'session-3' },
+    update: {},
+    create: {
+      id: 'session-3',
+      eventId: 'evt-1',
+      title: 'Funding African Tech: VC Panel',
+      description: 'Top VCs discuss investment trends and opportunities in African tech.',
+      startTime: '14:00',
+      endTime: '15:30',
+      date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      sortOrder: 2,
+      venueName: 'Main Hall',
+      participantId: participant2.id,
+      sessionType: 'PANEL',
+      status: 'SCHEDULED',
+    },
+  });
+
+  await prisma.eventSession.upsert({
+    where: { id: 'session-4' },
+    update: {},
+    create: {
+      id: 'session-4',
+      eventId: 'evt-1',
+      title: 'Networking Break',
+      startTime: '11:30',
+      endTime: '12:00',
+      date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      sortOrder: 3,
+      venueName: 'Lobby',
+      sessionType: 'BREAK',
+      status: 'SCHEDULED',
+    },
+  });
+
+  await prisma.eventSession.upsert({
+    where: { id: 'session-5' },
+    update: {},
+    create: {
+      id: 'session-5',
+      eventId: 'evt-1',
+      title: 'Hands-on ML Workshop',
+      description: 'Build and deploy your first ML model using Python and TensorFlow.',
+      startTime: '13:00',
+      endTime: '14:00',
+      date: new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000),
+      sortOrder: 0,
+      venueName: 'Workshop Room',
+      sessionType: 'WORKSHOP',
+      status: 'SCHEDULED',
+    },
+  });
+
+  // Sessions for Summer Music Festival
+  await prisma.eventSession.upsert({
+    where: { id: 'session-6' },
+    update: {},
+    create: {
+      id: 'session-6',
+      eventId: 'evt-2',
+      title: 'Main Stage: Sarkodie Live',
+      startTime: '20:00',
+      endTime: '22:00',
+      date: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+      sortOrder: 0,
+      venueName: 'Main Stage',
+      participantId: participant4.id,
+      sessionType: 'ENTERTAINMENT',
+      status: 'SCHEDULED',
+    },
+  });
+
+  await prisma.eventSession.upsert({
+    where: { id: 'session-7' },
+    update: {},
+    create: {
+      id: 'session-7',
+      eventId: 'evt-2',
+      title: 'Acoustic Set: Amaarae',
+      startTime: '16:00',
+      endTime: '17:30',
+      date: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+      sortOrder: 1,
+      venueName: 'Garden Stage',
+      participantId: participant5.id,
+      sessionType: 'ENTERTAINMENT',
+      status: 'SCHEDULED',
+    },
+  });
+
+  // Media for Global Tech Summit
+  await prisma.eventMedia.upsert({
+    where: { id: 'media-1' },
+    update: {},
+    create: {
+      id: 'media-1',
+      eventId: 'evt-1',
+      url: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=600&fit=crop',
+      type: 'IMAGE',
+      category: 'COVER',
+      caption: 'Global Tech Summit 2025 main stage',
+      sortOrder: 0,
+      uploadedBy: organizer1.id,
+    },
+  });
+
+  await prisma.eventMedia.upsert({
+    where: { id: 'media-2' },
+    update: {},
+    create: {
+      id: 'media-2',
+      eventId: 'evt-1',
+      url: 'https://images.unsplash.com/photo-1591115765373-520776b6d1c9?w=800&h=600&fit=crop',
+      type: 'IMAGE',
+      category: 'GALLERY',
+      caption: 'Attendees networking at the 2024 summit',
+      sortOrder: 1,
+      uploadedBy: organizer1.id,
+    },
+  });
+
+  await prisma.eventMedia.upsert({
+    where: { id: 'media-3' },
+    update: {},
+    create: {
+      id: 'media-3',
+      eventId: 'evt-1',
+      url: 'https://images.unsplash.com/photo-147572em71310d9ba4db05803?w=800&h=600&fit=crop',
+      type: 'IMAGE',
+      category: 'GALLERY',
+      caption: 'Workshop session in progress',
+      sortOrder: 2,
+      uploadedBy: organizer1.id,
+    },
+  });
+
+  // Media for Summer Music Festival
+  await prisma.eventMedia.upsert({
+    where: { id: 'media-4' },
+    update: {},
+    create: {
+      id: 'media-4',
+      eventId: 'evt-2',
+      url: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=1200&h=600&fit=crop',
+      type: 'IMAGE',
+      category: 'POSTER',
+      caption: 'Summer Music Festival 2025 poster',
+      sortOrder: 0,
+      uploadedBy: organizer1.id,
+    },
+  });
+
+  await prisma.eventMedia.upsert({
+    where: { id: 'media-5' },
+    update: {},
+    create: {
+      id: 'media-5',
+      eventId: 'evt-2',
+      url: 'https://images.unsplash.com/photo-1493225457124-5f141f9f5280?w=800&h=600&fit=crop',
+      type: 'IMAGE',
+      category: 'GALLERY',
+      caption: 'Festival stage setup',
+      sortOrder: 1,
+      uploadedBy: organizer1.id,
+    },
+  });
+
+  // Media for AI Workshop
+  await prisma.eventMedia.upsert({
+    where: { id: 'media-6' },
+    update: {},
+    create: {
+      id: 'media-6',
+      eventId: 'evt-3',
+      url: 'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=1200&h=600&fit=crop',
+      type: 'IMAGE',
+      category: 'COVER',
+      caption: 'AI & ML Workshop',
+      sortOrder: 0,
+      uploadedBy: organizer2.id,
+    },
+  });
+
+  console.log('✅ Event Content (Participants, Sessions, Media) created');
+
   // 9. Create bookings
   const bookingsData = [
     { userId: publicUser.id, eventId: 'evt-4', status: 'CONFIRMED', amount: 0 },

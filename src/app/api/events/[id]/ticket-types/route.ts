@@ -16,7 +16,87 @@ const createTicketTypeSchema = z.object({
   saleStart: z.string().optional(),
   saleEnd: z.string().optional(),
   isActive: z.boolean().default(true),
+}).refine(data => {
+  // Phase 4G: minPerOrder cannot exceed maxPerOrder
+  return data.minPerOrder <= data.maxPerOrder;
+}, {
+  message: 'minPerOrder cannot exceed maxPerOrder',
+  path: ['minPerOrder'],
+}).refine(data => {
+  // Phase 4G: saleEnd must be after saleStart if both are set
+  if (data.saleStart && data.saleEnd) {
+    return new Date(data.saleEnd) > new Date(data.saleStart);
+  }
+  return true;
+}, {
+  message: 'Sale end date must be after sale start date',
+  path: ['saleEnd'],
 });
+
+/**
+ * GET /api/events/:id/ticket-types
+ * List ticket types for an event.
+ * Public users see only active ticket types with safe fields.
+ * Organizers/SUPER_ADMIN see all ticket types including soldCount.
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: eventId } = await params;
+
+    const event = await db.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      throw new ApiError(404, 'NOT_FOUND', 'Event not found');
+    }
+
+    // Try to authenticate (optional for public access)
+    let authenticatedUser: { id: string; role: string } | null = null;
+    try {
+      authenticatedUser = await authenticate(request);
+    } catch {
+      // Not authenticated — public access
+    }
+
+    const isOrganizer = authenticatedUser && (
+      event.organizerId === authenticatedUser.id ||
+      authenticatedUser.role === 'SUPER_ADMIN'
+    );
+
+    const ticketTypes = await db.ticketType.findMany({
+      where: {
+        eventId,
+        ...(!isOrganizer && { isActive: true }), // Public only sees active
+      },
+      orderBy: { price: 'asc' },
+    });
+
+    // Phase 4G: Public users see safe ticket information only
+    if (!isOrganizer) {
+      const publicTicketTypes = ticketTypes.map(tt => ({
+        id: tt.id,
+        name: tt.name,
+        description: tt.description,
+        price: tt.price,
+        currency: tt.currency,
+        quantity: tt.quantity,
+        soldCount: tt.soldCount, // needed for "X of Y remaining" display
+        minPerOrder: tt.minPerOrder,
+        maxPerOrder: tt.maxPerOrder,
+        saleStart: tt.saleStart,
+        saleEnd: tt.saleEnd,
+        isActive: tt.isActive,
+        // Internal fields (eventId) excluded
+      }));
+      return NextResponse.json({ ticketTypes: publicTicketTypes });
+    }
+
+    return NextResponse.json({ ticketTypes });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
 
 /**
  * POST /api/events/:id/ticket-types

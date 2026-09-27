@@ -57,8 +57,34 @@ export async function PATCH(
     if (parsed.data.quantity !== undefined && parsed.data.quantity < existing.soldCount) {
       throw new ApiError(
         400,
-        'VALIDATION_ERROR',
+        'SOLD_COUNT_EXCEEDED',
         `Cannot reduce quantity below ${existing.soldCount} (already sold)`
+      );
+    }
+
+    // Phase 4G: Cross-field validation — minPerOrder/maxPerOrder consistency
+    const effectiveMin = parsed.data.minPerOrder ?? existing.minPerOrder;
+    const effectiveMax = parsed.data.maxPerOrder ?? existing.maxPerOrder;
+    if (effectiveMin > effectiveMax) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'minPerOrder cannot exceed maxPerOrder'
+      );
+    }
+
+    // Phase 4G: Sale window validation — saleEnd must be after saleStart
+    const effectiveSaleStart = parsed.data.saleStart !== undefined
+      ? (parsed.data.saleStart ? new Date(parsed.data.saleStart) : null)
+      : existing.saleStart;
+    const effectiveSaleEnd = parsed.data.saleEnd !== undefined
+      ? (parsed.data.saleEnd ? new Date(parsed.data.saleEnd) : null)
+      : existing.saleEnd;
+    if (effectiveSaleStart && effectiveSaleEnd && effectiveSaleEnd <= effectiveSaleStart) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'Sale end date must be after sale start date'
       );
     }
 
@@ -136,11 +162,11 @@ export async function DELETE(
       throw new ApiError(404, 'NOT_FOUND', 'Ticket type not found');
     }
 
-    // Cannot delete if tickets have been sold
+    // Cannot delete if tickets have been sold (preserves transactional history)
     if (existing.soldCount > 0) {
       throw new ApiError(
         400,
-        'VALIDATION_ERROR',
+        'HAS_SOLD_TICKETS',
         `Cannot delete ticket type with ${existing.soldCount} tickets sold. Deactivate it instead.`
       );
     }

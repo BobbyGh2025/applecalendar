@@ -43,8 +43,18 @@ export async function POST(
       throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
+    // Phase 4G: Comprehensive event bookability checks
+    if (event.status === 'CANCELLED') {
+      throw new ApiError(400, 'EVENT_NOT_BOOKABLE', 'This event has been cancelled');
+    }
+    if (event.status === 'COMPLETED') {
+      throw new ApiError(400, 'EVENT_NOT_BOOKABLE', 'This event has already taken place');
+    }
     if (event.status !== 'PUBLISHED') {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Event is not available for booking');
+      throw new ApiError(400, 'EVENT_NOT_BOOKABLE', 'Event is not available for booking');
+    }
+    if (!event.isBookable) {
+      throw new ApiError(400, 'EVENT_NOT_BOOKABLE', 'Booking is currently unavailable for this event');
     }
 
     const ticketType = event.ticketTypes[0];
@@ -53,15 +63,24 @@ export async function POST(
     }
 
     if (!ticketType.isActive) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'This ticket type is no longer available');
+      throw new ApiError(400, 'TICKET_TYPE_INACTIVE', 'This ticket type is no longer available');
     }
 
-    // Check min/max per order (outside transaction, just validation)
+    // Phase 4G: Sale window enforcement
+    const now = new Date();
+    if (ticketType.saleStart && now < ticketType.saleStart) {
+      throw new ApiError(400, 'SALE_NOT_STARTED', 'Ticket sales have not started yet');
+    }
+    if (ticketType.saleEnd && now > ticketType.saleEnd) {
+      throw new ApiError(400, 'SALE_ENDED', 'Ticket sales have ended');
+    }
+
+    // Check min/max per order
     if (quantity < ticketType.minPerOrder) {
-      throw new ApiError(400, 'VALIDATION_ERROR', `Minimum ${ticketType.minPerOrder} tickets per order`);
+      throw new ApiError(400, 'INVALID_QUANTITY', `Minimum ${ticketType.minPerOrder} tickets per order`);
     }
     if (quantity > ticketType.maxPerOrder) {
-      throw new ApiError(400, 'VALIDATION_ERROR', `Maximum ${ticketType.maxPerOrder} tickets per order`);
+      throw new ApiError(400, 'INVALID_QUANTITY', `Maximum ${ticketType.maxPerOrder} tickets per order`);
     }
 
     // Generate booking reference

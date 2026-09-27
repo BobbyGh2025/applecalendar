@@ -124,12 +124,23 @@ export async function PATCH(
       throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket has expired');
     }
 
-    const updatedTicket = await db.ticket.update({
-      where: { qrCode },
+    // Phase 4H: Use conditional updateMany to prevent double check-in race.
+    // Two concurrent scans could both pass the status check above.
+    // This update only succeeds if the ticket is still VALID at the database level.
+    const checkInResult = await db.ticket.updateMany({
+      where: { qrCode, status: 'VALID' },
       data: {
         status: 'USED',
         checkedInAt: new Date(),
       },
+    });
+
+    if (checkInResult.count === 0) {
+      throw new ApiError(409, 'CONFLICT', 'Ticket has already been checked in or is no longer valid');
+    }
+
+    const updatedTicket = await db.ticket.findUnique({
+      where: { qrCode },
       include: {
         ticketType: {
           select: { name: true },

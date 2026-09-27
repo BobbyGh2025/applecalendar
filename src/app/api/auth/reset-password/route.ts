@@ -41,6 +41,17 @@ export async function POST(request: NextRequest) {
       throw new ApiError(400, 'TOKEN_EXPIRED', 'This reset token has expired');
     }
 
+    // Phase 4H: Mark the token as used FIRST to prevent race conditions.
+    // If two concurrent requests pass the usedAt check, the updateMany with
+    // usedAt=null guard ensures only one succeeds.
+    const consumeResult = await db.passwordResetToken.updateMany({
+      where: { id: resetToken.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (consumeResult.count === 0) {
+      throw new ApiError(400, 'TOKEN_USED', 'This reset token has already been used');
+    }
+
     // Hash the new password
     const hashedPassword = await hash(newPassword, 12);
 
@@ -48,12 +59,6 @@ export async function POST(request: NextRequest) {
     await db.user.update({
       where: { id: resetToken.userId },
       data: { password: hashedPassword },
-    });
-
-    // Mark token as used
-    await db.passwordResetToken.update({
-      where: { id: resetToken.id },
-      data: { usedAt: new Date() },
     });
 
     // Revoke all refresh tokens (force re-login)

@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
-import { hashToken, revokeAllSessions } from '@/lib/auth';
+import { hashToken } from '@/lib/tokens';
+import { revokeAllRefreshTokens } from '@/lib/auth';
 
 // ─── Configuration ───
 
@@ -30,7 +31,7 @@ export async function createPasswordResetToken(userId: string): Promise<string> 
 
   // Generate a crypto-secure token (64 hex chars = 32 bytes of entropy)
   const rawToken = crypto.randomBytes(32).toString('hex');
-  const tokenHash = hashToken(rawToken);
+  const tokenHash = await hashToken(rawToken);
 
   const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000);
 
@@ -70,7 +71,7 @@ export async function resetPasswordWithToken(
   rawToken: string,
   newPassword: string
 ): Promise<ResetPasswordResult> {
-  const tokenHash = hashToken(rawToken);
+  const tokenHash = await hashToken(rawToken);
 
   const tokenRecord = await db.passwordResetToken.findUnique({
     where: { tokenHash },
@@ -119,11 +120,11 @@ export async function resetPasswordWithToken(
   });
 
   // Revoke ALL existing sessions (user must log in again)
-  const sessionsRevoked = await revokeAllSessions(tokenRecord.userId);
+  const sessionsRevoked = await revokeAllRefreshTokens(tokenRecord.userId);
 
   return {
     success: true,
-    sessionsRevoked,
+    sessionsRevoked: undefined,
     message: 'Password reset successfully. Please log in with your new password.',
   };
 }

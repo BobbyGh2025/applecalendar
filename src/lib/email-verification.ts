@@ -26,7 +26,7 @@ export async function createEmailVerificationToken(userId: string): Promise<stri
 
   // Generate a crypto-secure token (64 hex chars = 32 bytes of entropy)
   const rawToken = crypto.randomBytes(32).toString('hex');
-  const tokenHash = hashToken(rawToken);
+  const tokenHash = await hashToken(rawToken);
 
   const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
@@ -62,7 +62,7 @@ export interface VerifyEmailResult {
  * - Does NOT return any auth credentials (no access token, refresh token, or session)
  */
 export async function verifyEmailWithToken(rawToken: string): Promise<VerifyEmailResult> {
-  const tokenHash = hashToken(rawToken);
+  const tokenHash = await hashToken(rawToken);
 
   const tokenRecord = await db.emailVerificationToken.findUnique({
     where: { tokenHash },

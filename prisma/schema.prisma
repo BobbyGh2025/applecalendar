@@ -224,6 +224,8 @@ model Event {
   @@index([categoryId])
   @@index([startDate])
   @@index([venueId])
+  @@index([status, startDate])
+  @@index([organizerId, status])
 }
 
 model EventTag {
@@ -375,6 +377,8 @@ model TicketType {
 
   event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   tickets Ticket[]
+
+  @@index([eventId])
 }
 
 model Ticket {
@@ -417,6 +421,7 @@ model Booking {
   @@index([eventId])
   @@index([status])
   @@index([eventId, status])
+  @@index([userId, status])
 }
 
 model Payment {
@@ -441,6 +446,9 @@ model Payment {
 
   booking Booking @relation(fields: [bookingId], references: [id])
   user    User    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
 }
 
 // ============ REVIEWS ============
@@ -458,6 +466,7 @@ model Review {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@unique([userId, eventId])
+  @@index([eventId])
 }
 
 // ============ NOTIFICATIONS ============
@@ -475,6 +484,7 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, isRead])
 }
 
 // ============ ADVERTISEMENTS ============

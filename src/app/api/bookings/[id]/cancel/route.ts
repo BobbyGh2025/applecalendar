@@ -75,14 +75,25 @@ export async function PATCH(
 
     // Perform cancellation transactionally
     const result = await db.$transaction(async (tx) => {
-      // Update booking status (with cancellation audit fields)
-      const updatedBooking = await tx.booking.update({
-        where: { id: bookingId },
+      // Phase 4H: Use conditional update to prevent double-cancel race.
+      // Two concurrent cancel requests could both pass the pre-transaction status check.
+      // This update only succeeds if the booking is still CONFIRMED inside the transaction.
+      const updateResult = await tx.booking.updateMany({
+        where: { id: bookingId, status: 'CONFIRMED' },
         data: {
           status: 'CANCELLED',
           cancelledBy: user.id,
           cancellationReason: cancellationReason ?? null,
         },
+      });
+
+      if (updateResult.count === 0) {
+        // Another transaction already cancelled this booking
+        throw new ApiError(409, 'CONFLICT', 'Booking has already been cancelled or is no longer confirmable');
+      }
+
+      const updatedBooking = await tx.booking.findUnique({
+        where: { id: bookingId },
       });
 
       // Cancel all valid tickets
@@ -117,9 +128,20 @@ export async function PATCH(
       }
 
       // Update payment status if exists
+      // Phase 4H: Do NOT set Payment.status to REFUNDED — no actual refund is processed.
+      // Setting REFUNDED without a provider API call creates a phantom refund (false financial state).
+      // Instead:
+      //   COMPLETED → COMPLETED (money captured, refund not yet processed by provider)
+      //   PENDING   → CANCELLED (charge was never completed, now cancelled)
+      //   FAILED    → FAILED (unchanged)
+      //   REFUNDED  → REFUNDED (already refunded)
+      // When payment integration is implemented, the cancel flow should:
+      //   1. Call the provider's refund API
+      //   2. On success, set status=REFUNDED + refundedAmount + refundRef
+      //   3. On failure, leave status=COMPLETED and surface the error
       await tx.payment.updateMany({
-        where: { bookingId },
-        data: { status: 'REFUNDED' },
+        where: { bookingId, status: 'PENDING' },
+        data: { status: 'CANCELLED' },
       });
 
       // Create notification

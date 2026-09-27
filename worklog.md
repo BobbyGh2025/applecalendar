@@ -701,3 +701,33 @@ Stage Summary:
 - 427 total tests, 412 passed, 15 pre-existing failures (unchanged baseline)
 - NO NEW REGRESSIONS
 - PHASE 4E STATUS: COMPLETE
+
+---
+Task ID: 4F
+Agent: main
+Task: Phase 4F — Public Event Experience & Content Presentation
+
+Work Log:
+- Inspected entire codebase: API routes, components, schemas, services, tests
+- Created src/lib/services/event-auth.ts with filterPublicEventFields, filterPublicParticipantFields, filterPublicMediaFields, isEventPubliclyVisible, getBookabilityStatus
+- Updated /api/events (listing): added city/isFree/venue filters, enhanced search (venue name, city, category name), applied filterPublicEventFields for public users, included venue slug/googleMapsUrl/website
+- Updated /api/events/[id] (detail): changed visibility from PUBLISHED-only to PUBLICLY_VISIBLE_STATUSES (PUBLISHED, CANCELLED, COMPLETED), applied field filtering for public users (strips contactEmail, contactPhone, rejectionReason, moderatedBy, moderatedAt, visibility, organizerId), filters participant email/socialLinks, filters media uploadedBy/fileSize/mimeType
+- Updated /api/events/[id]/participants: uses isEventPubliclyVisible, already strips email/socialLinks for public
+- Updated /api/events/[id]/media: uses isEventPubliclyVisible, strips uploadedBy/fileSize/mimeType for public
+- Updated /api/events/[id]/sessions: uses isEventPubliclyVisible, hides CANCELLED sessions from public users
+- Enhanced event-detail.tsx: uses single API response (fixes N+1 query pattern), adds CANCELLED/COMPLETED status banners, bookability-aware ticket CTAs, session grouping by date, media categorization (videos/gallery/documents), role labels for participants, SEO document.title, accessibility improvements (ARIA labels, roles, keyboard nav, sr-only summary)
+- Enhanced public-discover.tsx: collapsible filter panel with city and free/paid filters, enhanced search placeholder, clear all filters button, venue city on event cards, accessibility
+- Extended eventQuerySchema with city, isFree, venue filters
+- Added 52 Phase 4F tests covering: visibility rules (8), filterPublicEventFields (9), filterPublicParticipantFields (3), filterPublicMediaFields (4), getBookabilityStatus (6), slugify (6), DB-backed integration (16)
+- Full test suite: 479 total, 464 passed, 15 pre-existing session-token failures
+- TypeScript: 0 Phase 4F errors
+- ESLint: 0 Phase 4F errors (2 pre-existing server-keeper.js)
+- Browser verification: public discover with filters, event detail with venue/Google Maps, SEO title, responsive layout
+- Git commit: c9582f6
+
+Stage Summary:
+- Phase 4F complete: public event experience implemented
+- 11 files changed, 1378 insertions, 161 deletions
+- 52 new Phase 4F tests, all passing
+- No new regressions (same 15 pre-existing session-token failures)
+- Commit hash: c9582f6

@@ -1,0 +1,754 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect } from 'react';
+     4→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+     5→import { Button } from '@/components/ui/button';
+     6→import { Badge } from '@/components/ui/badge';
+     7→import { Skeleton } from '@/components/ui/skeleton';
+     8→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+     9→import { Separator } from '@/components/ui/separator';
+    10→import { Label } from '@/components/ui/label';
+    11→import { Textarea } from '@/components/ui/textarea';
+    12→import { useAppStore } from '@/stores/app-store';
+    13→import { apiFetch } from '@/lib/api';
+    14→import { toast } from 'sonner';
+    15→import { motion } from 'framer-motion';
+    16→import { format } from 'date-fns';
+    17→import { ArrowLeft, MapPin, CalendarDays, Clock, Globe, Star, Users, Ticket, Minus, Plus, Loader2, Tag, User, MessageSquarePlus, Image as ImageIcon, Video, FileText, Play, Mic, Music } from 'lucide-react';
+    18→
+    19→interface Review {
+    20→  id: string;
+    21→  rating: number;
+    22→  comment: string;
+    23→  createdAt: string;
+    24→  user: { id: string; name: string; avatar?: string | null };
+    25→}
+    26→
+    27→interface TicketType {
+    28→  id: string;
+    29→  name: string;
+    30→  price: number;
+    31→  quantity: number;
+    32→  soldCount: number;
+    33→}
+    34→
+    35→interface EventSession {
+    36→  id: string;
+    37→  title: string;
+    38→  description: string | null;
+    39→  startTime: string;
+    40→  endTime: string;
+    41→  date: string | null;
+    42→  sessionType: string;
+    43→  status: string;
+    44→  venueName: string | null;
+    45→  participant: { id: string; name: string; role: string; image: string | null } | null;
+    46→}
+    47→
+    48→interface EventParticipant {
+    49→  id: string;
+    50→  name: string;
+    51→  bio: string | null;
+    52→  image: string | null;
+    53→  role: string;
+    54→  title: string | null;
+    55→  organization: string | null;
+    56→  isFeatured: boolean;
+    57→}
+    58→
+    59→interface EventMediaItem {
+    60→  id: string;
+    61→  url: string;
+    62→  type: string;
+    63→  category: string;
+    64→  caption: string | null;
+    65→}
+    66→
+    67→interface VenueRelation {
+    68→  id: string;
+    69→  name: string;
+    70→  address: string;
+    71→  city: string;
+    72→  state: string | null;
+    73→  country: string;
+    74→  lat: number | null;
+    75→  lng: number | null;
+    76→  capacity: number | null;
+    77→  website: string | null;
+    78→  googleMapsUrl: string | null;
+    79→}
+    80→
+    81→interface Event {
+    82→  id: string;
+    83→  title: string;
+    84→  description: string;
+    85→  shortDescription: string | null;
+    86→  coverImage: string | null;
+    87→  startDate: string;
+    88→  endDate: string;
+    89→  startTime: string | null;
+    90→  endTime: string | null;
+    91→  venueName: string | null;
+    92→  venueAddress: string | null;
+    93→  venueCity: string | null;
+    94→  venueState: string | null;
+    95→  venueCountry: string | null;
+    96→  isVirtual: boolean;
+    97→  virtualUrl: string | null;
+    98→  isPaid: boolean;
+    99→  capacity: number;
+   100→  currency: string;
+   101→  category: { id: string; name: string; slug: string };
+   102→  tags: { id: string; name: string }[];
+   103→  ticketTypes: TicketType[];
+   104→  reviews: Review[];
+   105→  organizer: { id: string; name: string; avatar?: string | null; bio?: string | null };
+   106→  venue?: VenueRelation | null;
+   107→  _count: { reviews: number; bookings: number };
+   108→  sessions?: EventSession[];
+   109→  participants?: EventParticipant[];
+   110→  media?: EventMediaItem[];
+   111→}
+   112→
+   113→export function EventDetail() {
+   114→  const { selectedEventId, goBack, navigate, user } = useAppStore();
+   115→  const [event, setEvent] = useState<Event | null>(null);
+   116→  const [loading, setLoading] = useState(true);
+   117→  const [bookDialog, setBookDialog] = useState(false);
+   118→  const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
+   119→  const [quantity, setQuantity] = useState(1);
+   120→  const [booking, setBooking] = useState(false);
+   121→  const [relatedEvents, setRelatedEvents] = useState<any[]>([]);
+   122→  const [reviewDialog, setReviewDialog] = useState(false);
+   123→  const [reviewRating, setReviewRating] = useState(5);
+   124→  const [reviewComment, setReviewComment] = useState('');
+   125→  const [submittingReview, setSubmittingReview] = useState(false);
+   126→  const [userHasReviewed, setUserHasReviewed] = useState(false);
+   127→  const [sessions, setSessions] = useState<EventSession[]>([]);
+   128→  const [participants, setParticipants] = useState<EventParticipant[]>([]);
+   129→  const [media, setMedia] = useState<EventMediaItem[]>([]);
+   130→
+   131→  useEffect(() => {
+   132→    if (!selectedEventId) return;
+   133→    setLoading(true);
+   134→    apiFetch<{ event: Event }>(`/api/events/${selectedEventId}`)
+   135→      .then(data => {
+   136→        setEvent(data.event);
+   137→        // Check if current user has already reviewed
+   138→        if (user && data.event.reviews) {
+   139→          setUserHasReviewed(data.event.reviews.some((r: Review) => r.user?.id === user.id));
+   140→        }
+   141→      })
+   142→      .catch(() => toast.error('Failed to load event'))
+   143→      .finally(() => setLoading(false));
+   144→    // Load sessions, participants, and media for public view
+   145→    apiFetch<{ sessions: EventSession[] }>(`/api/events/${selectedEventId}/sessions`)
+   146→      .then(data => setSessions(data.sessions))
+   147→      .catch(() => {});
+   148→    apiFetch<{ participants: EventParticipant[] }>(`/api/events/${selectedEventId}/participants`)
+   149→      .then(data => setParticipants(data.participants))
+   150→      .catch(() => {});
+   151→    apiFetch<{ media: EventMediaItem[] }>(`/api/events/${selectedEventId}/media`)
+   152→      .then(data => setMedia(data.media))
+   153→      .catch(() => {});
+   154→  }, [selectedEventId, user?.id]);
+   155→
+   156→  useEffect(() => {
+   157→    if (!event?.category?.slug) return;
+   158→    apiFetch<{ events: any[] }>(`/api/events?category=${event.category.slug}&limit=3&featured=false`)
+   159→      .then(data => setRelatedEvents(data.events.filter((e: any) => e.id !== event.id).slice(0, 3)))
+   160→      .catch(() => {});
+   161→  }, [event?.category?.slug]);
+   162→
+   163→  const handleBook = (ticket: TicketType) => {
+   164→    if (!user) {
+   165→      navigate('login');
+   166→      toast.error('Please login to book tickets');
+   167→      return;
+   168→    }
+   169→    setSelectedTicket(ticket);
+   170→    setQuantity(1);
+   171→    setBookDialog(true);
+   172→  };
+   173→
+   174→  const confirmBooking = async () => {
+   175→    if (!selectedTicket || !selectedEventId) return;
+   176→    setBooking(true);
+   177→    try {
+   178→      await apiFetch('/api/events/' + selectedEventId + '/book', {
+   179→        method: 'POST',
+   180→        body: JSON.stringify({ ticketTypeId: selectedTicket.id, quantity }),
+   181→      });
+   182→      toast.success('Booking confirmed!');
+   183→      setBookDialog(false);
+   184→      // Refresh event data
+   185→      const data = await apiFetch<{ event: Event }>(`/api/events/${selectedEventId}`);
+   186→      setEvent(data.event);
+   187→    } catch (err: any) {
+   188→      toast.error(err.message || 'Booking failed');
+   189→    } finally {
+   190→      setBooking(false);
+   191→    }
+   192→  };
+   193→
+   194→  const avgRating = event?.reviews?.length
+   195→    ? event.reviews.reduce((s, r) => s + r.rating, 0) / event.reviews.length
+   196→    : 0;
+   197→
+   198→  const submitReview = async () => {
+   199→    if (!selectedEventId) return;
+   200→    setSubmittingReview(true);
+   201→    try {
+   202→      await apiFetch(`/api/events/${selectedEventId}/reviews`, {
+   203→        method: 'POST',
+   204→        body: JSON.stringify({ rating: reviewRating, comment: reviewComment || undefined }),
+   205→      });
+   206→      toast.success('Review submitted!');
+   207→      setReviewDialog(false);
+   208→      setReviewRating(5);
+   209→      setReviewComment('');
+   210→      setUserHasReviewed(true);
+   211→      // Refresh event to show new review
+   212→      const data = await apiFetch<{ event: Event }>(`/api/events/${selectedEventId}`);
+   213→      setEvent(data.event);
+   214→    } catch (err: any) {
+   215→      toast.error(err.message || 'Failed to submit review');
+   216→    } finally {
+   217→      setSubmittingReview(false);
+   218→    }
+   219→  };
+   220→
+   221→  if (loading) {
+   222→    return (
+   223→      <div className="space-y-6">
+   224→        <Skeleton className="h-8 w-24" />
+   225→        <Skeleton className="h-72 w-full rounded-xl" />
+   226→        <div className="grid md:grid-cols-3 gap-6">
+   227→          <div className="md:col-span-2 space-y-4">
+   228→            <Skeleton className="h-8 w-3/4" />
+   229→            <Skeleton className="h-4 w-1/2" />
+   230→            <Skeleton className="h-40 w-full" />
+   231→          </div>
+   232→          <Skeleton className="h-80 rounded-xl" />
+   233→        </div>
+   234→      </div>
+   235→    );
+   236→  }
+   237→
+   238→  if (!event) {
+   239→    return (
+   240→      <div className="text-center py-20">
+   241→        <CalendarDays className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+   242→        <h2 className="text-xl font-semibold mb-2">Event not found</h2>
+   243→        <Button variant="outline" onClick={goBack}>Go Back</Button>
+   244→      </div>
+   245→    );
+   246→  }
+   247→
+   248→  return (
+   249→    <motion.div
+   250→      initial={{ opacity: 0, y: 10 }}
+   251→      animate={{ opacity: 1, y: 0 }}
+   252→      transition={{ duration: 0.3 }}
+   253→      className="space-y-6"
+   254→    >
+   255→      {/* Back button */}
+   256→      <Button variant="ghost" size="sm" onClick={goBack} className="gap-2">
+   257→        <ArrowLeft className="h-4 w-4" /> Back
+   258→      </Button>
+   259→
+   260→      {/* Hero Image */}
+   261→      <div className="relative h-64 md:h-80 rounded-xl overflow-hidden">
+   262→        {event.coverImage ? (
+   263→          <img src={event.coverImage} alt={event.title} className="w-full h-full object-cover" />
+   264→        ) : (
+   265→          <div className="w-full h-full bg-gradient-to-br from-emerald-200 to-teal-200 flex items-center justify-center">
+   266→            <CalendarDays className="h-16 w-16 text-emerald-300" />
+   267→          </div>
+   268→        )}
+   269→        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+   270→        <div className="absolute bottom-4 left-6 right-6 text-white">
+   271→          <Badge className="mb-2 bg-emerald-600">{event.category?.name}</Badge>
+   272→          <h1 className="text-2xl md:text-4xl font-bold">{event.title}</h1>
+   273→        </div>
+   274→      </div>
+   275→
+   276→      <div className="grid md:grid-cols-3 gap-6">
+   277→        {/* Main Content */}
+   278→        <div className="md:col-span-2 space-y-6">
+   279→          {/* Date / Location / Type */}
+   280→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   281→            <Card className="p-4">
+   282→              <div className="flex items-center gap-3">
+   283→                <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
+   284→                  <CalendarDays className="h-5 w-5" />
+   285→                </div>
+   286→                <div>
+   287→                  <p className="text-sm text-muted-foreground">Date</p>
+   288→                  <p className="font-medium">{format(new Date(event.startDate), 'EEEE, MMM d, yyyy')}</p>
+   289→                  {event.endDate && event.endDate !== event.startDate && (
+   290→                    <p className="text-sm text-muted-foreground">to {format(new Date(event.endDate), 'MMM d, yyyy')}</p>
+   291→                  )}
+   292→                </div>
+   293→              </div>
+   294→            </Card>
+   295→            <Card className="p-4">
+   296→              <div className="flex items-center gap-3">
+   297→                <div className="p-2 rounded-lg bg-teal-50 text-teal-600">
+   298→                  <Clock className="h-5 w-5" />
+   299→                </div>
+   300→                <div>
+   301→                  <p className="text-sm text-muted-foreground">Time</p>
+   302→                  <p className="font-medium">{event.startTime || 'TBD'} {event.endTime ? `- ${event.endTime}` : ''}</p>
+   303→                </div>
+   304→              </div>
+   305→            </Card>
+   306→            <Card className="p-4">
+   307→              <div className="flex items-center gap-3">
+   308→                <div className={`p-2 rounded-lg ${event.isVirtual ? 'bg-cyan-50 text-cyan-600' : 'bg-amber-50 text-amber-600'}`}>
+   309→                  {event.isVirtual ? <Globe className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
+   310→                </div>
+   311→                <div className="min-w-0">
+   312→                  <p className="text-sm text-muted-foreground">{event.isVirtual ? 'Virtual Event' : 'Location'}</p>
+   313→                  {event.isVirtual ? (
+   314→                    <p className="font-medium text-cyan-600">{event.virtualUrl || 'Online'}</p>
+   315→                  ) : event.venue ? (
+   316→                    <div>
+   317→                      <p className="font-medium">{event.venue.name}</p>
+   318→                      <p className="text-xs text-muted-foreground truncate">
+   319→                        {event.venue.address}{event.venue.city ? `, ${event.venue.city}` : ''}{event.venue.state ? `, ${event.venue.state}` : ''}{event.venue.country ? `, ${event.venue.country}` : ''}
+   320→                      </p>
+   321→                      {(event.venue.googleMapsUrl || (event.venue.lat != null && event.venue.lng != null)) && (
+   322→                        <a
+   323→                          href={event.venue.googleMapsUrl || `https://www.google.com/maps?q=${event.venue.lat},${event.venue.lng}`}
+   324→                          target="_blank"
+   325→                          rel="noopener noreferrer"
+   326→                          className="text-xs text-emerald-600 hover:underline inline-flex items-center gap-1 mt-0.5"
+   327→                        >
+   328→                          <Globe className="h-3 w-3" /> View on Google Maps
+   329→                        </a>
+   330→                      )}
+   331→                      {event.venue.website && (
+   332→                        <a
+   333→                          href={event.venue.website}
+   334→                          target="_blank"
+   335→                          rel="noopener noreferrer"
+   336→                          className="text-xs text-emerald-600 hover:underline inline-flex items-center gap-1 mt-0.5"
+   337→                        >
+   338→                          <Globe className="h-3 w-3" /> Website
+   339→                        </a>
+   340→                      )}
+   341→                    </div>
+   342→                  ) : (
+   343→                    <p className="font-medium">{event.venueName}{event.venueCity ? `, ${event.venueCity}` : ''}</p>
+   344→                  )}
+   345→                </div>
+   346→              </div>
+   347→            </Card>
+   348→            <Card className="p-4">
+   349→              <div className="flex items-center gap-3">
+   350→                <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
+   351→                  <Users className="h-5 w-5" />
+   352→                </div>
+   353→                <div>
+   354→                  <p className="text-sm text-muted-foreground">Capacity</p>
+   355→                  <p className="font-medium">{event.capacity || 'Unlimited'} attendees</p>
+   356→                </div>
+   357→              </div>
+   358→            </Card>
+   359→          </div>
+   360→
+   361→          {/* Tags */}
+   362→          {event.tags?.length > 0 && (
+   363→            <div className="flex flex-wrap gap-2">
+   364→              {event.tags.map(tag => (
+   365→                <Badge key={tag.id} variant="outline" className="gap-1">
+   366→                  <Tag className="h-3 w-3" /> {tag.name}
+   367→                </Badge>
+   368→              ))}
+   369→            </div>
+   370→          )}
+   371→
+   372→          {/* Description */}
+   373→          <Card>
+   374→            <CardHeader><CardTitle>Description</CardTitle></CardHeader>
+   375→            <CardContent>
+   376→              <div className="prose prose-sm max-w-none text-muted-foreground whitespace-pre-wrap">{event.description}</div>
+   377→            </CardContent>
+   378→          </Card>
+   379→
+   380→          {/* Program / Sessions */}
+   381→          {sessions.length > 0 && (
+   382→            <Card>
+   383→              <CardHeader>
+   384→                <CardTitle className="flex items-center gap-2">
+   385→                  <CalendarDays className="h-5 w-5 text-emerald-600" />
+   386→                  Program
+   387→                </CardTitle>
+   388→              </CardHeader>
+   389→              <CardContent>
+   390→                <div className="space-y-3">
+   391→                  {sessions.map(session => (
+   392→                    <div key={session.id} className="flex items-start gap-3 p-3 rounded-lg border">
+   393→                      <div className="text-center min-w-[60px]">
+   394→                        <p className="text-sm font-semibold">{session.startTime}</p>
+   395→                        <p className="text-xs text-muted-foreground">{session.endTime}</p>
+   396→                      </div>
+   397→                      <div className="flex-1 min-w-0">
+   398→                        <div className="flex items-center gap-2 flex-wrap">
+   399→                          <h4 className="font-medium text-sm">{session.title}</h4>
+   400→                          <Badge variant="outline" className="text-xs">{session.sessionType}</Badge>
+   401→                        </div>
+   402→                        {session.participant && (
+   403→                          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+   404→                            <Mic className="h-3 w-3" /> {session.participant.name}
+   405→                          </p>
+   406→                        )}
+   407→                        {session.venueName && (
+   408→                          <p className="text-xs text-muted-foreground mt-0.5">{session.venueName}</p>
+   409→                        )}
+   410→                      </div>
+   411→                    </div>
+   412→                  ))}
+   413→                </div>
+   414→              </CardContent>
+   415→            </Card>
+   416→          )}
+   417→
+   418→          {/* Speakers & Participants */}
+   419→          {participants.length > 0 && (
+   420→            <Card>
+   421→              <CardHeader>
+   422→                <CardTitle className="flex items-center gap-2">
+   423→                  <Users className="h-5 w-5 text-emerald-600" />
+   424→                  Speakers & Participants
+   425→                </CardTitle>
+   426→              </CardHeader>
+   427→              <CardContent>
+   428→                <div className="grid sm:grid-cols-2 gap-4">
+   429→                  {participants.map(p => (
+   430→                    <div key={p.id} className="flex items-start gap-3 p-3 rounded-lg border">
+   431→                      {p.image ? (
+   432→                        <img src={p.image} alt={p.name} className="h-12 w-12 rounded-full object-cover shrink-0" />
+   433→                      ) : (
+   434→                        <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center shrink-0">
+   435→                          <span className="text-emerald-700 dark:text-emerald-300 font-semibold">{p.name.charAt(0).toUpperCase()}</span>
+   436→                        </div>
+   437→                      )}
+   438→                      <div className="min-w-0">
+   439→                        <div className="flex items-center gap-2">
+   440→                          <h4 className="font-medium text-sm">{p.name}</h4>
+   441→                          {p.isFeatured && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
+   442→                        </div>
+   443→                        <Badge variant="outline" className="text-xs mt-0.5">{p.role}</Badge>
+   444→                        {p.title && (
+   445→                          <p className="text-xs text-muted-foreground mt-1">{p.title}</p>
+   446→                        )}
+   447→                        {p.organization && (
+   448→                          <p className="text-xs text-muted-foreground">{p.organization}</p>
+   449→                        )}
+   450→                        {p.bio && (
+   451→                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.bio}</p>
+   452→                        )}
+   453→                      </div>
+   454→                    </div>
+   455→                  ))}
+   456→                </div>
+   457→              </CardContent>
+   458→            </Card>
+   459→          )}
+   460→
+   461→          {/* Gallery / Media */}
+   462→          {media.length > 0 && (
+   463→            <Card>
+   464→              <CardHeader>
+   465→                <CardTitle className="flex items-center gap-2">
+   466→                  <ImageIcon className="h-5 w-5 text-emerald-600" />
+   467→                  Gallery
+   468→                </CardTitle>
+   469→              </CardHeader>
+   470→              <CardContent>
+   471→                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+   472→                  {media.map(m => (
+   473→                    <div key={m.id} className="relative rounded-lg overflow-hidden border aspect-video">
+   474→                      {m.type === 'IMAGE' ? (
+   475→                        <img src={m.url} alt={m.caption || 'Gallery image'} className="w-full h-full object-cover" />
+   476→                      ) : m.type === 'VIDEO' ? (
+   477→                        <div className="w-full h-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+   478→                          <Video className="h-8 w-8 text-zinc-400" />
+   479→                          <div className="absolute inset-0 flex items-center justify-center">
+   480→                            <div className="h-10 w-10 rounded-full bg-black/30 flex items-center justify-center">
+   481→                              <Play className="h-5 w-5 text-white ml-0.5" />
+   482→                            </div>
+   483→                          </div>
+   484→                        </div>
+   485→                      ) : (
+   486→                        <div className="w-full h-full bg-zinc-50 dark:bg-zinc-800 flex items-center justify-center">
+   487→                          <FileText className="h-8 w-8 text-zinc-400" />
+   488→                        </div>
+   489→                      )}
+   490→                      {m.caption && (
+   491→                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+   492→                          <p className="text-xs text-white truncate">{m.caption}</p>
+   493→                        </div>
+   494→                      )}
+   495→                    </div>
+   496→                  ))}
+   497→                </div>
+   498→              </CardContent>
+   499→            </Card>
+   500→          )}
+   501→
+   502→          {/* Reviews */}
+   503→          <Card>
+   504→            <CardHeader>
+   505→              <CardTitle className="flex items-center justify-between">
+   506→                <span className="flex items-center gap-2">
+   507→                  <Star className="h-5 w-5 fill-amber-400 text-amber-400" />
+   508→                  Reviews ({event._count?.reviews || 0})
+   509→                  {avgRating > 0 && (
+   510→                    <span className="text-sm font-normal text-muted-foreground">
+   511→                      {avgRating.toFixed(1)} average
+   512→                    </span>
+   513→                  )}
+   514→                </span>
+   515→                {user && !userHasReviewed && (
+   516→                  <Button
+   517→                    variant="outline"
+   518→                    size="sm"
+   519→                    onClick={() => setReviewDialog(true)}
+   520→                    className="gap-1"
+   521→                  >
+   522→                    <MessageSquarePlus className="h-4 w-4" />
+   523→                    Write a Review
+   524→                  </Button>
+   525→                )}
+   526→              </CardTitle>
+   527→            </CardHeader>
+   528→            <CardContent>
+   529→              {event.reviews?.length === 0 ? (
+   530→                <p className="text-muted-foreground text-sm">No reviews yet.</p>
+   531→              ) : (
+   532→                <div className="space-y-4 max-h-96 overflow-y-auto">
+   533→                  {event.reviews.map(review => (
+   534→                    <div key={review.id} className="border-b last:border-0 pb-4">
+   535→                      <div className="flex items-center gap-2 mb-1">
+   536→                        <span className="font-medium text-sm">{review.user?.name}</span>
+   537→                        <div className="flex">
+   538→                          {Array.from({ length: 5 }).map((_, i) => (
+   539→                            <Star key={i} className={`h-3 w-3 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200'}`} />
+   540→                          ))}
+   541→                        </div>
+   542→                        <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(review.createdAt))}</span>
+   543→                      </div>
+   544→                      <p className="text-sm text-muted-foreground">{review.comment}</p>
+   545→                    </div>
+   546→                  ))}
+   547→                </div>
+   548→              )}
+   549→            </CardContent>
+   550→          </Card>
+   551→
+   552→          {/* Related Events */}
+   553→          {relatedEvents.length > 0 && (
+   554→            <Card>
+   555→              <CardHeader><CardTitle>Related Events</CardTitle></CardHeader>
+   556→              <CardContent>
+   557→                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   558→                  {relatedEvents.map(re => (
+   559→                    <Card key={re.id} className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('event-detail', re.id)}>
+   560→                      <div className="h-32 bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center">
+   561→                        {re.coverImage ? <img src={re.coverImage} alt={re.title} className="w-full h-full object-cover" /> : <CalendarDays className="h-8 w-8 text-emerald-300" />}
+   562→                      </div>
+   563→                      <CardContent className="p-3">
+   564→                        <h4 className="font-medium text-sm line-clamp-1">{re.title}</h4>
+   565→                        <p className="text-xs text-muted-foreground mt-1">{format(new Date(re.startDate), 'MMM d, yyyy')}</p>
+   566→                      </CardContent>
+   567→                    </Card>
+   568→                  ))}
+   569→                </div>
+   570→              </CardContent>
+   571→            </Card>
+   572→          )}
+   573→        </div>
+   574→
+   575→        {/* Sidebar */}
+   576→        <div className="space-y-4">
+   577→          {/* Price Card */}
+   578→          <Card className="sticky top-20">
+   579→            <CardContent className="p-6 space-y-4">
+   580→              {event.isPaid ? (
+   581→                <div>
+   582→                  <p className="text-sm text-muted-foreground">Starting from</p>
+   583→                  <p className="text-3xl font-bold text-emerald-600">
+   584→                    ${Math.min(...event.ticketTypes.filter(t => t.price > 0).map(t => t.price), 0).toFixed(2)}
+   585→                  </p>
+   586→                </div>
+   587→              ) : (
+   588→                <div>
+   589→                  <p className="text-sm text-muted-foreground">This is a</p>
+   590→                  <p className="text-3xl font-bold text-emerald-600">Free Event</p>
+   591→                </div>
+   592→              )}
+   593→
+   594→              <Separator />
+   595→
+   596→              {/* Ticket Types */}
+   597→              <div className="space-y-3">
+   598→                <h4 className="font-semibold text-sm">Ticket Types</h4>
+   599→                {event.ticketTypes?.map(tt => {
+   600→                  const available = tt.quantity - tt.soldCount;
+   601→                  return (
+   602→                    <div key={tt.id} className="border rounded-lg p-3 space-y-2">
+   603→                      <div className="flex items-center justify-between">
+   604→                        <span className="font-medium text-sm">{tt.name}</span>
+   605→                        <span className={`font-bold ${tt.price > 0 ? 'text-emerald-600' : ''}`}>
+   606→                          {tt.price > 0 ? `$${tt.price.toFixed(2)}` : 'Free'}
+   607→                        </span>
+   608→                      </div>
+   609→                      <p className="text-xs text-muted-foreground">{available} available</p>
+   610→                      <Button
+   611→                        size="sm"
+   612→                        className="w-full bg-emerald-600 hover:bg-emerald-700"
+   613→                        disabled={available <= 0}
+   614→                        onClick={() => handleBook(tt)}
+   615→                      >
+   616→                        {available <= 0 ? 'Sold Out' : event.isPaid ? 'Book Now' : 'Register Free'}
+   617→                      </Button>
+   618→                    </div>
+   619→                  );
+   620→                })}
+   621→              </div>
+   622→            </CardContent>
+   623→          </Card>
+   624→
+   625→          {/* Organizer Card */}
+   626→          {event.organizer && (
+   627→            <Card>
+   628→              <CardContent className="p-4">
+   629→                <div className="flex items-center gap-3">
+   630→                  <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+   631→                    <User className="h-5 w-5 text-emerald-600" />
+   632→                  </div>
+   633→                  <div>
+   634→                    <p className="font-medium text-sm">{event.organizer.name}</p>
+   635→                    <p className="text-xs text-muted-foreground">Organizer</p>
+   636→                  </div>
+   637→                </div>
+   638→                {event.organizer.bio && (
+   639→                  <p className="text-sm text-muted-foreground mt-2">{event.organizer.bio}</p>
+   640→                )}
+   641→              </CardContent>
+   642→            </Card>
+   643→          )}
+   644→        </div>
+   645→      </div>
+   646→
+   647→      {/* Booking Dialog */}
+   648→      <Dialog open={bookDialog} onOpenChange={setBookDialog}>
+   649→        <DialogContent>
+   650→          <DialogHeader>
+   651→            <DialogTitle>Book Tickets</DialogTitle>
+   652→            <DialogDescription>{selectedTicket?.name} - {event.title}</DialogDescription>
+   653→          </DialogHeader>
+   654→          <div className="space-y-4 py-4">
+   655→            <div className="flex items-center justify-between">
+   656→              <span>Price per ticket</span>
+   657→              <span className="font-medium">{selectedTicket && selectedTicket.price > 0 ? `$${selectedTicket.price.toFixed(2)}` : 'Free'}</span>
+   658→            </div>
+   659→            <div className="flex items-center justify-between">
+   660→              <span>Quantity</span>
+   661→              <div className="flex items-center gap-3">
+   662→                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQuantity(q => Math.max(1, q - 1))}><Minus className="h-4 w-4" /></Button>
+   663→                <span className="w-8 text-center font-medium">{quantity}</span>
+   664→                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQuantity(q => Math.min(selectedTicket ? selectedTicket.quantity - selectedTicket.soldCount : 10, q + 1))}><Plus className="h-4 w-4" /></Button>
+   665→              </div>
+   666→            </div>
+   667→            <Separator />
+   668→            <div className="flex items-center justify-between text-lg font-bold">
+   669→              <span>Total</span>
+   670→              <span className="text-emerald-600">{selectedTicket && selectedTicket.price > 0 ? `$${(selectedTicket.price * quantity).toFixed(2)}` : 'Free'}</span>
+   671→            </div>
+   672→          </div>
+   673→          <DialogFooter>
+   674→            <Button variant="outline" onClick={() => setBookDialog(false)}>Cancel</Button>
+   675→            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={confirmBooking} disabled={booking}>
+   676→              {booking && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+   677→              Confirm Booking
+   678→            </Button>
+   679→          </DialogFooter>
+   680→        </DialogContent>
+   681→      </Dialog>
+   682→
+   683→      {/* Review Dialog */}
+   684→      <Dialog open={reviewDialog} onOpenChange={setReviewDialog}>
+   685→        <DialogContent>
+   686→          <DialogHeader>
+   687→            <DialogTitle>Write a Review</DialogTitle>
+   688→            <DialogDescription>Share your experience for {event.title}</DialogDescription>
+   689→          </DialogHeader>
+   690→          <div className="space-y-4 py-4">
+   691→            <div className="space-y-2">
+   692→              <Label className="text-sm font-medium">Rating</Label>
+   693→              <div className="flex gap-1">
+   694→                {Array.from({ length: 5 }).map((_, i) => (
+   695→                  <button
+   696→                    key={i}
+   697→                    type="button"
+   698→                    onClick={() => setReviewRating(i + 1)}
+   699→                    className="p-1"
+   700→                  >
+   701→                    <Star
+   702→                      className={`h-6 w-6 transition-colors ${
+   703→                        i < reviewRating
+   704→                          ? 'fill-amber-400 text-amber-400'
+   705→                          : 'text-gray-200 hover:text-amber-300'
+   706→                      }`}
+   707→                    />
+   708→                  </button>
+   709→                ))}
+   710→              </div>
+   711→            </div>
+   712→            <div className="space-y-2">
+   713→              <Label className="text-sm font-medium">Comment (optional)</Label>
+   714→              <Textarea
+   715→                placeholder="Share your thoughts about this event..."
+   716→                value={reviewComment}
+   717→                onChange={(e) => setReviewComment(e.target.value)}
+   718→                rows={3}
+   719→                maxLength={1000}
+   720→              />
+   721→            </div>
+   722→          </div>
+   723→          <DialogFooter>
+   724→            <Button variant="outline" onClick={() => setReviewDialog(false)}>
+   725→              Cancel
+   726→            </Button>
+   727→            <Button
+   728→              className="bg-emerald-600 hover:bg-emerald-700"
+   729→              onClick={submitReview}
+   730→              disabled={submittingReview}
+   731→            >
+   732→              {submittingReview && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+   733→              Submit Review
+   734→            </Button>
+   735→          </DialogFooter>
+   736→        </DialogContent>
+   737→      </Dialog>
+   738→    </motion.div>
+   739→  );
+   740→}
+   741→
+   742→function formatDistanceToNow(date: Date) {
+   743→  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+   744→  if (seconds < 60) return 'just now';
+   745→  const minutes = Math.floor(seconds / 60);
+   746→  if (minutes < 60) return `${minutes}m ago`;
+   747→  const hours = Math.floor(minutes / 60);
+   748→  if (hours < 24) return `${hours}h ago`;
+   749→  const days = Math.floor(hours / 24);
+   750→  if (days < 30) return `${days}d ago`;
+   751→  const months = Math.floor(days / 30);
+   752→  return `${months}mo ago`;
+   753→}
+   754→

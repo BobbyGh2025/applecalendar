@@ -622,3 +622,46 @@ Stage Summary:
 - Key deliverables: Venue CRUD APIs, Event↔Venue integration, venue UI (organizer + public), tenant isolation tests, delete safety tests, lifecycle enforcement, Zod validation, Ghana-first seed data, database indexes
 - Test baseline: 417 total, 402 passed, 15 pre-existing failures (unchanged)
 - No new TypeScript or ESLint errors introduced
+
+---
+Task ID: phase4e-closure
+Agent: main
+Task: Phase 4E — Venue Management + Event Venue Integration: Final Closure
+
+Work Log:
+- Inspected full codebase: prisma schema, API routes, UI components, auth service, validations, permissions, seed data, tests
+- Confirmed Phase 4E core implementation was already committed (579164d) with 53 tests passing
+- Identified 3 remaining gaps:
+  1. No public venue API route (/api/venues/) — unauthenticated venue browsing not available
+  2. slugify() duplicated in 5 route files — no shared utility
+  3. Event detail didn't use venue.googleMapsUrl field
+- Created public venue API: GET /api/venues (list) and GET /api/venues/:id (detail)
+  - Both filter private contact info via filterPublicVenueFields
+  - Only return public + active venues (404 for private/inactive)
+  - Support search, city, country filters and pagination
+- Extracted shared slugify to src/lib/utils/slugify.ts
+  - Updated 5 route files to import from shared utility
+  - Removed all inline duplicate implementations
+- Enhanced event-detail.tsx:
+  - Added googleMapsUrl to VenueRelation interface
+  - Google Maps link uses venue.googleMapsUrl when available, falls back to lat/lng
+- Added 5 new tests (58 total Phase 4E):
+  - Public Venue API: filterPublicVenueFields strips private info
+  - Public venue API only returns public+active venues
+  - Private venue returns 404 via public API
+  - Shared slugify: converts text correctly
+  - Shared slugify: handles edge cases
+- Ran Phase 4E tests: 58/58 passed
+- Ran full test suite: 422 total, 407 passed, 15 pre-existing session-token failures (unchanged baseline)
+- TypeScript check: No new errors (all pre-existing)
+- ESLint: Only 2 pre-existing server-keeper.js errors
+- Browser verification: Homepage renders, public venue API returns correct data, private venue returns 404
+- Committed: 9fe768a feat(phase4e): add public venue API, shared slugify utility, enhanced venue display
+
+Stage Summary:
+- Phase 4E is COMPLETE and COMMITTED (9fe768a)
+- 3 gaps found and fixed from inspection
+- Key deliverables: Public venue API, shared slugify utility, enhanced venue display
+- Test baseline: 422 total, 407 passed, 15 pre-existing failures (unchanged)
+- No new TypeScript or ESLint errors introduced
+- All features verified via browser and API testing

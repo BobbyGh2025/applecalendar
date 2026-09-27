@@ -4,13 +4,7 @@ import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { updateOrganizerProfileSchema } from '@/lib/validations';
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+import { slugify } from '@/lib/utils/slugify';
 
 /**
  * GET /api/organizer/profile

@@ -6,13 +6,7 @@ import { createEventSchema, eventQuerySchema } from '@/lib/validations';
 import { getOperableOrganizerEntitlements, getOrganizerUsage, requireWithinLimit } from '@/lib/services/entitlements';
 import { verifyVenueAssignment } from '@/lib/services/venue-auth';
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+import { slugify } from '@/lib/utils/slugify';
 
 function getDateFilter(dateFilter: string | null) {
   const now = new Date();

@@ -6,13 +6,7 @@ import { updateVenueSchema } from '@/lib/validations';
 import { authorizeVenueAccess, checkVenueUsage, VENUE_ERRORS } from '@/lib/services/venue-auth';
 import { getOperableOrganizerEntitlements } from '@/lib/services/entitlements';
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+import { slugify } from '@/lib/utils/slugify';
 
 /**
  * GET /api/organizer/venues/:id

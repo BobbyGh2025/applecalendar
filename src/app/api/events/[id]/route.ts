@@ -6,13 +6,7 @@ import { updateEventSchema } from '@/lib/validations';
 import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
 import { verifyVenueAssignment } from '@/lib/services/venue-auth';
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+import { slugify } from '@/lib/utils/slugify';
 
 export async function GET(
   request: NextRequest,

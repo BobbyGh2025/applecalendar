@@ -75,6 +75,7 @@ interface VenueRelation {
   lng: number | null;
   capacity: number | null;
   website: string | null;
+  googleMapsUrl: string | null;
 }
 
 interface Event {
@@ -317,9 +318,9 @@ export function EventDetail() {
                       <p className="text-xs text-muted-foreground truncate">
                         {event.venue.address}{event.venue.city ? `, ${event.venue.city}` : ''}{event.venue.state ? `, ${event.venue.state}` : ''}{event.venue.country ? `, ${event.venue.country}` : ''}
                       </p>
-                      {event.venue.lat != null && event.venue.lng != null && (
+                      {(event.venue.googleMapsUrl || (event.venue.lat != null && event.venue.lng != null)) && (
                         <a
-                          href={`https://www.google.com/maps?q=${event.venue.lat},${event.venue.lng}`}
+                          href={event.venue.googleMapsUrl || `https://www.google.com/maps?q=${event.venue.lat},${event.venue.lng}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-xs text-emerald-600 hover:underline inline-flex items-center gap-1 mt-0.5"

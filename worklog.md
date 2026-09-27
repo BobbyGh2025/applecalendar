@@ -665,3 +665,39 @@ Stage Summary:
 - Test baseline: 422 total, 407 passed, 15 pre-existing failures (unchanged)
 - No new TypeScript or ESLint errors introduced
 - All features verified via browser and API testing
+
+---
+Task ID: phase4e-closure-verification
+Agent: main
+Task: Phase 4E — Venue Management + Event Venue Integration: Formal Closure Verification
+
+Work Log:
+- Executed full INSPECT → VERIFY → TEST → SECURITY AUDIT → REGRESSION CHECK → COMMIT CHECK → FINAL STATUS workflow
+- Regression: 427 total, 412 passed, 15 pre-existing session-token failures. No new regressions.
+- Test count increase: 364→427 explained by Phase 4D (58 new) + Phase 4E (63 new) + other tests (2 new)
+- Database schema: All checks PASS (8/8). 2 minor warnings (EventSession missing venueId index, no explicit onDelete on Venue FKs)
+- All 12 API endpoints verified: auth, role, authZ, validation, lifecycle, errors, delete safety, public filtering
+- Tenant isolation: Verified in authorizeVenueAccess — direct ownership + membership + permission check
+- SUPER_ADMIN: Bypasses ownership checks for venue access; can assign organizerId (now validated)
+- Event↔Venue integration: verifyVenueAssignment prevents cross-organizer assignment; auto-populates inline fields; empty venueId removes association
+- Lifecycle: All venue mutations use centralized getOperableOrganizerEntitlements; 5 organizer statuses correctly enforced
+- Delete safety: checkVenueUsage blocks deletion with VENUE_IN_USE (409) when venue has events/sessions
+- Public venue API: Returns only isPublic=true + isActive=true; strips contactName, contactEmail, contactPhone, organizerId
+- Event detail googleMapsUrl: Uses venue.googleMapsUrl when available, falls back to lat/lng construction
+- Permissions: VENUES_VIEW/VENUES_MANAGE enforced server-side; STAFF blocked from mutations by requireRole (more restrictive than permission model — design decision)
+- Shared slugify: 0 duplicate implementations; single canonical module at src/lib/utils/slugify.ts
+- Seed: Idempotent (upsert by slug); all venue data valid; Ghana-first confirmed
+- SECURITY AUDIT FOUND 2 DEFECTS — FIXED:
+  1. HIGH: Stored XSS via javascript:/data: URLs in googleMapsUrl/website — Fixed with SAFE_URL_SCHEMES allowlist
+  2. MEDIUM: Unvalidated SUPER_ADMIN organizerId from raw body — Fixed with existence/role validation
+- TypeScript: 34 pre-existing errors, 0 Phase 4E errors
+- ESLint: 2 pre-existing server-keeper.js errors, 0 Phase 4E errors
+- Committed security fix: 0ebefd8 fix(phase4e): close security defects — XSS via unsafe URLs, unvalidated SUPER_ADMIN organizerId
+
+Stage Summary:
+- Phase 4E Closure Verification: COMPLETE
+- 2 security defects found and fixed (XSS + unvalidated organizerId)
+- 63 Phase 4E tests passing (5 new URL safety tests)
+- 427 total tests, 412 passed, 15 pre-existing failures (unchanged baseline)
+- NO NEW REGRESSIONS
+- PHASE 4E STATUS: COMPLETE

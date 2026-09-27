@@ -39,11 +39,26 @@ export const passwordField = z
   .string()
   .min(8, 'Password must be at least 8 characters');
 
-/** URL field — must be a valid URL if provided */
-export const urlField = z.string().url('Must be a valid URL');
+/** Safe URL schemes — prevents javascript:/data: XSS when rendered in <a href> */
+const SAFE_URL_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:'];
+
+/** URL field — must be a valid URL with a safe scheme (http/https/mailto/tel) */
+export const urlField = z
+  .string()
+  .url('Must be a valid URL')
+  .refine(
+    (val) => {
+      try {
+        return SAFE_URL_SCHEMES.includes(new URL(val).protocol);
+      } catch {
+        return false;
+      }
+    },
+    'Only http://, https://, mailto:, and tel: URLs are allowed'
+  );
 
 /** Optional URL field — passes through null/undefined */
-export const optionalUrlField = z.union([z.string().url('Must be a valid URL'), z.undefined()]);
+export const optionalUrlField = z.union([urlField, z.undefined()]);
 
 /** Time string in HH:MM format (24-hour) */
 export const timeField = z

@@ -176,6 +176,20 @@ export async function POST(request: NextRequest) {
       slug = `${slug}-${Date.now()}`;
     }
 
+    // Resolve organizerId — SUPER_ADMIN can assign to another organizer
+    let effectiveOrganizerId = user.id;
+    if (user.role === 'SUPER_ADMIN' && body.organizerId) {
+      // Validate that the target user exists and is an ORGANIZER
+      const targetUser = await db.user.findUnique({
+        where: { id: body.organizerId },
+        select: { role: true },
+      });
+      if (!targetUser || (targetUser.role !== 'ORGANIZER' && targetUser.role !== 'SUPER_ADMIN')) {
+        throw new ApiError(400, 'INVALID_ORGANIZER', 'organizerId must reference an existing ORGANIZER user');
+      }
+      effectiveOrganizerId = body.organizerId;
+    }
+
     const venue = await db.venue.create({
       data: {
         name,
@@ -196,7 +210,7 @@ export async function POST(request: NextRequest) {
         contactEmail: contactEmail || null,
         contactPhone,
         website,
-        organizerId: user.role === 'SUPER_ADMIN' ? (body.organizerId || user.id) : user.id,
+        organizerId: effectiveOrganizerId,
         isPublic: isPublic ?? false,
       },
     });

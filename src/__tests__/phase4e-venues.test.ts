@@ -989,4 +989,59 @@ describe('Phase 4E — Venue Management & Event Integration', () => {
       expect(slugify('---leading-trailing---')).toBe('leading-trailing');
     });
   });
+
+  // ═══════════════════════════════════════
+  // 16. URL Safety (XSS Prevention)
+  // ═══════════════════════════════════════
+
+  describe('URL Safety', () => {
+    it('createVenueSchema rejects javascript: scheme in googleMapsUrl', async () => {
+      const { createVenueSchema } = await import('@/lib/validations/venues');
+      const result = createVenueSchema.safeParse({
+        name: 'XSS Venue',
+        address: '123 Test',
+        city: 'Accra',
+        googleMapsUrl: 'javascript:alert)alert(document.cookie)',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('createVenueSchema rejects data: scheme in website', async () => {
+      const { createVenueSchema } = await import('@/lib/validations/venues');
+      const result = createVenueSchema.safeParse({
+        name: 'XSS Venue',
+        address: '123 Test',
+        city: 'Accra',
+        website: 'data:text/html,<script>alert(1)</script>',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('createVenueSchema accepts https URLs', async () => {
+      const { createVenueSchema } = await import('@/lib/validations/venues');
+      const result = createVenueSchema.safeParse({
+        name: 'Safe Venue',
+        address: '123 Test',
+        city: 'Accra',
+        googleMapsUrl: 'https://maps.google.com/?cid=123',
+        website: 'https://example.com',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('urlField rejects javascript: and data: schemes', async () => {
+      const { urlField } = await import('@/lib/validations/common');
+      expect(urlField.safeParse('javascript:alert(1)').success).toBe(false);
+      expect(urlField.safeParse('data:text/html,<h1>test</h1>').success).toBe(false);
+      expect(urlField.safeParse('vbscript:9msgbox(1)').success).toBe(false);
+    });
+
+    it('urlField accepts safe schemes', async () => {
+      const { urlField } = await import('@/lib/validations/common');
+      expect(urlField.safeParse('https://example.com').success).toBe(true);
+      expect(urlField.safeParse('http://example.com').success).toBe(true);
+      expect(urlField.safeParse('mailto:test@example.com').success).toBe(true);
+      expect(urlField.safeParse('tel:+1234567890').success).toBe(true);
+    });
+  });
 });

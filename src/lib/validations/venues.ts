@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   paginationSchema,
   emailField,
+  urlField,
   optionalUrlField,
   latitudeField,
   longitudeField,
@@ -86,8 +87,8 @@ export const updateVenueSchema = z.object({
   postalCode: z.string().max(20, 'Postal code must be 20 characters or fewer').optional(),
   lat: latitudeField.optional(),
   lng: longitudeField.optional(),
-  googleMapsUrl: z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional(),
-  coverImage: z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional(),
+  googleMapsUrl: z.union([urlField, z.literal('')]).optional(),
+  coverImage: z.union([urlField, z.literal('')]).optional(),
   capacity: z
     .number()
     .int('Capacity must be an integer')
@@ -100,7 +101,7 @@ export const updateVenueSchema = z.object({
   contactName: z.string().max(200, 'Contact name must be 200 characters or fewer').optional(),
   contactEmail: z.union([emailField, z.literal('')]).optional(),
   contactPhone: z.string().max(50, 'Contact phone must be 50 characters or fewer').optional(),
-  website: z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional(),
+  website: z.union([urlField, z.literal('')]).optional(),
   isPublic: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });

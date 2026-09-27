@@ -5,6 +5,7 @@ import { handleApiError, ApiError } from '@/lib/errors';
 import { createEventSchema, eventQuerySchema } from '@/lib/validations';
 import { getOperableOrganizerEntitlements, getOrganizerUsage, requireWithinLimit } from '@/lib/services/entitlements';
 import { verifyVenueAssignment } from '@/lib/services/venue-auth';
+import { filterPublicEventFields, filterPublicParticipantFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
 
 import { slugify } from '@/lib/utils/slugify';
 
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
       return ApiError.fromZodError(parsed.error).toResponse();
     }
 
-    const { page, limit, search = '', category, date, featured, status } = parsed.data;
+    const { page, limit, search = '', category, date, featured, status, city, isFree, venue } = parsed.data;
 
     // Check if user is authenticated (optional)
     let authUser: { id: string; role: string } | null = null;
@@ -52,19 +53,26 @@ export async function GET(request: NextRequest) {
       // Not authenticated — public access
     }
 
+    const isPublicUser = !authUser || !['ORGANIZER', 'SUPER_ADMIN', 'STAFF'].includes(authUser.role);
+
     const where: Record<string, unknown> = {};
 
-    // Public users only see PUBLISHED events (unless they are organizer/admin)
-    if (!authUser || !['ORGANIZER', 'SUPER_ADMIN', 'STAFF'].includes(authUser.role)) {
+    // Public users only see publicly visible events (PUBLISHED, CANCELLED, COMPLETED)
+    // For listing, only PUBLISHED is shown by default (CANCELLED/COMPLETED shown only via direct link)
+    if (isPublicUser) {
       where.status = 'PUBLISHED';
     } else if (status) {
       where.status = status;
     }
 
+    // Phase 4F: Enhanced search — includes venue name and city
     if (search) {
       where.OR = [
         { title: { contains: search } },
         { description: { contains: search } },
+        { venueName: { contains: search } },
+        { venueCity: { contains: search } },
+        { category: { name: { contains: search } } },
       ];
     }
 
@@ -83,6 +91,21 @@ export async function GET(request: NextRequest) {
       where.isFeatured = true;
     }
 
+    // Phase 4F: City filter
+    if (city) {
+      where.venueCity = city;
+    }
+
+    // Phase 4F: Free/paid filter
+    if (isFree === true) {
+      where.isPaid = false;
+    }
+
+    // Phase 4F: Venue name filter
+    if (venue) {
+      where.venueName = { contains: venue };
+    }
+
     const skip = (page - 1) * limit;
 
     const [events, total] = await Promise.all([
@@ -97,15 +120,20 @@ export async function GET(request: NextRequest) {
             select: { id: true, name: true, price: true, quantity: true, soldCount: true, currency: true },
           },
           organizer: { select: { id: true, name: true, avatar: true } },
-          venue: { select: { id: true, name: true, address: true, city: true, state: true, country: true, lat: true, lng: true } },
+          venue: { select: { id: true, name: true, slug: true, address: true, city: true, state: true, country: true, lat: true, lng: true, googleMapsUrl: true, website: true } },
           _count: { select: { reviews: true, bookings: true } },
         },
       }),
       db.event.count({ where }),
     ]);
 
+    // Phase 4F: Filter private fields for public users
+    const publicEvents = isPublicUser
+      ? events.map(e => filterPublicEventFields(e))
+      : events;
+
     return NextResponse.json({
-      events,
+      events: publicEvents,
       pagination: {
         page,
         limit,

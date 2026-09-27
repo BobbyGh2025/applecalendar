@@ -4,6 +4,7 @@ import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { z } from 'zod';
 import { authorizeEventContent } from '@/lib/services/event-content';
+import { filterPublicParticipantFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
 
 // ─── Validation Schemas ───
 
@@ -64,9 +65,9 @@ export async function GET(
       throw new ApiError(404, 'EVENT_NOT_FOUND', 'Event not found');
     }
 
-    // Public users can only see participants for PUBLISHED events
+    // Public users can only see participants for publicly visible events
     if (!authUser || !['ORGANIZER', 'SUPER_ADMIN', 'STAFF'].includes(authUser.role)) {
-      if (event.status !== 'PUBLISHED') {
+      if (!isEventPubliclyVisible(event.status)) {
         throw new ApiError(404, 'EVENT_NOT_FOUND', 'Event not found');
       }
     }

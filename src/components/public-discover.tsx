@@ -8,9 +8,16 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
-import { Search, MapPin, CalendarDays, TrendingUp, Star, ChevronRight } from 'lucide-react';
+import { Search, MapPin, CalendarDays, TrendingUp, Star, ChevronRight, SlidersHorizontal, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -28,6 +35,20 @@ interface TicketType {
   soldCount: number;
 }
 
+interface VenueInfo {
+  id: string;
+  name: string;
+  slug?: string;
+  address: string;
+  city: string;
+  state: string | null;
+  country: string;
+  lat: number | null;
+  lng: number | null;
+  googleMapsUrl?: string | null;
+  website?: string | null;
+}
+
 interface Event {
   id: string;
   title: string;
@@ -42,8 +63,10 @@ interface Event {
   isPaid: boolean;
   capacity: number;
   shortDescription: string | null;
+  isFeatured?: boolean;
   category: Category;
   ticketTypes: TicketType[];
+  venue?: VenueInfo | null;
   _count: { reviews: number; bookings: number };
 }
 
@@ -55,6 +78,12 @@ const DATE_LABELS: Record<string, string> = {
   'next-month': 'Next Month',
 };
 
+const PRICE_FILTERS = [
+  { value: 'all', label: 'All Prices' },
+  { value: 'free', label: 'Free Only' },
+  { value: 'paid', label: 'Paid Only' },
+];
+
 export function PublicDiscover() {
   const { navigate, searchQuery, setSearchQuery, selectedCategory, setSelectedCategory, selectedDateFilter, setSelectedDateFilter } = useAppStore();
   const [events, setEvents] = useState<Event[]>([]);
@@ -65,6 +94,14 @@ export function PublicDiscover() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+
+  // Phase 4F: Additional filters
+  const [cityFilter, setCityFilter] = useState('');
+  const [priceFilter, setPriceFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Collect unique cities from events for city filter
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -98,16 +135,35 @@ export function PublicDiscover() {
       if (searchQuery) params.set('search', searchQuery);
       if (selectedCategory) params.set('category', selectedCategory);
       if (selectedDateFilter && selectedDateFilter !== 'all') params.set('date', selectedDateFilter);
+      if (cityFilter) params.set('city', cityFilter);
+      if (priceFilter === 'free') params.set('isFree', 'true');
+      // Note: 'paid' filter is not directly supported by API; client-side fallback
       const data = await apiFetch<{ events: Event[]; total: number; page: number; totalPages: number }>(`/api/events?${params.toString()}`);
-      setEvents(data.events || []);
+      let fetchedEvents = data.events || [];
+      // Client-side "paid only" filter (API only supports isFree=true)
+      if (priceFilter === 'paid') {
+        fetchedEvents = fetchedEvents.filter(e => e.isPaid);
+      }
+      setEvents(fetchedEvents);
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 1);
+
+      // Extract unique cities from events for the city dropdown
+      const cities = Array.from(new Set(
+        fetchedEvents
+          .map(e => e.venue?.city || e.venueCity)
+          .filter(Boolean) as string[]
+      )).sort();
+      setAvailableCities(prev => {
+        const merged = Array.from(new Set([...prev, ...cities])).sort();
+        return merged;
+      });
     } catch {
       toast.error('Failed to load events');
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, selectedCategory, selectedDateFilter]);
+  }, [searchQuery, selectedCategory, selectedDateFilter, cityFilter, priceFilter]);
 
   useEffect(() => { fetchCategories(); fetchFeatured(); }, [fetchCategories, fetchFeatured]);
   useEffect(() => { setPage(1); fetchEvents(1); }, [fetchEvents]);
@@ -121,6 +177,16 @@ export function PublicDiscover() {
 
   const getTotalSold = (ev: Event) => ev.ticketTypes.reduce((s, t) => s + (t.soldCount || 0), 0);
   const getCapacity = (ev: Event) => ev.capacity || ev.ticketTypes.reduce((s, t) => s + t.quantity, 0);
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSelectedCategory(null);
+    setSelectedDateFilter('all');
+    setCityFilter('');
+    setPriceFilter('all');
+  };
+
+  const hasActiveFilters = searchQuery || selectedCategory || (selectedDateFilter && selectedDateFilter !== 'all') || cityFilter || (priceFilter !== 'all');
 
   const EventCardSkeleton = () => (
     <Card className="overflow-hidden">
@@ -145,10 +211,11 @@ export function PublicDiscover() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
-              placeholder="Search events..."
+              placeholder="Search events, venues, cities..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 h-12 bg-white/95 text-foreground border-0 shadow-lg placeholder:text-muted-foreground"
+              aria-label="Search events"
             />
           </div>
         </div>
@@ -157,46 +224,98 @@ export function PublicDiscover() {
         </div>
       </section>
 
-      {/* Date Filter Pills */}
-      <div className="flex flex-wrap gap-2">
-        {DATE_FILTERS.map(f => (
-          <Button
-            key={f}
-            variant={selectedDateFilter === f ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSelectedDateFilter(f)}
-            className={selectedDateFilter === f ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
-          >
-            {DATE_LABELS[f]}
-          </Button>
-        ))}
-      </div>
+      {/* Filter Controls */}
+      <div className="space-y-3">
+        {/* Primary Filters Row */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Date Filter Pills */}
+          {DATE_FILTERS.map(f => (
+            <Button
+              key={f}
+              variant={selectedDateFilter === f ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSelectedDateFilter(f)}
+              className={selectedDateFilter === f ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            >
+              {DATE_LABELS[f]}
+            </Button>
+          ))}
 
-      {/* Category Pills */}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant={!selectedCategory ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setSelectedCategory(null)}
-          className={!selectedCategory ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
-        >
-          All Categories
-        </Button>
-        {categories.map(cat => (
+          {/* Toggle More Filters */}
           <Button
-            key={cat.id}
-            variant={selectedCategory === cat.slug ? 'default' : 'outline'}
+            variant="outline"
             size="sm"
-            onClick={() => setSelectedCategory(cat.slug)}
-            className={selectedCategory === cat.slug ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            onClick={() => setShowFilters(!showFilters)}
+            className="gap-1"
           >
-            {cat.name}
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Filters
+            {hasActiveFilters && <span className="ml-1 h-2 w-2 rounded-full bg-emerald-500" />}
           </Button>
-        ))}
+
+          {/* Clear All Filters */}
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-muted-foreground">
+              <X className="h-3.5 w-3.5" /> Clear all
+            </Button>
+          )}
+        </div>
+
+        {/* Category Pills */}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={!selectedCategory ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setSelectedCategory(null)}
+            className={!selectedCategory ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+          >
+            All Categories
+          </Button>
+          {categories.map(cat => (
+            <Button
+              key={cat.id}
+              variant={selectedCategory === cat.slug ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSelectedCategory(cat.slug)}
+              className={selectedCategory === cat.slug ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            >
+              {cat.name}
+            </Button>
+          ))}
+        </div>
+
+        {/* Extended Filters (collapsible) */}
+        {showFilters && (
+          <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg border bg-muted/30">
+            {/* City Filter */}
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="City..."
+                value={cityFilter}
+                onChange={(e) => setCityFilter(e.target.value)}
+                className="h-8 w-32"
+                aria-label="Filter by city"
+              />
+            </div>
+
+            {/* Price Filter */}
+            <Select value={priceFilter} onValueChange={setPriceFilter}>
+              <SelectTrigger className="h-8 w-36" aria-label="Filter by price">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRICE_FILTERS.map(pf => (
+                  <SelectItem key={pf.value} value={pf.value}>{pf.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {/* Featured Events */}
-      {!searchQuery && selectedDateFilter === 'all' && !selectedCategory && (
+      {!searchQuery && selectedDateFilter === 'all' && !selectedCategory && !cityFilter && priceFilter === 'all' && (
         <section>
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="h-5 w-5 text-emerald-500" />
@@ -270,6 +389,9 @@ export function PublicDiscover() {
             <CalendarDays className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-medium mb-2">No events found</h3>
             <p className="text-muted-foreground text-sm">Try adjusting your search or filters</p>
+            {hasActiveFilters && (
+              <Button variant="outline" className="mt-4" onClick={clearFilters}>Clear all filters</Button>
+            )}
           </Card>
         ) : (
           <>
@@ -278,6 +400,9 @@ export function PublicDiscover() {
                 const sold = getTotalSold(ev);
                 const cap = getCapacity(ev);
                 const pct = cap > 0 ? Math.min((sold / cap) * 100, 100) : 0;
+                const venueCity = ev.venue?.city || ev.venueCity;
+                const venueName = ev.venue?.name || ev.venueName;
+
                 return (
                   <Card
                     key={ev.id}
@@ -296,6 +421,9 @@ export function PublicDiscover() {
                       {ev.isVirtual && (
                         <Badge variant="secondary" className="absolute top-2 right-2">Virtual</Badge>
                       )}
+                      {ev.isFeatured && (
+                        <Badge className="absolute top-2 right-2 bg-amber-500 text-white">Featured</Badge>
+                      )}
                     </div>
                     <CardContent className="p-4 space-y-3">
                       <h3 className="font-semibold line-clamp-2 group-hover:text-emerald-600 transition-colors">{ev.title}</h3>
@@ -310,7 +438,7 @@ export function PublicDiscover() {
                         ) : (
                           <>
                             <MapPin className="h-4 w-4 flex-shrink-0" />
-                            <span className="truncate">{ev.venueName}{ev.venueCity ? `, ${ev.venueCity}` : ''}</span>
+                            <span className="truncate">{venueName}{venueCity ? `, ${venueCity}` : ''}</span>
                           </>
                         )}
                       </div>
@@ -341,7 +469,7 @@ export function PublicDiscover() {
             </div>
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex justify-center mt-8 gap-2">
+              <div className="flex justify-center mt-8 gap-2" role="navigation" aria-label="Event list pagination">
                 <Button variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
                 <span className="flex items-center px-4 text-sm text-muted-foreground">Page {page} of {totalPages}</span>
                 <Button variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>

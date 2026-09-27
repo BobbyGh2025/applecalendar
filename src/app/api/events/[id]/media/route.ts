@@ -5,6 +5,7 @@ import { handleApiError, ApiError } from '@/lib/errors';
 import { z } from 'zod';
 import { authorizeEventContent, verifyMediaBelongsToEvent } from '@/lib/services/event-content';
 import { getEventUsage, requireWithinLimit, getOperableOrganizerEntitlements } from '@/lib/services/entitlements';
+import { filterPublicMediaFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
 
 // ─── Validation Schemas ───
 
@@ -59,11 +60,10 @@ export async function GET(
       throw new ApiError(404, 'EVENT_NOT_FOUND', 'Event not found');
     }
 
-    // Public users can only see media for PUBLISHED events
-    if (!authUser || !['ORGANIZER', 'SUPER_ADMIN', 'STAFF'].includes(authUser.role)) {
-      if (event.status !== 'PUBLISHED') {
-        throw new ApiError(404, 'EVENT_NOT_FOUND', 'Event not found');
-      }
+    // Public users can only see media for publicly visible events
+    const isPublicUser = !authUser || !['ORGANIZER', 'SUPER_ADMIN', 'STAFF'].includes(authUser.role);
+    if (isPublicUser && !isEventPubliclyVisible(event.status)) {
+      throw new ApiError(404, 'EVENT_NOT_FOUND', 'Event not found');
     }
 
     const media = await db.eventMedia.findMany({
@@ -71,7 +71,12 @@ export async function GET(
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
 
-    return NextResponse.json({ media });
+    // Phase 4F: Filter internal metadata for public users
+    const publicMedia = isPublicUser
+      ? media.map(m => filterPublicMediaFields(m))
+      : media;
+
+    return NextResponse.json({ media: publicMedia });
   } catch (error) {
     return handleApiError(error);
   }

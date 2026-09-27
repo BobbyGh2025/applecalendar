@@ -223,6 +223,13 @@ export const eventQuerySchema = paginationSchema.extend({
     .transform((val) => val === 'true')
     .optional(),
   status: eventStatusField.optional(),
+  // Phase 4F: Additional public filters
+  city: z.string().max(100, 'City filter too long').optional(),
+  isFree: z
+    .string()
+    .transform((val) => val === 'true')
+    .optional(),
+  venue: z.string().max(200, 'Venue filter too long').optional(),
 });
 
 export type EventQueryInput = z.infer<typeof eventQuerySchema>;

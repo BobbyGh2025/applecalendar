@@ -5,6 +5,7 @@ import { handleApiError, ApiError } from '@/lib/errors';
 import { updateEventSchema } from '@/lib/validations';
 import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
 import { verifyVenueAssignment } from '@/lib/services/venue-auth';
+import { filterPublicEventFields, filterPublicParticipantFields, filterPublicMediaFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
 
 import { slugify } from '@/lib/utils/slugify';
 
@@ -101,9 +102,36 @@ export async function GET(
       throw new ApiError(404, 'NOT_FOUND', 'Event not found');
     }
 
-    // Public/unauthenticated users can only see PUBLISHED events
-    if ((!authenticatedUser || authenticatedUser.role === 'PUBLIC') && event.status !== 'PUBLISHED') {
+    // Public/unauthenticated users can only see publicly visible events
+    // (PUBLISHED, CANCELLED, COMPLETED per Phase 4F visibility rules)
+    const isPublicUser = !authenticatedUser || authenticatedUser.role === 'PUBLIC';
+    if (isPublicUser && !isEventPubliclyVisible(event.status)) {
       throw new ApiError(404, 'NOT_FOUND', 'Event not found');
+    }
+
+    // Phase 4F: Filter private fields for public users
+    if (isPublicUser) {
+      // Filter event-level private fields
+      const publicEvent = filterPublicEventFields(event);
+
+      // Filter participant private fields (email, socialLinks)
+      if (publicEvent.participants) {
+        (publicEvent as any).participants = publicEvent.participants.map(
+          (p: Record<string, unknown>) => filterPublicParticipantFields(p)
+        );
+      }
+
+      // Filter media internal metadata (uploadedBy, fileSize, mimeType)
+      if (publicEvent.media) {
+        (publicEvent as any).media = publicEvent.media.map(
+          (m: Record<string, unknown>) => filterPublicMediaFields(m)
+        );
+      }
+
+      // Ensure venue private fields are not exposed (use filterPublicVenueFields pattern)
+      // The venue select already excludes contactName/Email/Phone, but strip isPublic/slug
+      // for cleaner public response (keep id, name, address, city, etc.)
+      return NextResponse.json({ event: publicEvent });
     }
 
     return NextResponse.json({ event });

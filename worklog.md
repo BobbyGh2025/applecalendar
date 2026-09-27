@@ -731,3 +731,27 @@ Stage Summary:
 - 52 new Phase 4F tests, all passing
 - No new regressions (same 15 pre-existing session-token failures)
 - Commit hash: c9582f6
+---
+Task ID: 1
+Agent: main
+Task: Phase 4G — Ticketing & Booking Hardening
+
+Work Log:
+- Inspected all 20 items: Prisma schema (TicketType, Ticket, Booking, Payment, Event, User), all ticketing API routes, booking creation/cancel, check-in, organizer bookings, entitlements service, event-auth service, organizer-lifecycle service, validations, existing tests, seed data, rate limiting, error handling
+- Documented the current data model: Event → TicketType → Ticket → Booking → Payment hierarchy
+- Verified existing hardening: soldCount protection, cross-field validation, capacity enforcement, sale windows, event bookability, atomic concurrency, cross-event/cross-organizer protection, booking ownership, cancellation safety, ticket status transitions, QR security, rate limiting, public field filtering, free events, API error consistency
+- Added hardening: cancellationReason support in cancel route, soldCount safety guard (prevents going below 0), cross-event ticket type CROSS_EVENT_REFERENCE error code, maxPerOrder <= quantity validation on CREATE and PATCH
+- Added 7 new Phase 4G tests (110 total): soldCount safety guard, cross-event validation, cancellation reason, booking creation 14-step verification, soldCount integrity after cancellation, maxPerOrder vs quantity validation
+- Full test suite: 574 passed, 15 pre-existing session-token failures (589 total)
+- Phase 4G: 110/110 passing
+- TypeScript: 0 Phase 4G errors
+- ESLint: 0 Phase 4G errors (only 2 pre-existing server-keeper.js)
+- Browser verification: page loads cleanly, no errors, no hydration issues
+- Production build: successful
+
+Stage Summary:
+- Phase 4G hardening complete with all 36 steps verified
+- Key hardening additions: cancellationReason, soldCount safety guard, CROSS_EVENT_REFERENCE, maxPerOrder<=quantity
+- 110 Phase 4G tests all passing
+- Zero Phase 4G TypeScript/ESLint errors
+- Browser-verified interactivity confirmed

@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
+import { z } from 'zod';
+
+const cancelBookingSchema = z.object({
+  reason: z.string().max(500).optional(),
+}).strict();
 
 /**
  * PATCH /api/bookings/:id/cancel
@@ -48,6 +53,18 @@ export async function PATCH(
       );
     }
 
+    // Phase 4G: Parse optional cancellation reason
+    let cancellationReason: string | undefined;
+    try {
+      const body = await request.json();
+      const parsed = cancelBookingSchema.safeParse(body);
+      if (parsed.success) {
+        cancellationReason = parsed.data.reason;
+      }
+    } catch {
+      // No body or invalid JSON — no reason provided, that's fine
+    }
+
     // Count valid tickets to restore
     const validTickets = booking.tickets.filter(t => t.status === 'VALID');
     const ticketTypeCounts = new Map<string, number>();
@@ -64,6 +81,7 @@ export async function PATCH(
         data: {
           status: 'CANCELLED',
           cancelledBy: user.id,
+          cancellationReason: cancellationReason ?? null,
         },
       });
 
@@ -78,12 +96,24 @@ export async function PATCH(
         },
       });
 
-      // Restore soldCount for each ticket type (atomic decrement)
+      // Restore soldCount for each ticket type (atomic decrement with safety guard)
+      // Phase 4G: Use updateMany with soldCount >= count guard to prevent
+      // soldCount from going below 0 due to data inconsistency.
       for (const [ticketTypeId, count] of ticketTypeCounts) {
-        await tx.ticketType.update({
-          where: { id: ticketTypeId },
+        const decResult = await tx.ticketType.updateMany({
+          where: {
+            id: ticketTypeId,
+            soldCount: { gte: count }, // Safety: only decrement if enough soldCount exists
+          },
           data: { soldCount: { decrement: count } },
         });
+        // If the guard prevented the decrement, force soldCount to 0 (data repair)
+        if (decResult.count === 0) {
+          await tx.ticketType.update({
+            where: { id: ticketTypeId },
+            data: { soldCount: 0 },
+          });
+        }
       }
 
       // Update payment status if exists

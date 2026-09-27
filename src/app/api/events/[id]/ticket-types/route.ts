@@ -31,6 +31,12 @@ const createTicketTypeSchema = z.object({
 }, {
   message: 'Sale end date must be after sale start date',
   path: ['saleEnd'],
+}).refine(data => {
+  // Phase 4G: maxPerOrder cannot exceed quantity
+  return data.maxPerOrder <= data.quantity;
+}, {
+  message: 'maxPerOrder cannot exceed quantity',
+  path: ['maxPerOrder'],
 });
 
 /**

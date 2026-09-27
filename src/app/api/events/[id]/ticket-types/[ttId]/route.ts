@@ -73,6 +73,16 @@ export async function PATCH(
       );
     }
 
+    // Phase 4G: maxPerOrder cannot exceed quantity
+    const effectiveQuantity = parsed.data.quantity ?? existing.quantity;
+    if (effectiveMax > effectiveQuantity) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'maxPerOrder cannot exceed quantity'
+      );
+    }
+
     // Phase 4G: Sale window validation — saleEnd must be after saleStart
     const effectiveSaleStart = parsed.data.saleStart !== undefined
       ? (parsed.data.saleStart ? new Date(parsed.data.saleStart) : null)

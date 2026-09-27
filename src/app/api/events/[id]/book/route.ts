@@ -57,8 +57,16 @@ export async function POST(
       throw new ApiError(400, 'EVENT_NOT_BOOKABLE', 'Booking is currently unavailable for this event');
     }
 
+    // Phase 4G: Cross-event ticket type validation
+    // The include filter ensures only ticket types belonging to this event are returned.
+    // If the ticket type belongs to a different event, it won't be in the result.
     const ticketType = event.ticketTypes[0];
     if (!ticketType) {
+      // Check if the ticket type exists at all (belongs to a different event)
+      const ttExists = await db.ticketType.findUnique({ where: { id: ticketTypeId } });
+      if (ttExists) {
+        throw new ApiError(403, 'CROSS_EVENT_REFERENCE', 'Ticket type does not belong to this event');
+      }
       throw new ApiError(404, 'NOT_FOUND', 'Ticket type not found');
     }
 

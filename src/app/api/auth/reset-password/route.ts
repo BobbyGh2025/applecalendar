@@ -22,11 +22,10 @@ export async function POST(request: NextRequest) {
     const { token, newPassword } = parsed.data;
 
     // Hash the token to look it up
-    const crypto = await import('crypto');
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const tokenHashValue = await hashToken(token);
 
     const resetToken = await db.passwordResetToken.findUnique({
-      where: { tokenHash },
+      where: { tokenHash: tokenHashValue },
     });
 
     if (!resetToken) {
@@ -42,8 +41,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Phase 4H: Mark the token as used FIRST to prevent race conditions.
-    // If two concurrent requests pass the usedAt check, the updateMany with
-    // usedAt=null guard ensures only one succeeds.
     const consumeResult = await db.passwordResetToken.updateMany({
       where: { id: resetToken.id, usedAt: null },
       data: { usedAt: new Date() },
@@ -63,6 +60,16 @@ export async function POST(request: NextRequest) {
 
     // Revoke all refresh tokens (force re-login)
     await revokeAllRefreshTokens(resetToken.userId);
+
+    // Log audit event
+    await db.auditLog.create({
+      data: {
+        actorId: resetToken.userId,
+        action: 'PASSWORD_RESET',
+        entityType: 'User',
+        entityId: resetToken.userId,
+      },
+    }).catch(() => {}); // Non-blocking
 
     return NextResponse.json({ success: true });
   } catch (error) {

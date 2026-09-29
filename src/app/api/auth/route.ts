@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { generateToken, generateRefreshToken } from '@/lib/auth';
+import { createSessionAndTokens } from '@/lib/auth';
 import { hash, compare } from 'bcryptjs';
 import { rateLimit, RateLimitError } from '@/lib/rate-limit';
 import { handleApiError, ApiError } from '@/lib/errors';
@@ -45,20 +45,11 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Generate access token
-      const token = await generateToken({ userId: user.id, email: user.email, role: user.role });
-
-      // Generate refresh token
-      const refreshToken = await generateRefreshToken({ userId: user.id, email: user.email, role: user.role });
-      const refreshTokenHash = await hashToken(refreshToken);
-
-      // Store refresh token in DB
-      await db.refreshToken.create({
-        data: {
-          userId: user.id,
-          tokenHash: refreshTokenHash,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        },
+      // Create session with consolidated helper
+      const session = await createSessionAndTokens({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
       });
 
       // Generate email verification token
@@ -73,6 +64,17 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Log audit event for registration
+      await db.auditLog.create({
+        data: {
+          actorId: user.id,
+          action: 'REGISTER',
+          entityType: 'User',
+          entityId: user.id,
+          newValue: JSON.stringify({ email: user.email, role: user.role }),
+        },
+      }).catch(() => {}); // Non-blocking — don't fail registration if audit log fails
+
       // In development, return the verification token for testing
       const isDev = process.env.NODE_ENV !== 'production';
 
@@ -86,8 +88,8 @@ export async function POST(request: NextRequest) {
           bio: user.bio,
           phone: user.phone,
         },
-        token,
-        refreshToken,
+        token: session.accessToken,
+        refreshToken: session.refreshToken,
         ...(isDev && { verificationToken }), // Only in dev for testing
       }, { status: 201 });
     }
@@ -100,11 +102,32 @@ export async function POST(request: NextRequest) {
 
       const user = await db.user.findUnique({ where: { email } });
       if (!user) {
+        // Log failed login attempt (unknown email)
+        await db.auditLog.create({
+          data: {
+            action: 'LOGIN_FAILED',
+            entityType: 'User',
+            entityId: email,
+            newValue: JSON.stringify({ reason: 'email_not_found' }),
+          },
+        }).catch(() => {});
+
         throw new ApiError(401, 'UNAUTHORIZED', 'Invalid email or password');
       }
 
       const isPasswordValid = await compare(password, user.password);
       if (!isPasswordValid) {
+        // Log failed login attempt (wrong password)
+        await db.auditLog.create({
+          data: {
+            actorId: user.id,
+            action: 'LOGIN_FAILED',
+            entityType: 'User',
+            entityId: user.id,
+            newValue: JSON.stringify({ reason: 'invalid_password' }),
+          },
+        }).catch(() => {});
+
         throw new ApiError(401, 'UNAUTHORIZED', 'Invalid email or password');
       }
 
@@ -112,21 +135,23 @@ export async function POST(request: NextRequest) {
         throw new ApiError(403, 'FORBIDDEN', 'Account is deactivated');
       }
 
-      // Generate access token
-      const token = await generateToken({ userId: user.id, email: user.email, role: user.role });
-
-      // Generate refresh token
-      const refreshToken = await generateRefreshToken({ userId: user.id, email: user.email, role: user.role });
-      const refreshTokenHash = await hashToken(refreshToken);
-
-      // Store refresh token in DB
-      await db.refreshToken.create({
-        data: {
-          userId: user.id,
-          tokenHash: refreshTokenHash,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        },
+      // Create session with consolidated helper
+      const session = await createSessionAndTokens({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
       });
+
+      // Log successful login
+      await db.auditLog.create({
+        data: {
+          actorId: user.id,
+          action: 'LOGIN',
+          entityType: 'User',
+          entityId: user.id,
+          newValue: JSON.stringify({ sessionId: session.sessionId }),
+        },
+      }).catch(() => {}); // Non-blocking
 
       return NextResponse.json({
         user: {
@@ -138,8 +163,8 @@ export async function POST(request: NextRequest) {
           bio: user.bio,
           phone: user.phone,
         },
-        token,
-        refreshToken,
+        token: session.accessToken,
+        refreshToken: session.refreshToken,
       });
     }
 

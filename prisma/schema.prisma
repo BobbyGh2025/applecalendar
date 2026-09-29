@@ -559,8 +559,8 @@ model OrganizerProfile {
   country          String?
   socialLinks      String?   // JSON string
   isVerified       Boolean   @default(false)
-  approvalStatus   String    @default("PENDING") // PENDING, APPROVED, REJECTED — legacy field, kept for backward compat
-  status           String    @default("PENDING_APPROVAL") // PENDING_APPROVAL, APPROVED, REJECTED, ACTIVE, SUSPENDED, DEACTIVATED
+  approvalStatus   String    @default("PENDING") // @deprecated Phase 5B: Use `status` instead. Kept for data compat only. Will be removed in Phase 5M.
+  status           String    @default("PENDING_APPROVAL") // PENDING_APPROVAL, APPROVED, REJECTED, ACTIVE, SUSPENDED, DEACTIVATED — authoritative field
   statusReason     String?
   statusChangedBy  String?
   statusChangedAt  DateTime?

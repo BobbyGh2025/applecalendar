@@ -10,6 +10,7 @@ import { handleApiError, ApiError } from '@/lib/errors';
  * - Only the session owner can revoke their own sessions
  * - Cross-user session access prevention: verifies session belongs to authenticated user
  * - Cannot revoke an already-revoked session (idempotent — returns success)
+ * - Uses RefreshToken records as the session authority (no UserSession model)
  */
 export async function DELETE(
   request: NextRequest,
@@ -24,7 +25,8 @@ export async function DELETE(
     }
 
     // Verify the session belongs to this user (cross-user prevention)
-    const session = await db.userSession.findUnique({
+    // RefreshToken records ARE the sessions — their id IS the session identifier
+    const session = await db.refreshToken.findUnique({
       where: { id: sessionId },
       select: { userId: true, isRevoked: true },
     });

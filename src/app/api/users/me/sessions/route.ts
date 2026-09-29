@@ -5,9 +5,9 @@ import { handleApiError } from '@/lib/errors';
 /**
  * GET /api/users/me/sessions — List the current user's active sessions.
  *
- * Returns device/browser info, IP, creation time, last activity,
- * expiration, and a current-session indicator.
+ * Returns session info: creation time, expiration, and a current-session indicator.
  * Never exposes raw token hashes.
+ * Uses RefreshToken records as the session authority (no UserSession model).
  */
 export async function GET(request: NextRequest) {
   try {

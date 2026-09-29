@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticate, extractSessionId, revokeAllOtherSessions } from '@/lib/auth';
+import { authenticate, revokeAllOtherSessions, extractSessionId } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { compare, hash } from 'bcryptjs';
 import { handleApiError, ApiError } from '@/lib/errors';
@@ -72,6 +72,17 @@ export async function PATCH(request: NextRequest) {
     const revokedCount = currentSessionId
       ? await revokeAllOtherSessions(user.id, currentSessionId)
       : await revokeAllOtherSessions(user.id, '');
+
+    // Log audit event
+    await db.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: 'PASSWORD_CHANGE',
+        entityType: 'User',
+        entityId: user.id,
+        newValue: JSON.stringify({ sessionsRevoked: revokedCount }),
+      },
+    }).catch(() => {}); // Non-blocking
 
     return NextResponse.json({
       success: true,

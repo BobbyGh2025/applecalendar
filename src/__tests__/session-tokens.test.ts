@@ -1,10 +1,19 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from 'vitest';
-import { createSessionAndTokens, verifyAccessToken, hashToken, refreshSession, revokeSession, revokeAllSessions, listActiveSessions, cleanupSessions } from '@/lib/auth';
+import {
+  createSessionAndTokens,
+  verifyAccessToken,
+  refreshSession,
+  revokeSession,
+  revokeAllSessions,
+  listActiveSessions,
+  cleanupSessions,
+} from '@/lib/auth';
+import { hashToken } from '@/lib/tokens';
 import { db } from '@/lib/db';
 import { hash } from 'bcryptjs';
 
-describe('Phase 2A — Session & Token Infrastructure', () => {
+describe('Phase 5B — Session & Token Infrastructure (RefreshToken Architecture)', () => {
   let testUserId: string;
   let testSessionId: string;
 
@@ -25,7 +34,7 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
   });
 
   describe('createSessionAndTokens', () => {
-    it('should return accessToken, refreshToken, and expiresIn', async () => {
+    it('should return accessToken, refreshToken, sessionId, and expiresIn', async () => {
       const result = await createSessionAndTokens({
         userId: testUserId,
         email: 'session-test@applecalendar.com',
@@ -36,13 +45,15 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
 
       expect(result.accessToken).toBeDefined();
       expect(result.refreshToken).toBeDefined();
+      expect(result.sessionId).toBeDefined();
       expect(result.expiresIn).toBe(900); // 15 minutes
       expect(typeof result.accessToken).toBe('string');
       expect(typeof result.refreshToken).toBe('string');
+      expect(typeof result.sessionId).toBe('string');
     });
 
-    it('should create a UserSession record in the database', async () => {
-      const beforeCount = await db.userSession.count({ where: { userId: testUserId } });
+    it('should create a RefreshToken record in the database', async () => {
+      const beforeCount = await db.refreshToken.count({ where: { userId: testUserId, isRevoked: false } });
 
       const result = await createSessionAndTokens({
         userId: testUserId,
@@ -50,8 +61,15 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
         role: 'PUBLIC',
       });
 
-      const afterCount = await db.userSession.count({ where: { userId: testUserId } });
+      const afterCount = await db.refreshToken.count({ where: { userId: testUserId, isRevoked: false } });
       expect(afterCount).toBe(beforeCount + 1);
+
+      // The sessionId should be the RefreshToken.id
+      const refreshTokenRecord = await db.refreshToken.findUnique({
+        where: { id: result.sessionId },
+      });
+      expect(refreshTokenRecord).toBeDefined();
+      expect(refreshTokenRecord!.isRevoked).toBe(false);
     });
 
     it('should store token hashes, not raw tokens', async () => {
@@ -61,15 +79,14 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
         role: 'PUBLIC',
       });
 
-      const accessHash = hashToken(result.accessToken);
-      const refreshHash = hashToken(result.refreshToken);
-
-      const session = await db.userSession.findFirst({
-        where: { accessTokenHash: accessHash },
+      // The refresh token hash should be stored in the RefreshToken record
+      const refreshHash = await hashToken(result.refreshToken);
+      const session = await db.refreshToken.findUnique({
+        where: { id: result.sessionId },
       });
 
       expect(session).toBeDefined();
-      expect(session?.refreshTokenHash).toBe(refreshHash);
+      expect(session?.tokenHash).toBe(refreshHash);
       expect(session?.isRevoked).toBe(false);
 
       testSessionId = session!.id;
@@ -77,7 +94,7 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
   });
 
   describe('verifyAccessToken', () => {
-    it('should return payload for valid access token', async () => {
+    it('should return payload for valid access token with type and sessionId', async () => {
       const result = await createSessionAndTokens({
         userId: testUserId,
         email: 'session-test@applecalendar.com',
@@ -90,7 +107,7 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
       expect(payload!.email).toBe('session-test@applecalendar.com');
       expect(payload!.role).toBe('PUBLIC');
       expect(payload!.type).toBe('access');
-      expect(payload!.sessionId).toBeDefined();
+      expect(payload!.sessionId).toBe(result.sessionId);
     });
 
     it('should return null for refresh token used as access token', async () => {
@@ -108,20 +125,35 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
       const payload = await verifyAccessToken('invalid-token');
       expect(payload).toBeNull();
     });
+
+    it('should return null for access token with revoked session', async () => {
+      const result = await createSessionAndTokens({
+        userId: testUserId,
+        email: 'session-test@applecalendar.com',
+        role: 'PUBLIC',
+      });
+
+      // Revoke the session
+      await revokeSession(result.sessionId);
+
+      // The access token should no longer be valid
+      const payload = await verifyAccessToken(result.accessToken);
+      expect(payload).toBeNull();
+    });
   });
 
   describe('hashToken', () => {
-    it('should produce consistent SHA-256 hashes', () => {
+    it('should produce consistent SHA-256 hashes', async () => {
       const token = 'test-token-value';
-      const hash1 = hashToken(token);
-      const hash2 = hashToken(token);
+      const hash1 = await hashToken(token);
+      const hash2 = await hashToken(token);
       expect(hash1).toBe(hash2);
       expect(hash1).toHaveLength(64); // SHA-256 hex digest
     });
 
-    it('should produce different hashes for different tokens', () => {
-      const hash1 = hashToken('token-a');
-      const hash2 = hashToken('token-b');
+    it('should produce different hashes for different tokens', async () => {
+      const hash1 = await hashToken('token-a');
+      const hash2 = await hashToken('token-b');
       expect(hash1).not.toBe(hash2);
     });
   });
@@ -138,6 +170,7 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
       expect(refreshed.success).toBe(true);
       expect(refreshed.accessToken).toBeDefined();
       expect(refreshed.refreshToken).toBeDefined();
+      expect(refreshed.sessionId).toBeDefined();
       expect(refreshed.expiresIn).toBe(900);
     });
 
@@ -175,7 +208,9 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
         errorMsg = e.message;
       }
       expect(threw).toBe(true);
-      expect(errorMsg).toContain('Session not found');
+      // After rotation, the old token record exists but is marked revoked
+      // This is correct behavior — it means token reuse is detected
+      expect(errorMsg).toMatch(/Session (not found|has been revoked)/);
     });
 
     it('should fail for revoked session', async () => {
@@ -185,11 +220,8 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
         role: 'PUBLIC',
       });
 
-      const payload = await verifyAccessToken(result.accessToken);
-      const sessionId = payload!.sessionId;
-
       // Revoke the session
-      await revokeSession(sessionId);
+      await revokeSession(result.sessionId);
 
       // Refresh should fail
       try {
@@ -209,18 +241,15 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
         role: 'PUBLIC',
       });
 
-      const payload = await verifyAccessToken(result.accessToken);
-      const sessionId = payload!.sessionId;
+      await revokeSession(result.sessionId);
 
-      await revokeSession(sessionId);
-
-      const session = await db.userSession.findUnique({ where: { id: sessionId } });
+      const session = await db.refreshToken.findUnique({ where: { id: result.sessionId } });
       expect(session?.isRevoked).toBe(true);
     });
   });
 
   describe('revokeAllSessions', () => {
-    it('should revoke all sessions for a user', async () => {
+    it('should revoke all sessions for a user and return count', async () => {
       // Create multiple sessions
       await createSessionAndTokens({ userId: testUserId, email: 'session-test@applecalendar.com', role: 'PUBLIC' });
       await createSessionAndTokens({ userId: testUserId, email: 'session-test@applecalendar.com', role: 'PUBLIC' });
@@ -231,23 +260,22 @@ describe('Phase 2A — Session & Token Infrastructure', () => {
   });
 
   describe('listActiveSessions', () => {
-    it('should return active sessions for a user', async () => {
+    it('should return active sessions for a user with isCurrent flag', async () => {
       // Create a fresh session
       const result = await createSessionAndTokens({
         userId: testUserId,
         email: 'session-test@applecalendar.com',
         role: 'PUBLIC',
       });
-      const payload = await verifyAccessToken(result.accessToken);
 
-      const sessions = await listActiveSessions(testUserId, payload?.sessionId);
+      const sessions = await listActiveSessions(testUserId, result.sessionId);
       expect(sessions.length).toBeGreaterThanOrEqual(1);
       expect(sessions.some((s) => s.isCurrent)).toBe(true);
     });
   });
 
   describe('cleanupSessions', () => {
-    it('should delete expired sessions', async () => {
+    it('should delete expired and revoked sessions', async () => {
       const count = await cleanupSessions();
       expect(typeof count).toBe('number');
     });

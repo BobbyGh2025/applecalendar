@@ -123,7 +123,7 @@ export function OrganizerProfileForm() {
         <h2 className="text-2xl font-bold">Organization Profile</h2>
       </div>
 
-      {profile && (profile.status === 'PENDING_APPROVAL' || profile.approvalStatus === 'PENDING') && (
+      {profile && profile.status === 'PENDING_APPROVAL' && (
         <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
           <CardContent className="p-4">
             <p className="text-sm text-amber-800 dark:text-amber-200">

@@ -48,6 +48,16 @@ export async function POST(request: NextRequest) {
     // Revoke all refresh tokens (force re-login)
     await revokeAllRefreshTokens(user.id);
 
+    // Log audit event
+    await db.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: 'PASSWORD_CHANGE',
+        entityType: 'User',
+        entityId: user.id,
+      },
+    }).catch(() => {}); // Non-blocking
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error);

@@ -317,31 +317,34 @@ describe('Phase 2 — Auth Module', () => {
   });
 
   it('generates and verifies access token', async () => {
-    const token = await generateToken({ userId: 'test-id', email: 'test@example.com', role: 'PUBLIC' });
+    const token = await generateToken({ userId: 'test-id', email: 'test@example.com', role: 'PUBLIC', sessionId: 'test-session-id' });
     expect(typeof token).toBe('string');
     const payload = await verifyToken(token);
     expect(payload).not.toBeNull();
     expect(payload?.userId).toBe('test-id');
     expect(payload?.role).toBe('PUBLIC');
+    expect(payload?.type).toBe('access');
+    expect(payload?.sessionId).toBe('test-session-id');
   });
 
   it('generates and verifies refresh token', async () => {
-    const token = await generateRefreshToken({ userId: 'test-id', email: 'test@example.com', role: 'PUBLIC' });
+    const token = await generateRefreshToken({ userId: 'test-id', email: 'test@example.com', role: 'PUBLIC', sessionId: 'test-session-id' });
     expect(typeof token).toBe('string');
     const payload = await verifyRefreshToken(token);
     expect(payload).not.toBeNull();
     expect(payload?.userId).toBe('test-id');
     expect(payload?.type).toBe('refresh');
+    expect(payload?.sessionId).toBe('test-session-id');
   });
 
   it('access token cannot be used as refresh token', async () => {
-    const token = await generateToken({ userId: 'test-id', email: 'test@example.com', role: 'PUBLIC' });
+    const token = await generateToken({ userId: 'test-id', email: 'test@example.com', role: 'PUBLIC', sessionId: 'test-session-id' });
     const payload = await verifyRefreshToken(token);
     expect(payload).toBeNull();
   });
 
   it('refresh token cannot be used as access token', async () => {
-    const token = await generateRefreshToken({ userId: 'test-id', email: 'test@example.com', role: 'PUBLIC' });
+    const token = await generateRefreshToken({ userId: 'test-id', email: 'test@example.com', role: 'PUBLIC', sessionId: 'test-session-id' });
     const payload = await verifyToken(token);
     expect(payload).toBeNull();
   });

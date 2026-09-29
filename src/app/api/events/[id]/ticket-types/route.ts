@@ -8,7 +8,7 @@ import { getOperableOrganizerEntitlements, getEventUsage, requireWithinLimit, re
 const createTicketTypeSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
   description: z.string().max(500).optional(),
-  price: z.number().min(0).default(0),
+  price: z.number().int('Price must be an integer (minor units)').min(0).default(0),
   currency: z.string().length(3).regex(/^[A-Z]{3}$/).default('USD'),
   quantity: z.number().int().positive(),
   minPerOrder: z.number().int().min(1).default(1),

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
 import { CreditCard, Check, Crown, Zap } from 'lucide-react';
+import { formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
 
 interface Plan {
   id: string;
@@ -85,7 +86,7 @@ export function AdminPlans() {
                 <CardTitle className="text-lg">{plan.name}</CardTitle>
                 {plan.description && <CardDescription>{plan.description}</CardDescription>}
                 <div className="mt-2">
-                  <span className="text-3xl font-bold">${plan.price.toFixed(2)}</span>
+                  <span className="text-3xl font-bold">{formatMoneyWithSymbol(plan.price, DEFAULT_CURRENCY)}</span>
                   {plan.interval && <span className="text-muted-foreground text-sm">/{plan.interval}</span>}
                 </div>
               </CardHeader>

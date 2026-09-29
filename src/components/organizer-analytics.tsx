@@ -15,6 +15,7 @@ import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Eye, MousePointerClick, Ticket, DollarSign, BarChart3 } from 'lucide-react';
+import { formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -63,7 +64,7 @@ export function OrganizerAnalytics() {
     { label: 'Total Views', value: analytics.totals.totalViews, icon: Eye, color: 'bg-emerald-50 text-emerald-600' },
     { label: 'Total Clicks', value: analytics.totals.totalClicks, icon: MousePointerClick, color: 'bg-teal-50 text-teal-600' },
     { label: 'Total Bookings', value: analytics.totals.totalBookings, icon: Ticket, color: 'bg-amber-50 text-amber-600' },
-    { label: 'Total Revenue', value: `$${(analytics.totals.totalRevenue || 0).toFixed(2)}`, icon: DollarSign, color: 'bg-rose-50 text-rose-600' },
+    { label: 'Total Revenue', value: formatMoneyWithSymbol(analytics.totals.totalRevenue || 0, DEFAULT_CURRENCY), icon: DollarSign, color: 'bg-rose-50 text-rose-600' },
   ] : [];
 
   if (eventsLoading) {

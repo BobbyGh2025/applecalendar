@@ -20,6 +20,7 @@ import {
   Image as ImageIcon, Video, FileText, Play, Mic, Music,
   AlertCircle, CheckCircle2, XCircle, ExternalLink,
 } from 'lucide-react';
+import { formatMoney, formatMoneyWithSymbol, multiplyMoney, asMoney, DEFAULT_CURRENCY } from '@/lib/money';
 
 interface Review {
   id: string;
@@ -765,7 +766,7 @@ export function EventDetail() {
                 <div>
                   <p className="text-sm text-muted-foreground">Starting from</p>
                   <p className="text-3xl font-bold text-emerald-600">
-                    {event.currency === 'GHS' ? '₵' : '$'}{Math.min(...event.ticketTypes.filter(t => t.price > 0).map(t => t.price), 0).toFixed(2)}
+                    {formatMoneyWithSymbol(Math.min(...event.ticketTypes.filter(t => t.price > 0).map(t => t.price)), event.currency || DEFAULT_CURRENCY)}
                   </p>
                 </div>
               ) : (
@@ -794,7 +795,7 @@ export function EventDetail() {
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-sm">{tt.name}</span>
                         <span className={`font-bold ${tt.price > 0 ? 'text-emerald-600' : ''}`}>
-                          {tt.price > 0 ? `${event.currency === 'GHS' ? '₵' : '$'}${tt.price.toFixed(2)}` : 'Free'}
+                          {tt.price === 0 ? 'Free' : formatMoneyWithSymbol(tt.price, event.currency || DEFAULT_CURRENCY)}
                         </span>
                       </div>
                       {tt.description && (
@@ -850,7 +851,7 @@ export function EventDetail() {
           <div className="sr-only" aria-label="Event summary">
             <p>{event.title} — {format(new Date(event.startDate), 'MMMM d, yyyy')}{event.startTime ? ` at ${event.startTime}` : ''}</p>
             {event.venue?.name && <p>Location: {event.venue.name}, {event.venue.city}</p>}
-            {event.isPaid ? <p>Ticket prices starting from {event.currency} {Math.min(...event.ticketTypes.filter(t => t.price > 0).map(t => t.price), 0).toFixed(2)}</p> : <p>Free admission</p>}
+            {event.isPaid ? <p>Ticket prices starting from {formatMoneyWithSymbol(Math.min(...event.ticketTypes.filter(t => t.price > 0).map(t => t.price)), event.currency || DEFAULT_CURRENCY)}</p> : <p>Free admission</p>}
           </div>
         </div>
       </div>
@@ -865,7 +866,7 @@ export function EventDetail() {
           <div className="space-y-4 py-4">
             <div className="flex items-center justify-between">
               <span>Price per ticket</span>
-              <span className="font-medium">{selectedTicket && selectedTicket.price > 0 ? `${event.currency === 'GHS' ? '₵' : '$'}${selectedTicket.price.toFixed(2)}` : 'Free'}</span>
+              <span className="font-medium">{selectedTicket && selectedTicket.price > 0 ? formatMoneyWithSymbol(selectedTicket.price, event.currency || DEFAULT_CURRENCY) : 'Free'}</span>
             </div>
             <div className="flex items-center justify-between">
               <span>Quantity</span>
@@ -878,7 +879,7 @@ export function EventDetail() {
             <Separator />
             <div className="flex items-center justify-between text-lg font-bold">
               <span>Total</span>
-              <span className="text-emerald-600">{selectedTicket && selectedTicket.price > 0 ? `${event.currency === 'GHS' ? '₵' : '$'}${(selectedTicket.price * quantity).toFixed(2)}` : 'Free'}</span>
+              <span className="text-emerald-600">{selectedTicket && selectedTicket.price > 0 ? formatMoneyWithSymbol(multiplyMoney(asMoney(selectedTicket.price), quantity), event.currency || DEFAULT_CURRENCY) : 'Free'}</span>
             </div>
           </div>
           <DialogFooter>

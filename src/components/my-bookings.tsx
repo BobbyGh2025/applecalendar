@@ -17,6 +17,7 @@ import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Ticket, CalendarDays, ArrowRight, XCircle, Loader2 } from 'lucide-react';
+import { formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
 import { format } from 'date-fns';
 
 interface Booking {
@@ -126,7 +127,7 @@ export function MyBookings() {
                     </p>
                     <div className="flex items-center justify-between mt-2">
                       <span className="font-bold text-emerald-600">
-                        {b.currency || 'USD'} ${(b.totalAmount || 0).toFixed(2)}
+                        {formatMoneyWithSymbol(b.totalAmount || 0, b.currency || DEFAULT_CURRENCY)}
                       </span>
                       <div className="flex gap-2">
                         {canCancel && (

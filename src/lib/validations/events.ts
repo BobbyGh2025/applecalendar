@@ -22,6 +22,7 @@ const ticketTypeSchema = z.object({
     .max(100, 'Ticket type name must be 100 characters or fewer'),
   price: z
     .number()
+    .int('Price must be an integer (minor units)')
     .min(0, 'Price cannot be negative')
     .default(0),
   quantity: z

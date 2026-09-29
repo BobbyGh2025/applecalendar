@@ -8,7 +8,7 @@ import { getOperableOrganizerEntitlements, resolveOrganizerFromEvent } from '@/l
 const updateTicketTypeSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
-  price: z.number().min(0).optional(),
+  price: z.number().int('Price must be an integer (minor units)').min(0).optional(),
   currency: z.string().length(3).regex(/^[A-Z]{3}$/).optional(),
   quantity: z.number().int().positive().optional(),
   minPerOrder: z.number().int().min(1).optional(),

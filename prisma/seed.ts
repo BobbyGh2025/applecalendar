@@ -259,7 +259,7 @@ async function main() {
     {
       name: 'Starter', slug: 'starter',
       description: 'Perfect for growing event organizers',
-      price: 99, interval: 'MONTHLY', currency: 'GHS',
+      price: 9900, interval: 'MONTHLY', currency: 'GHS',
       maxEvents: 10, maxTicketsPerEvent: 500, maxTicketTypesPerEvent: 5,
       maxStaff: 2, maxMediaPerEvent: 10, maxAttendeesTotal: 2000,
       canAdvertise: false, canCustomBranding: false, canApiAccess: false,
@@ -270,7 +270,7 @@ async function main() {
     {
       name: 'Professional', slug: 'professional',
       description: 'For professional event management',
-      price: 299, interval: 'MONTHLY', currency: 'GHS',
+      price: 29900, interval: 'MONTHLY', currency: 'GHS',
       maxEvents: 50, maxTicketsPerEvent: 5000, maxTicketTypesPerEvent: 10,
       maxStaff: 5, maxMediaPerEvent: 20, maxAttendeesTotal: 10000,
       canAdvertise: true, canCustomBranding: true, canApiAccess: true,
@@ -281,7 +281,7 @@ async function main() {
     {
       name: 'Enterprise', slug: 'enterprise',
       description: 'Unlimited events for large organizations',
-      price: 799, interval: 'MONTHLY', currency: 'GHS',
+      price: 79900, interval: 'MONTHLY', currency: 'GHS',
       maxEvents: 999, maxTicketsPerEvent: 50000, maxTicketTypesPerEvent: 25,
       maxStaff: 50, maxMediaPerEvent: 50, maxAttendeesTotal: 50000,
       canAdvertise: true, canCustomBranding: true, canApiAccess: true,
@@ -721,24 +721,24 @@ async function main() {
 
   // 8. Create ticket types
   const ticketTypesData = [
-    { eventId: 'evt-1', name: 'General Admission', price: 299, quantity: 3000, soldCount: 1847 },
-    { eventId: 'evt-1', name: 'VIP Pass', price: 799, quantity: 500, soldCount: 312 },
-    { eventId: 'evt-1', name: 'Student Discount', price: 149, quantity: 1000, soldCount: 623 },
-    { eventId: 'evt-2', name: 'Day Pass', price: 89, quantity: 10000, soldCount: 5621 },
-    { eventId: 'evt-2', name: 'Weekend Pass', price: 159, quantity: 8000, soldCount: 4230 },
-    { eventId: 'evt-2', name: 'VIP Camping', price: 299, quantity: 2000, soldCount: 1890 },
-    { eventId: 'evt-3', name: 'Standard', price: 199, quantity: 150, soldCount: 89 },
-    { eventId: 'evt-3', name: 'Premium (with laptop)', price: 349, quantity: 50, soldCount: 38 },
+    { eventId: 'evt-1', name: 'General Admission', price: 29900, quantity: 3000, soldCount: 1847 },
+    { eventId: 'evt-1', name: 'VIP Pass', price: 79900, quantity: 500, soldCount: 312 },
+    { eventId: 'evt-1', name: 'Student Discount', price: 14900, quantity: 1000, soldCount: 623 },
+    { eventId: 'evt-2', name: 'Day Pass', price: 8900, quantity: 10000, soldCount: 5621 },
+    { eventId: 'evt-2', name: 'Weekend Pass', price: 15900, quantity: 8000, soldCount: 4230 },
+    { eventId: 'evt-2', name: 'VIP Camping', price: 29900, quantity: 2000, soldCount: 1890 },
+    { eventId: 'evt-3', name: 'Standard', price: 19900, quantity: 150, soldCount: 89 },
+    { eventId: 'evt-3', name: 'Premium (with laptop)', price: 34900, quantity: 50, soldCount: 38 },
     { eventId: 'evt-4', name: 'General', price: 0, quantity: 150, soldCount: 112 },
-    { eventId: 'evt-5', name: 'Single Day', price: 45, quantity: 5000, soldCount: 2100 },
-    { eventId: 'evt-5', name: 'Full Pass', price: 79, quantity: 5000, soldCount: 1890 },
-    { eventId: 'evt-6', name: 'Adult', price: 25, quantity: 400, soldCount: 156 },
-    { eventId: 'evt-6', name: 'Student', price: 15, quantity: 100, soldCount: 67 },
-    { eventId: 'evt-7', name: 'Full Marathon', price: 75, quantity: 15000, soldCount: 8900 },
-    { eventId: 'evt-7', name: 'Half Marathon', price: 55, quantity: 10000, soldCount: 6700 },
-    { eventId: 'evt-7', name: '5K Fun Run', price: 30, quantity: 5000, soldCount: 3400 },
-    { eventId: 'evt-8', name: 'Standard', price: 49, quantity: 8000, soldCount: 3200 },
-    { eventId: 'evt-8', name: 'Premium', price: 149, quantity: 2000, soldCount: 890 },
+    { eventId: 'evt-5', name: 'Single Day', price: 4500, quantity: 5000, soldCount: 2100 },
+    { eventId: 'evt-5', name: 'Full Pass', price: 7900, quantity: 5000, soldCount: 1890 },
+    { eventId: 'evt-6', name: 'Adult', price: 2500, quantity: 400, soldCount: 156 },
+    { eventId: 'evt-6', name: 'Student', price: 1500, quantity: 100, soldCount: 67 },
+    { eventId: 'evt-7', name: 'Full Marathon', price: 7500, quantity: 15000, soldCount: 8900 },
+    { eventId: 'evt-7', name: 'Half Marathon', price: 5500, quantity: 10000, soldCount: 6700 },
+    { eventId: 'evt-7', name: '5K Fun Run', price: 3000, quantity: 5000, soldCount: 3400 },
+    { eventId: 'evt-8', name: 'Standard', price: 4900, quantity: 8000, soldCount: 3200 },
+    { eventId: 'evt-8', name: 'Premium', price: 14900, quantity: 2000, soldCount: 890 },
   ];
 
   for (const tt of ticketTypesData) {
@@ -1079,8 +1079,8 @@ async function main() {
   // 9. Create bookings
   const bookingsData = [
     { userId: publicUser.id, eventId: 'evt-4', status: 'CONFIRMED', amount: 0 },
-    { userId: publicUser.id, eventId: 'evt-1', status: 'CONFIRMED', amount: 299 },
-    { userId: publicUser.id, eventId: 'evt-2', status: 'PENDING', amount: 159 },
+    { userId: publicUser.id, eventId: 'evt-1', status: 'CONFIRMED', amount: 29900 },
+    { userId: publicUser.id, eventId: 'evt-2', status: 'PENDING', amount: 15900 },
   ];
 
   for (let i = 0; i < bookingsData.length; i++) {
@@ -1122,7 +1122,7 @@ async function main() {
           views: Math.floor(Math.random() * 500) + 50,
           clicks: Math.floor(Math.random() * 100) + 10,
           bookings: Math.floor(Math.random() * 20) + 1,
-          revenue: Math.floor(Math.random() * 5000) + 100,
+          revenue: (Math.floor(Math.random() * 5000) + 100) * 100,
         },
       });
     }
@@ -1173,7 +1173,7 @@ async function main() {
   const settings = [
     { key: 'platform_name', value: 'AppleCalendar' },
     { key: 'platform_fee_percent', value: '5' },
-    { key: 'default_currency', value: 'USD' },
+    { key: 'default_currency', value: 'GHS' },
     { key: 'support_email', value: 'support@applecalendar.com' },
   ];
   for (const s of settings) { try { await prisma.systemSetting.create({ data: s }); } catch {} }

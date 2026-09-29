@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { Users, Calendar, Ticket, DollarSign } from 'lucide-react';
+import { formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
 import { format } from 'date-fns';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
@@ -46,7 +47,7 @@ export function AdminDashboard() {
     { label: 'Total Users', value: stats.totalUsers, icon: Users, color: 'bg-emerald-50 text-emerald-600' },
     { label: 'Total Events', value: stats.totalEvents, icon: Calendar, color: 'bg-teal-50 text-teal-600' },
     { label: 'Total Bookings', value: stats.totalBookings, icon: Ticket, color: 'bg-amber-50 text-amber-600' },
-    { label: 'Total Revenue', value: `$${(stats.totalRevenue || 0).toLocaleString()}`, icon: DollarSign, color: 'bg-rose-50 text-rose-600' },
+    { label: 'Total Revenue', value: formatMoneyWithSymbol(stats.totalRevenue || 0, DEFAULT_CURRENCY), icon: DollarSign, color: 'bg-rose-50 text-rose-600' },
   ];
 
   const statusColors: Record<string, string> = {

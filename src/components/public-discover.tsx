@@ -18,6 +18,7 @@ import {
 import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { Search, MapPin, CalendarDays, TrendingUp, Star, ChevronRight, SlidersHorizontal, X } from 'lucide-react';
+import { formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -359,7 +360,7 @@ export function PublicDiscover() {
                         {format(new Date(ev.startDate), 'MMM d, yyyy')}
                       </div>
                       <p className="mt-2 font-semibold text-emerald-600 text-sm">
-                        {ev.isPaid ? `$${getMinPrice(ev).toFixed(2)}` : 'Free'}
+                        {ev.isPaid ? formatMoneyWithSymbol(getMinPrice(ev), DEFAULT_CURRENCY) : 'Free'}
                       </p>
                     </CardContent>
                   </Card>
@@ -444,7 +445,7 @@ export function PublicDiscover() {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-emerald-600">
-                          {ev.isPaid ? `$${getMinPrice(ev).toFixed(2)}` : 'Free'}
+                          {ev.isPaid ? formatMoneyWithSymbol(getMinPrice(ev), DEFAULT_CURRENCY) : 'Free'}
                         </span>
                         {ev._count?.reviews > 0 && (
                           <div className="flex items-center gap-1 text-sm text-muted-foreground">

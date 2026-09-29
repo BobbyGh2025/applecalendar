@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { Calendar, Ticket, DollarSign, TrendingUp, ArrowRight, AlertTriangle, Clock, XCircle, PauseCircle, PowerOff } from 'lucide-react';
+import { formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
 import { format } from 'date-fns';
 
 interface DashboardData {
@@ -115,7 +116,7 @@ export function OrganizerDashboard() {
   const statCards = [
     { label: 'My Events', value: data.myEvents, icon: Calendar, color: 'bg-emerald-50 text-emerald-600' },
     { label: 'Total Bookings', value: data.totalBookings, icon: Ticket, color: 'bg-teal-50 text-teal-600' },
-    { label: 'Total Revenue', value: `$${(data.totalRevenue || 0).toLocaleString()}`, icon: DollarSign, color: 'bg-amber-50 text-amber-600' },
+    { label: 'Total Revenue', value: formatMoneyWithSymbol(data.totalRevenue || 0, DEFAULT_CURRENCY), icon: DollarSign, color: 'bg-amber-50 text-amber-600' },
     { label: 'Upcoming Events', value: data.upcomingEvents?.length || 0, icon: TrendingUp, color: 'bg-rose-50 text-rose-600' },
   ];
 
@@ -191,7 +192,7 @@ export function OrganizerDashboard() {
                   <TableRow key={b.id}>
                     <TableCell className="font-medium text-sm max-w-[150px] truncate">{b.event?.title}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{b.user?.name}</TableCell>
-                    <TableCell className="text-sm">${(b.totalAmount || 0).toFixed(2)}</TableCell>
+                    <TableCell className="text-sm">{formatMoneyWithSymbol(b.totalAmount || 0, DEFAULT_CURRENCY)}</TableCell>
                     <TableCell>
                       <Badge className={
                         b.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' :

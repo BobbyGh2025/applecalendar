@@ -19,6 +19,7 @@ import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Loader2, Plus, Trash2, Globe, MapPin, DollarSign, Tag, Info, Clock, Building2 } from 'lucide-react';
+import { parseMoneyOrThrow, DEFAULT_CURRENCY } from '@/lib/money';
 
 interface Category {
   id: string;
@@ -147,7 +148,7 @@ export function OrganizerCreateEvent() {
         capacity: form.capacity ? parseInt(form.capacity) : undefined,
         tags: form.tags ? form.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
         ticketTypes: form.isPaid
-          ? ticketTypes.map(tt => ({ name: tt.name, price: parseFloat(tt.price), quantity: parseInt(tt.quantity) }))
+          ? ticketTypes.map(tt => ({ name: tt.name, price: parseMoneyOrThrow(tt.price, form.currency || DEFAULT_CURRENCY), quantity: parseInt(tt.quantity) }))
           : [{ name: 'Free', price: 0, quantity: form.capacity ? parseInt(form.capacity) : 100 }],
       };
       await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(body) });

@@ -1,0 +1,968 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect } from 'react';
+     4→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+     5→import { Button } from '@/components/ui/button';
+     6→import { Badge } from '@/components/ui/badge';
+     7→import { Skeleton } from '@/components/ui/skeleton';
+     8→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+     9→import { Separator } from '@/components/ui/separator';
+    10→import { Label } from '@/components/ui/label';
+    11→import { Textarea } from '@/components/ui/textarea';
+    12→import { useAppStore } from '@/stores/app-store';
+    13→import { apiFetch } from '@/lib/api';
+    14→import { toast } from 'sonner';
+    15→import { motion } from 'framer-motion';
+    16→import { format } from 'date-fns';
+    17→import {
+    18→  ArrowLeft, MapPin, CalendarDays, Clock, Globe, Star, Users, Ticket,
+    19→  Minus, Plus, Loader2, Tag, User, MessageSquarePlus,
+    20→  Image as ImageIcon, Video, FileText, Play, Mic, Music,
+    21→  AlertCircle, CheckCircle2, XCircle, ExternalLink,
+    22→} from 'lucide-react';
+    23→
+    24→interface Review {
+    25→  id: string;
+    26→  rating: number;
+    27→  comment: string;
+    28→  createdAt: string;
+    29→  user: { id: string; name: string; avatar?: string | null };
+    30→}
+    31→
+    32→interface TicketType {
+    33→  id: string;
+    34→  name: string;
+    35→  description?: string | null;
+    36→  price: number;
+    37→  quantity: number;
+    38→  soldCount: number;
+    39→  currency: string;
+    40→  minPerOrder: number;
+    41→  maxPerOrder: number;
+    42→  saleStart: string | null;
+    43→  saleEnd: string | null;
+    44→  isActive: boolean;
+    45→}
+    46→
+    47→interface EventSession {
+    48→  id: string;
+    49→  title: string;
+    50→  description: string | null;
+    51→  startTime: string;
+    52→  endTime: string;
+    53→  date: string | null;
+    54→  sessionType: string;
+    55→  status?: string;
+    56→  venueName: string | null;
+    57→  participant: { id: string; name: string; role: string; image: string | null } | null;
+    58→}
+    59→
+    60→interface EventParticipant {
+    61→  id: string;
+    62→  name: string;
+    63→  bio: string | null;
+    64→  image: string | null;
+    65→  role: string;
+    66→  title: string | null;
+    67→  organization: string | null;
+    68→  isFeatured: boolean;
+    69→  _count?: { sessions: number };
+    70→}
+    71→
+    72→interface EventMediaItem {
+    73→  id: string;
+    74→  url: string;
+    75→  type: string;
+    76→  category: string;
+    77→  caption: string | null;
+    78→  sortOrder: number;
+    79→}
+    80→
+    81→interface VenueRelation {
+    82→  id: string;
+    83→  name: string;
+    84→  slug?: string;
+    85→  address: string;
+    86→  city: string;
+    87→  state: string | null;
+    88→  country: string;
+    89→  lat: number | null;
+    90→  lng: number | null;
+    91→  capacity: number | null;
+    92→  website: string | null;
+    93→  googleMapsUrl: string | null;
+    94→  coverImage?: string | null;
+    95→  isPublic?: boolean;
+    96→}
+    97→
+    98→interface Event {
+    99→  id: string;
+   100→  title: string;
+   101→  slug?: string;
+   102→  description: string;
+   103→  shortDescription: string | null;
+   104→  coverImage: string | null;
+   105→  startDate: string;
+   106→  endDate: string;
+   107→  startTime: string | null;
+   108→  endTime: string | null;
+   109→  venueName: string | null;
+   110→  venueAddress: string | null;
+   111→  venueCity: string | null;
+   112→  venueState: string | null;
+   113→  venueCountry: string | null;
+   114→  isVirtual: boolean;
+   115→  virtualUrl: string | null;
+   116→  isPaid: boolean;
+   117→  isBookable?: boolean;
+   118→  capacity: number;
+   119→  currency: string;
+   120→  status: string;
+   121→  timezone?: string;
+   122→  isFeatured?: boolean;
+   123→  ageRestriction?: string | null;
+   124→  category: { id: string; name: string; slug: string; icon?: string | null; color?: string | null };
+   125→  tags: { id: string; tag?: { id: string; name: string; slug: string }; name?: string }[];
+   126→  ticketTypes: TicketType[];
+   127→  reviews: Review[];
+   128→  organizer: { id: string; name: string; avatar?: string | null; bio?: string | null };
+   129→  venue?: VenueRelation | null;
+   130→  _count: { reviews: number; bookings: number };
+   131→  sessions?: EventSession[];
+   132→  participants?: EventParticipant[];
+   133→  media?: EventMediaItem[];
+   134→}
+   135→
+   136→/** Session type display labels */
+   137→const SESSION_TYPE_LABELS: Record<string, string> = {
+   138→  SESSION: 'Session',
+   139→  BREAK: 'Break',
+   140→  REGISTRATION: 'Registration',
+   141→  KEYNOTE: 'Keynote',
+   142→  PANEL: 'Panel',
+   143→  WORKSHOP: 'Workshop',
+   144→  ENTERTAINMENT: 'Entertainment',
+   145→};
+   146→
+   147→/** Participant role display labels */
+   148→const ROLE_LABELS: Record<string, string> = {
+   149→  SPEAKER: 'Speaker',
+   150→  ARTIST: 'Artist',
+   151→  PERFORMER: 'Performer',
+   152→  MODERATOR: 'Moderator',
+   153→  PANELIST: 'Panelist',
+   154→  DJ: 'DJ',
+   155→  HOST: 'Host',
+   156→  INSTRUCTOR: 'Instructor',
+   157→};
+   158→
+   159→export function EventDetail() {
+   160→  const { selectedEventId, goBack, navigate, user } = useAppStore();
+   161→  const [event, setEvent] = useState<Event | null>(null);
+   162→  const [loading, setLoading] = useState(true);
+   163→  const [bookDialog, setBookDialog] = useState(false);
+   164→  const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
+   165→  const [quantity, setQuantity] = useState(1);
+   166→  const [booking, setBooking] = useState(false);
+   167→  const [relatedEvents, setRelatedEvents] = useState<any[]>([]);
+   168→  const [reviewDialog, setReviewDialog] = useState(false);
+   169→  const [reviewRating, setReviewRating] = useState(5);
+   170→  const [reviewComment, setReviewComment] = useState('');
+   171→  const [submittingReview, setSubmittingReview] = useState(false);
+   172→  const [userHasReviewed, setUserHasReviewed] = useState(false);
+   173→
+   174→  // Phase 4F: Use single API response — event already includes sessions/participants/media
+   175→  // No separate N+1 fetches needed
+   176→
+   177→  useEffect(() => {
+   178→    if (!selectedEventId) return;
+   179→    setLoading(true);
+   180→    apiFetch<{ event: Event }>(`/api/events/${selectedEventId}`)
+   181→      .then(data => {
+   182→        setEvent(data.event);
+   183→        // Check if current user has already reviewed
+   184→        if (user && data.event.reviews) {
+   185→          setUserHasReviewed(data.event.reviews.some((r: Review) => r.user?.id === user.id));
+   186→        }
+   187→        // Phase 4F: Set document title for SEO
+   188→        if (data.event.title) {
+   189→          document.title = `${data.event.title} — AppleCalendar`;
+   190→        }
+   191→      })
+   192→      .catch(() => toast.error('Failed to load event'))
+   193→      .finally(() => setLoading(false));
+   194→  }, [selectedEventId, user?.id]);
+   195→
+   196→  // Cleanup: restore document title on unmount
+   197→  useEffect(() => {
+   198→    return () => { document.title = 'AppleCalendar — Discover Amazing Events'; };
+   199→  }, []);
+   200→
+   201→  useEffect(() => {
+   202→    if (!event?.category?.slug) return;
+   203→    apiFetch<{ events: any[] }>(`/api/events?category=${event.category.slug}&limit=4&featured=false`)
+   204→      .then(data => setRelatedEvents(data.events.filter((e: any) => e.id !== event.id).slice(0, 3)))
+   205→      .catch(() => {});
+   206→  }, [event?.category?.slug]);
+   207→
+   208→  // Derived data from single API response
+   209→  const sessions = event?.sessions || [];
+   210→  const participants = event?.participants || [];
+   211→  const media = event?.media || [];
+   212→
+   213→  // Phase 4F: Bookability check
+   214→  const canBook = event?.status === 'PUBLISHED' && event.isBookable !== false;
+   215→  const isCancelled = event?.status === 'CANCELLED';
+   216→  const isCompleted = event?.status === 'COMPLETED';
+   217→
+   218→  const handleBook = (ticket: TicketType) => {
+   219→    if (!user) {
+   220→      navigate('login');
+   221→      toast.error('Please login to book tickets');
+   222→      return;
+   223→    }
+   224→    setSelectedTicket(ticket);
+   225→    setQuantity(1);
+   226→    setBookDialog(true);
+   227→  };
+   228→
+   229→  const confirmBooking = async () => {
+   230→    if (!selectedTicket || !selectedEventId) return;
+   231→    setBooking(true);
+   232→    try {
+   233→      await apiFetch('/api/events/' + selectedEventId + '/book', {
+   234→        method: 'POST',
+   235→        body: JSON.stringify({ ticketTypeId: selectedTicket.id, quantity }),
+   236→      });
+   237→      toast.success('Booking confirmed!');
+   238→      setBookDialog(false);
+   239→      const data = await apiFetch<{ event: Event }>(`/api/events/${selectedEventId}`);
+   240→      setEvent(data.event);
+   241→    } catch (err: any) {
+   242→      toast.error(err.message || 'Booking failed');
+   243→    } finally {
+   244→      setBooking(false);
+   245→    }
+   246→  };
+   247→
+   248→  const avgRating = event?.reviews?.length
+   249→    ? event.reviews.reduce((s, r) => s + r.rating, 0) / event.reviews.length
+   250→    : 0;
+   251→
+   252→  const submitReview = async () => {
+   253→    if (!selectedEventId) return;
+   254→    setSubmittingReview(true);
+   255→    try {
+   256→      await apiFetch(`/api/events/${selectedEventId}/reviews`, {
+   257→        method: 'POST',
+   258→        body: JSON.stringify({ rating: reviewRating, comment: reviewComment || undefined }),
+   259→      });
+   260→      toast.success('Review submitted!');
+   261→      setReviewDialog(false);
+   262→      setReviewRating(5);
+   263→      setReviewComment('');
+   264→      setUserHasReviewed(true);
+   265→      const data = await apiFetch<{ event: Event }>(`/api/events/${selectedEventId}`);
+   266→      setEvent(data.event);
+   267→    } catch (err: any) {
+   268→      toast.error(err.message || 'Failed to submit review');
+   269→    } finally {
+   270→      setSubmittingReview(false);
+   271→    }
+   272→  };
+   273→
+   274→  // Session date grouping
+   275→  const sessionsByDate = sessions.reduce<Record<string, EventSession[]>>((acc, session) => {
+   276→    const dateKey = session.date ? format(new Date(session.date), 'yyyy-MM-dd') : 'no-date';
+   277→    if (!acc[dateKey]) acc[dateKey] = [];
+   278→    acc[dateKey].push(session);
+   279→    return acc;
+   280→  }, {});
+   281→
+   282→  // Media grouping by category
+   283→  const posterMedia = media.filter(m => m.category === 'POSTER' || m.category === 'COVER');
+   284→  const galleryMedia = media.filter(m => m.category === 'GALLERY');
+   285→  const videoMedia = media.filter(m => m.category === 'PROMOTIONAL_VIDEO' || m.type === 'VIDEO');
+   286→  const otherMedia = media.filter(m =>
+   287→    !['POSTER', 'COVER', 'GALLERY', 'PROMOTIONAL_VIDEO'].includes(m.category) && m.type !== 'VIDEO'
+   288→  );
+   289→
+   290→  if (loading) {
+   291→    return (
+   292→      <div className="space-y-6">
+   293→        <Skeleton className="h-8 w-24" />
+   294→        <Skeleton className="h-72 w-full rounded-xl" />
+   295→        <div className="grid md:grid-cols-3 gap-6">
+   296→          <div className="md:col-span-2 space-y-4">
+   297→            <Skeleton className="h-8 w-3/4" />
+   298→            <Skeleton className="h-4 w-1/2" />
+   299→            <Skeleton className="h-40 w-full" />
+   300→          </div>
+   301→          <Skeleton className="h-80 rounded-xl" />
+   302→        </div>
+   303→      </div>
+   304→    );
+   305→  }
+   306→
+   307→  if (!event) {
+   308→    return (
+   309→      <div className="text-center py-20">
+   310→        <CalendarDays className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+   311→        <h2 className="text-xl font-semibold mb-2">Event not found</h2>
+   312→        <p className="text-muted-foreground text-sm mb-4">This event may not exist or is not publicly available.</p>
+   313→        <Button variant="outline" onClick={goBack}>Go Back</Button>
+   314→      </div>
+   315→    );
+   316→  }
+   317→
+   318→  // Get tag name (handles both {tag: {name}} and {name} shapes)
+   319→  const getTagName = (tag: any): string => tag.tag?.name || tag.name || '';
+   320→
+   321→  return (
+   322→    <motion.div
+   323→      initial={{ opacity: 0, y: 10 }}
+   324→      animate={{ opacity: 1, y: 0 }}
+   325→      transition={{ duration: 0.3 }}
+   326→      className="space-y-6"
+   327→    >
+   328→      {/* Back button */}
+   329→      <Button variant="ghost" size="sm" onClick={goBack} className="gap-2" aria-label="Go back to events">
+   330→        <ArrowLeft className="h-4 w-4" /> Back
+   331→      </Button>
+   332→
+   333→      {/* Phase 4F: Event Status Banner */}
+   334→      {isCancelled && (
+   335→        <div className="flex items-center gap-3 p-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800" role="alert">
+   336→          <XCircle className="h-6 w-6 text-red-500 flex-shrink-0" />
+   337→          <div>
+   338→            <h3 className="font-semibold text-red-700 dark:text-red-300">This event has been cancelled</h3>
+   339→            <p className="text-sm text-red-600 dark:text-red-400">Bookings are no longer available for this event.</p>
+   340→          </div>
+   341→        </div>
+   342→      )}
+   343→      {isCompleted && (
+   344→        <div className="flex items-center gap-3 p-4 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+   345→          <CheckCircle2 className="h-6 w-6 text-blue-500 flex-shrink-0" />
+   346→          <div>
+   347→            <h3 className="font-semibold text-blue-700 dark:text-blue-300">This event has taken place</h3>
+   348→            <p className="text-sm text-blue-600 dark:text-blue-400">You can still view event details and leave a review.</p>
+   349→          </div>
+   350→        </div>
+   351→      )}
+   352→
+   353→      {/* Hero Image */}
+   354→      <div className="relative h-64 md:h-80 lg:h-96 rounded-xl overflow-hidden">
+   355→        {event.coverImage ? (
+   356→          <img src={event.coverImage} alt={`${event.title} event cover`} className="w-full h-full object-cover" />
+   357→        ) : (
+   358→          <div className="w-full h-full bg-gradient-to-br from-emerald-200 to-teal-200 flex items-center justify-center">
+   359→            <CalendarDays className="h-16 w-16 text-emerald-300" />
+   360→          </div>
+   361→        )}
+   362→        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+   363→        <div className="absolute bottom-4 left-6 right-6 text-white">
+   364→          <div className="flex items-center gap-2 mb-2 flex-wrap">
+   365→            <Badge className="bg-emerald-600">{event.category?.name}</Badge>
+   366→            {event.isFeatured && <Badge className="bg-amber-500">Featured</Badge>}
+   367→            {event.isVirtual && <Badge className="bg-cyan-600">Virtual</Badge>}
+   368→          </div>
+   369→          <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold">{event.title}</h1>
+   370→          {event.shortDescription && (
+   371→            <p className="text-white/80 text-sm md:text-base mt-1 line-clamp-2">{event.shortDescription}</p>
+   372→          )}
+   373→        </div>
+   374→      </div>
+   375→
+   376→      <div className="grid md:grid-cols-3 gap-6">
+   377→        {/* Main Content */}
+   378→        <div className="md:col-span-2 space-y-6">
+   379→          {/* Date / Location / Type Info Cards */}
+   380→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   381→            <Card className="p-4">
+   382→              <div className="flex items-center gap-3">
+   383→                <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600" aria-hidden="true">
+   384→                  <CalendarDays className="h-5 w-5" />
+   385→                </div>
+   386→                <div>
+   387→                  <p className="text-sm text-muted-foreground">Date</p>
+   388→                  <p className="font-medium">{format(new Date(event.startDate), 'EEEE, MMM d, yyyy')}</p>
+   389→                  {event.endDate && event.endDate !== event.startDate && (
+   390→                    <p className="text-sm text-muted-foreground">to {format(new Date(event.endDate), 'EEE, MMM d, yyyy')}</p>
+   391→                  )}
+   392→                </div>
+   393→              </div>
+   394→            </Card>
+   395→            <Card className="p-4">
+   396→              <div className="flex items-center gap-3">
+   397→                <div className="p-2 rounded-lg bg-teal-50 text-teal-600" aria-hidden="true">
+   398→                  <Clock className="h-5 w-5" />
+   399→                </div>
+   400→                <div>
+   401→                  <p className="text-sm text-muted-foreground">Time</p>
+   402→                  <p className="font-medium">{event.startTime || 'TBD'} {event.endTime ? `- ${event.endTime}` : ''}</p>
+   403→                  {event.timezone && event.timezone !== 'UTC' && (
+   404→                    <p className="text-xs text-muted-foreground">{event.timezone}</p>
+   405→                  )}
+   406→                </div>
+   407→              </div>
+   408→            </Card>
+   409→            <Card className="p-4">
+   410→              <div className="flex items-center gap-3">
+   411→                <div className={`p-2 rounded-lg ${event.isVirtual ? 'bg-cyan-50 text-cyan-600' : 'bg-amber-50 text-amber-600'}`} aria-hidden="true">
+   412→                  {event.isVirtual ? <Globe className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
+   413→                </div>
+   414→                <div className="min-w-0">
+   415→                  <p className="text-sm text-muted-foreground">{event.isVirtual ? 'Virtual Event' : 'Location'}</p>
+   416→                  {event.isVirtual ? (
+   417→                    event.virtualUrl ? (
+   418→                      <a
+   419→                        href={event.virtualUrl}
+   420→                        target="_blank"
+   421→                        rel="noopener noreferrer"
+   422→                        className="font-medium text-cyan-600 hover:underline inline-flex items-center gap-1"
+   423→                      >
+   424→                        Join Online <ExternalLink className="h-3 w-3" />
+   425→                      </a>
+   426→                    ) : (
+   427→                      <p className="font-medium text-cyan-600">Online</p>
+   428→                    )
+   429→                  ) : event.venue ? (
+   430→                    <div>
+   431→                      <p className="font-medium">{event.venue.name}</p>
+   432→                      <p className="text-xs text-muted-foreground truncate">
+   433→                        {event.venue.address}{event.venue.city ? `, ${event.venue.city}` : ''}{event.venue.state ? `, ${event.venue.state}` : ''}
+   434→                      </p>
+   435→                      {(event.venue.googleMapsUrl || (event.venue.lat != null && event.venue.lng != null)) && (
+   436→                        <a
+   437→                          href={event.venue.googleMapsUrl || `https://www.google.com/maps?q=${event.venue.lat},${event.venue.lng}`}
+   438→                          target="_blank"
+   439→                          rel="noopener noreferrer"
+   440→                          className="text-xs text-emerald-600 hover:underline inline-flex items-center gap-1 mt-0.5"
+   441→                        >
+   442→                          <Globe className="h-3 w-3" /> View on Google Maps
+   443→                        </a>
+   444→                      )}
+   445→                      {event.venue.website && (
+   446→                        <a
+   447→                          href={event.venue.website}
+   448→                          target="_blank"
+   449→                          rel="noopener noreferrer"
+   450→                          className="text-xs text-emerald-600 hover:underline inline-flex items-center gap-1 mt-0.5 ml-2"
+   451→                        >
+   452→                          <ExternalLink className="h-3 w-3" /> Venue Website
+   453→                        </a>
+   454→                      )}
+   455→                    </div>
+   456→                  ) : (
+   457→                    <div>
+   458→                      <p className="font-medium">{event.venueName || 'Location TBD'}</p>
+   459→                      {event.venueCity && (
+   460→                        <p className="text-xs text-muted-foreground">{event.venueCity}{event.venueState ? `, ${event.venueState}` : ''}{event.venueCountry ? `, ${event.venueCountry}` : ''}</p>
+   461→                      )}
+   462→                    </div>
+   463→                  )}
+   464→                </div>
+   465→              </div>
+   466→            </Card>
+   467→            <Card className="p-4">
+   468→              <div className="flex items-center gap-3">
+   469→                <div className="p-2 rounded-lg bg-purple-50 text-purple-600" aria-hidden="true">
+   470→                  <Users className="h-5 w-5" />
+   471→                </div>
+   472→                <div>
+   473→                  <p className="text-sm text-muted-foreground">Capacity</p>
+   474→                  <p className="font-medium">{event.capacity || 'Unlimited'}{event.capacity ? ' attendees' : ''}</p>
+   475→                  {event.ageRestriction && (
+   476→                    <p className="text-xs text-muted-foreground">{event.ageRestriction}</p>
+   477→                  )}
+   478→                </div>
+   479→              </div>
+   480→            </Card>
+   481→          </div>
+   482→
+   483→          {/* Tags */}
+   484→          {event.tags?.length > 0 && (
+   485→            <div className="flex flex-wrap gap-2" role="list" aria-label="Event tags">
+   486→              {event.tags.map((tag, i) => (
+   487→                <Badge key={tag.id || i} variant="outline" className="gap-1" role="listitem">
+   488→                  <Tag className="h-3 w-3" /> {getTagName(tag)}
+   489→                </Badge>
+   490→              ))}
+   491→            </div>
+   492→          )}
+   493→
+   494→          {/* Description */}
+   495→          <Card>
+   496→            <CardHeader><CardTitle>About This Event</CardTitle></CardHeader>
+   497→            <CardContent>
+   498→              <div className="prose prose-sm max-w-none text-muted-foreground whitespace-pre-wrap">{event.description}</div>
+   499→            </CardContent>
+   500→          </Card>
+   501→
+   502→          {/* Program / Sessions */}
+   503→          {sessions.length > 0 && (
+   504→            <Card>
+   505→              <CardHeader>
+   506→                <CardTitle className="flex items-center gap-2">
+   507→                  <CalendarDays className="h-5 w-5 text-emerald-600" aria-hidden="true" />
+   508→                  Program
+   509→                  <span className="text-sm font-normal text-muted-foreground">({sessions.length} sessions)</span>
+   510→                </CardTitle>
+   511→              </CardHeader>
+   512→              <CardContent>
+   513→                <div className="space-y-6">
+   514→                  {Object.entries(sessionsByDate).map(([dateKey, dateSessions]) => (
+   515→                    <div key={dateKey}>
+   516→                      {dateKey !== 'no-date' && (
+   517→                        <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+   518→                          <CalendarDays className="h-4 w-4" />
+   519→                          {format(new Date(dateKey), 'EEEE, MMMM d')}
+   520→                        </h3>
+   521→                      )}
+   522→                      <div className="space-y-3">
+   523→                        {dateSessions.map(session => (
+   524→                          <div key={session.id} className="flex items-start gap-3 p-3 rounded-lg border hover:bg-accent/50 transition-colors">
+   525→                            <div className="text-center min-w-[60px]">
+   526→                              <p className="text-sm font-semibold">{session.startTime}</p>
+   527→                              <p className="text-xs text-muted-foreground">{session.endTime}</p>
+   528→                            </div>
+   529→                            <div className="flex-1 min-w-0">
+   530→                              <div className="flex items-center gap-2 flex-wrap">
+   531→                                <h4 className="font-medium text-sm">{session.title}</h4>
+   532→                                <Badge variant="outline" className="text-xs">
+   533→                                  {SESSION_TYPE_LABELS[session.sessionType] || session.sessionType}
+   534→                                </Badge>
+   535→                              </div>
+   536→                              {session.description && (
+   537→                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{session.description}</p>
+   538→                              )}
+   539→                              {session.participant && (
+   540→                                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+   541→                                  <Mic className="h-3 w-3" aria-hidden="true" /> {session.participant.name}
+   542→                                  <span className="text-muted-foreground/60">({ROLE_LABELS[session.participant.role] || session.participant.role})</span>
+   543→                                </p>
+   544→                              )}
+   545→                              {session.venueName && (
+   546→                                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+   547→                                  <MapPin className="h-3 w-3" aria-hidden="true" /> {session.venueName}
+   548→                                </p>
+   549→                              )}
+   550→                            </div>
+   551→                          </div>
+   552→                        ))}
+   553→                      </div>
+   554→                    </div>
+   555→                  ))}
+   556→                </div>
+   557→              </CardContent>
+   558→            </Card>
+   559→          )}
+   560→
+   561→          {/* Speakers & Participants */}
+   562→          {participants.length > 0 && (
+   563→            <Card>
+   564→              <CardHeader>
+   565→                <CardTitle className="flex items-center gap-2">
+   566→                  <Users className="h-5 w-5 text-emerald-600" aria-hidden="true" />
+   567→                  Speakers & Participants
+   568→                  <span className="text-sm font-normal text-muted-foreground">({participants.length})</span>
+   569→                </CardTitle>
+   570→              </CardHeader>
+   571→              <CardContent>
+   572→                <div className="grid sm:grid-cols-2 gap-4">
+   573→                  {participants.map(p => (
+   574→                    <div key={p.id} className="flex items-start gap-3 p-3 rounded-lg border">
+   575→                      {p.image ? (
+   576→                        <img src={p.image} alt={p.name} className="h-12 w-12 rounded-full object-cover shrink-0" />
+   577→                      ) : (
+   578→                        <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center shrink-0">
+   579→                          <span className="text-emerald-700 dark:text-emerald-300 font-semibold">{p.name.charAt(0).toUpperCase()}</span>
+   580→                        </div>
+   581→                      )}
+   582→                      <div className="min-w-0">
+   583→                        <div className="flex items-center gap-2">
+   584→                          <h4 className="font-medium text-sm">{p.name}</h4>
+   585→                          {p.isFeatured && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-label="Featured" />}
+   586→                        </div>
+   587→                        <Badge variant="outline" className="text-xs mt-0.5">
+   588→                          {ROLE_LABELS[p.role] || p.role}
+   589→                        </Badge>
+   590→                        {p.title && (
+   591→                          <p className="text-xs text-muted-foreground mt-1">{p.title}</p>
+   592→                        )}
+   593→                        {p.organization && (
+   594→                          <p className="text-xs text-muted-foreground">{p.organization}</p>
+   595→                        )}
+   596→                        {p.bio && (
+   597→                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.bio}</p>
+   598→                        )}
+   599→                      </div>
+   600→                    </div>
+   601→                  ))}
+   602→                </div>
+   603→              </CardContent>
+   604→            </Card>
+   605→          )}
+   606→
+   607→          {/* Gallery / Media */}
+   608→          {media.length > 0 && (
+   609→            <Card>
+   610→              <CardHeader>
+   611→                <CardTitle className="flex items-center gap-2">
+   612→                  <ImageIcon className="h-5 w-5 text-emerald-600" aria-hidden="true" />
+   613→                  Gallery & Media
+   614→                  <span className="text-sm font-normal text-muted-foreground">({media.length})</span>
+   615→                </CardTitle>
+   616→              </CardHeader>
+   617→              <CardContent>
+   618→                {/* Promotional Videos */}
+   619→                {videoMedia.length > 0 && (
+   620→                  <div className="mb-4">
+   621→                    <h4 className="text-sm font-medium mb-2">Videos</h4>
+   622→                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   623→                      {videoMedia.map(m => (
+   624→                        <div key={m.id} className="relative rounded-lg overflow-hidden border aspect-video">
+   625→                          <div className="w-full h-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+   626→                            <Video className="h-8 w-8 text-zinc-400" />
+   627→                            <div className="absolute inset-0 flex items-center justify-center">
+   628→                              <div className="h-10 w-10 rounded-full bg-black/30 flex items-center justify-center">
+   629→                                <Play className="h-5 w-5 text-white ml-0.5" />
+   630→                              </div>
+   631→                            </div>
+   632→                          </div>
+   633→                          {m.caption && (
+   634→                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+   635→                              <p className="text-xs text-white truncate">{m.caption}</p>
+   636→                            </div>
+   637→                          )}
+   638→                        </div>
+   639→                      ))}
+   640→                    </div>
+   641→                  </div>
+   642→                )}
+   643→
+   644→                {/* Image Gallery */}
+   645→                {(galleryMedia.length > 0 || posterMedia.length > 0) && (
+   646→                  <div>
+   647→                    <h4 className="text-sm font-medium mb-2">Photos</h4>
+   648→                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+   649→                      {[...posterMedia, ...galleryMedia].map(m => (
+   650→                        <div key={m.id} className="relative rounded-lg overflow-hidden border aspect-video">
+   651→                          <img src={m.url} alt={m.caption || 'Event gallery image'} className="w-full h-full object-cover" />
+   652→                          {m.caption && (
+   653→                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+   654→                              <p className="text-xs text-white truncate">{m.caption}</p>
+   655→                            </div>
+   656→                          )}
+   657→                          {m.category !== 'GALLERY' && (
+   658→                            <Badge variant="secondary" className="absolute top-1 left-1 text-[10px]">{m.category}</Badge>
+   659→                          )}
+   660→                        </div>
+   661→                      ))}
+   662→                    </div>
+   663→                  </div>
+   664→                )}
+   665→
+   666→                {/* Other media (documents, programs) */}
+   667→                {otherMedia.length > 0 && (
+   668→                  <div className="mt-4">
+   669→                    <h4 className="text-sm font-medium mb-2">Documents</h4>
+   670→                    <div className="flex flex-wrap gap-2">
+   671→                      {otherMedia.map(m => (
+   672→                        <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer"
+   673→                          className="inline-flex items-center gap-2 p-2 rounded-lg border hover:bg-accent transition-colors">
+   674→                          <FileText className="h-4 w-4 text-muted-foreground" />
+   675→                          <span className="text-sm">{m.caption || m.category}</span>
+   676→                          <ExternalLink className="h-3 w-3 text-muted-foreground" />
+   677→                        </a>
+   678→                      ))}
+   679→                    </div>
+   680→                  </div>
+   681→                )}
+   682→              </CardContent>
+   683→            </Card>
+   684→          )}
+   685→
+   686→          {/* Reviews */}
+   687→          <Card>
+   688→            <CardHeader>
+   689→              <CardTitle className="flex items-center justify-between">
+   690→                <span className="flex items-center gap-2">
+   691→                  <Star className="h-5 w-5 fill-amber-400 text-amber-400" aria-hidden="true" />
+   692→                  Reviews ({event.reviews?.length || 0})
+   693→                  {avgRating > 0 && (
+   694→                    <span className="text-sm font-normal text-muted-foreground">
+   695→                      {avgRating.toFixed(1)} average
+   696→                    </span>
+   697→                  )}
+   698→                </span>
+   699→                {user && !userHasReviewed && !isCancelled && (
+   700→                  <Button
+   701→                    variant="outline"
+   702→                    size="sm"
+   703→                    onClick={() => setReviewDialog(true)}
+   704→                    className="gap-1"
+   705→                  >
+   706→                    <MessageSquarePlus className="h-4 w-4" />
+   707→                    Write a Review
+   708→                  </Button>
+   709→                )}
+   710→              </CardTitle>
+   711→            </CardHeader>
+   712→            <CardContent>
+   713→              {event.reviews?.length === 0 ? (
+   714→                <p className="text-muted-foreground text-sm">No reviews yet.</p>
+   715→              ) : (
+   716→                <div className="space-y-4 max-h-96 overflow-y-auto">
+   717→                  {event.reviews.map(review => (
+   718→                    <div key={review.id} className="border-b last:border-0 pb-4">
+   719→                      <div className="flex items-center gap-2 mb-1">
+   720→                        <span className="font-medium text-sm">{review.user?.name}</span>
+   721→                        <div className="flex" aria-label={`${review.rating} out of 5 stars`}>
+   722→                          {Array.from({ length: 5 }).map((_, i) => (
+   723→                            <Star key={i} className={`h-3 w-3 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200'}`} />
+   724→                          ))}
+   725→                        </div>
+   726→                        <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(review.createdAt))}</span>
+   727→                      </div>
+   728→                      <p className="text-sm text-muted-foreground">{review.comment}</p>
+   729→                    </div>
+   730→                  ))}
+   731→                </div>
+   732→              )}
+   733→            </CardContent>
+   734→          </Card>
+   735→
+   736→          {/* Related Events */}
+   737→          {relatedEvents.length > 0 && (
+   738→            <Card>
+   739→              <CardHeader><CardTitle>Related Events</CardTitle></CardHeader>
+   740→              <CardContent>
+   741→                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   742→                  {relatedEvents.map(re => (
+   743→                    <Card key={re.id} className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('event-detail', re.id)}>
+   744→                      <div className="h-32 bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center">
+   745→                        {re.coverImage ? <img src={re.coverImage} alt={re.title} className="w-full h-full object-cover" /> : <CalendarDays className="h-8 w-8 text-emerald-300" />}
+   746→                      </div>
+   747→                      <CardContent className="p-3">
+   748→                        <h4 className="font-medium text-sm line-clamp-1">{re.title}</h4>
+   749→                        <p className="text-xs text-muted-foreground mt-1">{format(new Date(re.startDate), 'MMM d, yyyy')}</p>
+   750→                      </CardContent>
+   751→                    </Card>
+   752→                  ))}
+   753→                </div>
+   754→              </CardContent>
+   755→            </Card>
+   756→          )}
+   757→        </div>
+   758→
+   759→        {/* Sidebar */}
+   760→        <div className="space-y-4">
+   761→          {/* Price / Ticket Card */}
+   762→          <Card className="sticky top-20">
+   763→            <CardContent className="p-6 space-y-4">
+   764→              {event.isPaid ? (
+   765→                <div>
+   766→                  <p className="text-sm text-muted-foreground">Starting from</p>
+   767→                  <p className="text-3xl font-bold text-emerald-600">
+   768→                    {event.currency === 'GHS' ? '₵' : '$'}{Math.min(...event.ticketTypes.filter(t => t.price > 0).map(t => t.price), 0).toFixed(2)}
+   769→                  </p>
+   770→                </div>
+   771→              ) : (
+   772→                <div>
+   773→                  <p className="text-sm text-muted-foreground">This is a</p>
+   774→                  <p className="text-3xl font-bold text-emerald-600">Free Event</p>
+   775→                </div>
+   776→              )}
+   777→
+   778→              <Separator />
+   779→
+   780→              {/* Ticket Types */}
+   781→              <div className="space-y-3">
+   782→                <h4 className="font-semibold text-sm">Ticket Types</h4>
+   783→                {event.ticketTypes?.map(tt => {
+   784→                  const available = tt.quantity - tt.soldCount;
+   785→                  const isSoldOut = available <= 0;
+   786→                  // Check sale window
+   787→                  const now = new Date();
+   788→                  const saleStarted = !tt.saleStart || new Date(tt.saleStart) <= now;
+   789→                  const saleEnded = tt.saleEnd && new Date(tt.saleEnd) < now;
+   790→                  const isOnSale = tt.isActive && saleStarted && !saleEnded;
+   791→
+   792→                  return (
+   793→                    <div key={tt.id} className="border rounded-lg p-3 space-y-2">
+   794→                      <div className="flex items-center justify-between">
+   795→                        <span className="font-medium text-sm">{tt.name}</span>
+   796→                        <span className={`font-bold ${tt.price > 0 ? 'text-emerald-600' : ''}`}>
+   797→                          {tt.price > 0 ? `${event.currency === 'GHS' ? '₵' : '$'}${tt.price.toFixed(2)}` : 'Free'}
+   798→                        </span>
+   799→                      </div>
+   800→                      {tt.description && (
+   801→                        <p className="text-xs text-muted-foreground line-clamp-2">{tt.description}</p>
+   802→                      )}
+   803→                      <p className="text-xs text-muted-foreground">
+   804→                        {isSoldOut ? 'Sold out' : saleEnded ? 'Sale ended' : !saleStarted ? 'Coming soon' : `${available} available`}
+   805→                      </p>
+   806→                      <Button
+   807→                        size="sm"
+   808→                        className="w-full bg-emerald-600 hover:bg-emerald-700"
+   809→                        disabled={!canBook || isSoldOut || !isOnSale}
+   810→                        onClick={() => handleBook(tt)}
+   811→                        aria-label={isSoldOut ? `${tt.name} sold out` : canBook ? `Book ${tt.name}` : 'Booking unavailable'}
+   812→                      >
+   813→                        {isSoldOut ? 'Sold Out' : !canBook ? (isCancelled ? 'Event Cancelled' : isCompleted ? 'Event Ended' : 'Unavailable') : saleEnded ? 'Sale Ended' : !saleStarted ? 'Coming Soon' : event.isPaid ? 'Book Now' : 'Register Free'}
+   814→                      </Button>
+   815→                    </div>
+   816→                  );
+   817→                })}
+   818→                {(!event.ticketTypes || event.ticketTypes.length === 0) && (
+   819→                  <p className="text-sm text-muted-foreground">No ticket information available yet.</p>
+   820→                )}
+   821→              </div>
+   822→            </CardContent>
+   823→          </Card>
+   824→
+   825→          {/* Organizer Card */}
+   826→          {event.organizer && (
+   827→            <Card>
+   828→              <CardContent className="p-4">
+   829→                <div className="flex items-center gap-3">
+   830→                  {event.organizer.avatar ? (
+   831→                    <img src={event.organizer.avatar} alt={event.organizer.name} className="h-10 w-10 rounded-full object-cover" />
+   832→                  ) : (
+   833→                    <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+   834→                      <User className="h-5 w-5 text-emerald-600" />
+   835→                    </div>
+   836→                  )}
+   837→                  <div>
+   838→                    <p className="font-medium text-sm">{event.organizer.name}</p>
+   839→                    <p className="text-xs text-muted-foreground">Organizer</p>
+   840→                  </div>
+   841→                </div>
+   842→                {event.organizer.bio && (
+   843→                  <p className="text-sm text-muted-foreground mt-2 line-clamp-3">{event.organizer.bio}</p>
+   844→                )}
+   845→              </CardContent>
+   846→            </Card>
+   847→          )}
+   848→
+   849→          {/* Phase 4F: SEO-relevant structured event summary for accessibility */}
+   850→          <div className="sr-only" aria-label="Event summary">
+   851→            <p>{event.title} — {format(new Date(event.startDate), 'MMMM d, yyyy')}{event.startTime ? ` at ${event.startTime}` : ''}</p>
+   852→            {event.venue?.name && <p>Location: {event.venue.name}, {event.venue.city}</p>}
+   853→            {event.isPaid ? <p>Ticket prices starting from {event.currency} {Math.min(...event.ticketTypes.filter(t => t.price > 0).map(t => t.price), 0).toFixed(2)}</p> : <p>Free admission</p>}
+   854→          </div>
+   855→        </div>
+   856→      </div>
+   857→
+   858→      {/* Booking Dialog */}
+   859→      <Dialog open={bookDialog} onOpenChange={setBookDialog}>
+   860→        <DialogContent>
+   861→          <DialogHeader>
+   862→            <DialogTitle>Book Tickets</DialogTitle>
+   863→            <DialogDescription>{selectedTicket?.name} - {event.title}</DialogDescription>
+   864→          </DialogHeader>
+   865→          <div className="space-y-4 py-4">
+   866→            <div className="flex items-center justify-between">
+   867→              <span>Price per ticket</span>
+   868→              <span className="font-medium">{selectedTicket && selectedTicket.price > 0 ? `${event.currency === 'GHS' ? '₵' : '$'}${selectedTicket.price.toFixed(2)}` : 'Free'}</span>
+   869→            </div>
+   870→            <div className="flex items-center justify-between">
+   871→              <span>Quantity</span>
+   872→              <div className="flex items-center gap-3">
+   873→                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQuantity(q => Math.max(1, q - 1))} aria-label="Decrease quantity"><Minus className="h-4 w-4" /></Button>
+   874→                <span className="w-8 text-center font-medium">{quantity}</span>
+   875→                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQuantity(q => Math.min(selectedTicket ? selectedTicket.quantity - selectedTicket.soldCount : 10, q + 1))} aria-label="Increase quantity"><Plus className="h-4 w-4" /></Button>
+   876→              </div>
+   877→            </div>
+   878→            <Separator />
+   879→            <div className="flex items-center justify-between text-lg font-bold">
+   880→              <span>Total</span>
+   881→              <span className="text-emerald-600">{selectedTicket && selectedTicket.price > 0 ? `${event.currency === 'GHS' ? '₵' : '$'}${(selectedTicket.price * quantity).toFixed(2)}` : 'Free'}</span>
+   882→            </div>
+   883→          </div>
+   884→          <DialogFooter>
+   885→            <Button variant="outline" onClick={() => setBookDialog(false)}>Cancel</Button>
+   886→            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={confirmBooking} disabled={booking}>
+   887→              {booking && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+   888→              Confirm Booking
+   889→            </Button>
+   890→          </DialogFooter>
+   891→        </DialogContent>
+   892→      </Dialog>
+   893→
+   894→      {/* Review Dialog */}
+   895→      <Dialog open={reviewDialog} onOpenChange={setReviewDialog}>
+   896→        <DialogContent>
+   897→          <DialogHeader>
+   898→            <DialogTitle>Write a Review</DialogTitle>
+   899→            <DialogDescription>Share your experience for {event.title}</DialogDescription>
+   900→          </DialogHeader>
+   901→          <div className="space-y-4 py-4">
+   902→            <div className="space-y-2">
+   903→              <Label className="text-sm font-medium">Rating</Label>
+   904→              <div className="flex gap-1" role="radiogroup" aria-label="Rating">
+   905→                {Array.from({ length: 5 }).map((_, i) => (
+   906→                  <button
+   907→                    key={i}
+   908→                    type="button"
+   909→                    onClick={() => setReviewRating(i + 1)}
+   910→                    className="p-1"
+   911→                    role="radio"
+   912→                    aria-checked={i < reviewRating}
+   913→                    aria-label={`${i + 1} star${i > 0 ? 's' : ''}`}
+   914→                  >
+   915→                    <Star
+   916→                      className={`h-6 w-6 transition-colors ${
+   917→                        i < reviewRating
+   918→                          ? 'fill-amber-400 text-amber-400'
+   919→                          : 'text-gray-200 hover:text-amber-300'
+   920→                      }`}
+   921→                    />
+   922→                  </button>
+   923→                ))}
+   924→              </div>
+   925→            </div>
+   926→            <div className="space-y-2">
+   927→              <Label className="text-sm font-medium">Comment (optional)</Label>
+   928→              <Textarea
+   929→                placeholder="Share your thoughts about this event..."
+   930→                value={reviewComment}
+   931→                onChange={(e) => setReviewComment(e.target.value)}
+   932→                rows={3}
+   933→                maxLength={1000}
+   934→              />
+   935→            </div>
+   936→          </div>
+   937→          <DialogFooter>
+   938→            <Button variant="outline" onClick={() => setReviewDialog(false)}>
+   939→              Cancel
+   940→            </Button>
+   941→            <Button
+   942→              className="bg-emerald-600 hover:bg-emerald-700"
+   943→              onClick={submitReview}
+   944→              disabled={submittingReview}
+   945→            >
+   946→              {submittingReview && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+   947→              Submit Review
+   948→            </Button>
+   949→          </DialogFooter>
+   950→        </DialogContent>
+   951→      </Dialog>
+   952→    </motion.div>
+   953→  );
+   954→}
+   955→
+   956→function formatDistanceToNow(date: Date) {
+   957→  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+   958→  if (seconds < 60) return 'just now';
+   959→  const minutes = Math.floor(seconds / 60);
+   960→  if (minutes < 60) return `${minutes}m ago`;
+   961→  const hours = Math.floor(minutes / 60);
+   962→  if (hours < 24) return `${hours}h ago`;
+   963→  const days = Math.floor(hours / 24);
+   964→  if (days < 30) return `${days}d ago`;
+   965→  const months = Math.floor(days / 30);
+   966→  return `${months}mo ago`;
+   967→}
+   968→

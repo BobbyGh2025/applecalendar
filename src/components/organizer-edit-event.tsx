@@ -45,6 +45,7 @@ import {
   Image as ImageIcon,
   Building2,
 } from 'lucide-react';
+import { formatMoney, parseMoneyOrThrow, DEFAULT_CURRENCY } from '@/lib/money';
 
 interface Category {
   id: string;
@@ -201,7 +202,7 @@ export function OrganizerEditEvent() {
           e.ticketTypes.map((tt) => ({
             id: tt.id,
             name: tt.name,
-            price: String(tt.price),
+            price: formatMoney(tt.price, e.currency || DEFAULT_CURRENCY),
             quantity: String(tt.quantity),
           }))
         );
@@ -304,7 +305,7 @@ export function OrganizerEditEvent() {
           method: 'POST',
           body: JSON.stringify({
             name: tt.name,
-            price: parseFloat(tt.price) || 0,
+            price: parseMoneyOrThrow(tt.price, form.currency || DEFAULT_CURRENCY),
             quantity: parseInt(tt.quantity) || 50,
             currency: form.currency,
           }),
@@ -319,7 +320,7 @@ export function OrganizerEditEvent() {
             method: 'PATCH',
             body: JSON.stringify({
               name: tt.name,
-              price: parseFloat(tt.price),
+              price: parseMoneyOrThrow(tt.price, form.currency || DEFAULT_CURRENCY),
               quantity: parseInt(tt.quantity),
             }),
           }

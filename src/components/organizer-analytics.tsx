@@ -15,7 +15,7 @@ import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Eye, MousePointerClick, Ticket, DollarSign, BarChart3 } from 'lucide-react';
-import { formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
+import { formatMoney, formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -145,8 +145,8 @@ export function OrganizerAnalytics() {
                   <AreaChart data={analytics.daily}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" fontSize={10} tickFormatter={v => v.split('-').slice(1).join('/')} />
-                    <YAxis fontSize={12} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <YAxis fontSize={12} tickFormatter={(v: number) => formatMoney(v, DEFAULT_CURRENCY)} />
+                    <ChartTooltip content={<ChartTooltipContent formatter={(v: number) => formatMoneyWithSymbol(v, DEFAULT_CURRENCY)} />} />
                     <Area type="monotone" dataKey="revenue" stroke="var(--color-revenue)" fill="var(--color-revenue)" fillOpacity={0.2} strokeWidth={2} />
                   </AreaChart>
                 </ChartContainer>

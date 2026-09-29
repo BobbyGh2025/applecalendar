@@ -750,7 +750,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
         eventId: event1Id,
         name: 'General Admission',
         description: 'Standard entry ticket',
-        price: 25.00,
+        price: 2500, // GHS 25.00 in minor units (Phase 5C)
         currency: 'GHS',
         quantity: 100,
         minPerOrder: 1,
@@ -764,7 +764,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
         eventId: event1Id,
         name: 'VIP',
         description: 'VIP entry with premium access',
-        price: 100.00,
+        price: 10000, // GHS 100.00 in minor units (Phase 5C)
         currency: 'GHS',
         quantity: 20,
         minPerOrder: 1,
@@ -792,7 +792,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         eventId: event1Id,
         name: 'Early Bird',
-        price: 15.00,
+        price: 1500, // GHS 15.00 in minor units (Phase 5C)
         currency: 'GHS',
         quantity: 30,
         minPerOrder: 1,
@@ -808,7 +808,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         eventId: event2Id,
         name: 'Event 2 Ticket',
-        price: 50.00,
+        price: 5000, // GHS 50.00 in minor units (Phase 5C)
         currency: 'GHS',
         quantity: 200,
         minPerOrder: 1,
@@ -826,7 +826,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         userId: publicUserId,
         eventId: event1Id,
-        totalAmount: 50.00, // 2 * 25
+        totalAmount: 5000, // 2 * 2500 = GHS 50.00 in minor units (Phase 5C)
         currency: 'GHS',
         status: 'CONFIRMED',
         bookingRef: bookingRef1,
@@ -839,7 +839,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         bookingId: booking.id,
         userId: publicUserId,
-        amount: 50.00,
+        amount: 5000, // GHS 50.00 in minor units (Phase 5C)
         currency: 'GHS',
         method: 'STRIPE',
         status: 'PENDING',
@@ -892,7 +892,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
     const tt = await prisma.ticketType.findUnique({ where: { id: ticketType1Id } });
     expect(tt).not.toBeNull();
     expect(tt!.name).toBe('General Admission');
-    expect(tt!.price).toBe(25.00);
+    expect(tt!.price).toBe(2500); // GHS 25.00 in minor units (Phase 5C)
     expect(tt!.quantity).toBe(100);
     expect(tt!.soldCount).toBe(2); // 2 tickets sold
     expect(tt!.minPerOrder).toBe(1);
@@ -1031,7 +1031,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
 
   it('Booking has correct total amount', async () => {
     const booking = await prisma.booking.findUnique({ where: { id: booking1Id } });
-    expect(booking!.totalAmount).toBe(50.00); // 2 tickets * 25 price
+    expect(booking!.totalAmount).toBe(5000); // 2 tickets * 2500 minor units = GHS 50.00 (Phase 5C)
   });
 
   it('Booking has CONFIRMED status', async () => {
@@ -1095,7 +1095,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       where: { bookingId: booking1Id },
     });
     expect(payment).not.toBeNull();
-    expect(payment!.amount).toBe(50.00);
+    expect(payment!.amount).toBe(5000); // GHS 50.00 in minor units (Phase 5C)
     expect(payment!.method).toBe('STRIPE');
     expect(payment!.status).toBe('PENDING');
   });
@@ -1162,7 +1162,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         eventId: event1Id,
         name: 'Concurrency Test Ticket',
-        price: 10,
+        price: 1000, // GHS 10.00 in minor units (Phase 5C)
         currency: 'GHS',
         quantity: 1, // Only 1 ticket available
         soldCount: 0,
@@ -1211,7 +1211,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         eventId: event1Id,
         name: 'Multi Concurrency Test',
-        price: 10,
+        price: 1000, // GHS 10.00 in minor units (Phase 5C)
         currency: 'GHS',
         quantity: 10,
         soldCount: 9, // 9 already sold
@@ -1254,7 +1254,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         userId: publicUserId,
         eventId: event1Id,
-        totalAmount: 25.00,
+        totalAmount: 2500, // GHS 25.00 in minor units (Phase 5C)
         currency: 'GHS',
         status: 'CONFIRMED',
         bookingRef: cancelBookingRef,
@@ -1276,7 +1276,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         bookingId: cancelBooking.id,
         userId: publicUserId,
-        amount: 25.00,
+        amount: 2500, // GHS 25.00 in minor units (Phase 5C)
         currency: 'GHS',
         method: 'STRIPE',
         status: 'PENDING',
@@ -1361,7 +1361,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         eventId: event1Id,
         name: 'Safety Guard Test',
-        price: 10,
+        price: 1000, // GHS 10.00 in minor units (Phase 5C)
         currency: 'GHS',
         quantity: 100,
         soldCount: 1, // Only 1 sold
@@ -1376,7 +1376,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         userId: publicUserId,
         eventId: event1Id,
-        totalAmount: 20.00,
+        totalAmount: 2000, // GHS 20.00 in minor units (Phase 5C)
         currency: 'GHS',
         status: 'CONFIRMED',
         bookingRef: driftBookingRef,
@@ -1459,7 +1459,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         userId: publicUserId,
         eventId: event1Id,
-        totalAmount: 25.00,
+        totalAmount: 2500, // GHS 25.00 in minor units (Phase 5C)
         currency: 'GHS',
         status: 'CONFIRMED',
         bookingRef: reasonBookingRef,
@@ -1516,7 +1516,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         eventId: event1Id,
         name: 'Integrity Test Ticket',
-        price: 20,
+        price: 2000, // GHS 20.00 in minor units (Phase 5C)
         currency: 'GHS',
         quantity: 50,
         soldCount: 0,
@@ -1531,7 +1531,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
       data: {
         userId: publicUserId,
         eventId: event1Id,
-        totalAmount: 60.00,
+        totalAmount: 6000, // GHS 60.00 in minor units (Phase 5C)
         currency: 'GHS',
         status: 'CONFIRMED',
         bookingRef: b1Ref,

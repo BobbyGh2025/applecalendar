@@ -3,8 +3,20 @@ generator client {
 }
 
 datasource db {
-  // Production target: postgresql (Phase 5C). Switch provider and DATABASE_URL for production.
-  // For local dev without PostgreSQL, use sqlite with a file-based DATABASE_URL.
+  // ┌─────────────────────────────────────────────────────────────────────┐
+  // │ Phase 5C: Database Provider Configuration                         │
+  // │                                                                     │
+  // │ Development:  provider = "sqlite"  + file:./db/custom.db           │
+  // │ Production:   provider = "postgresql" + postgresql://...           │
+  // │                                                                     │
+  // │ To switch to PostgreSQL:                                            │
+  // │   1. Change provider to "postgresql"                                │
+  // │   2. Set DATABASE_URL to postgresql://user:pass@host:5432/db       │
+  // │   3. Run: prisma migrate deploy                                    │
+  // │                                                                     │
+  // │ All monetary fields are INTEGER minor units (never Float).          │
+  // │ Schema is fully PostgreSQL-compatible — no SQLite-specific types.   │
+  // └─────────────────────────────────────────────────────────────────────┘
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }

@@ -5,6 +5,7 @@ import { authenticate } from '@/lib/auth';
 import { ApiError, handleApiError } from '@/lib/errors';
 import { rateLimit, RateLimitError } from '@/lib/rate-limit';
 import { createBookingSchema } from '@/lib/validations';
+import { multiplyMoney, asMoney } from '@/lib/money';
 
 const bookingLimiter = rateLimit({ windowMs: 60_000, maxRequests: 10 });
 
@@ -96,8 +97,8 @@ export async function POST(
     const random = crypto.randomBytes(4).toString('hex').toUpperCase();
     const bookingRef = `APC-${timestamp}-${random}`;
 
-    // Calculate total
-    const totalAmount = ticketType.price * quantity;
+    // Calculate total (integer minor units — Phase 5C)
+    const totalAmount = multiplyMoney(asMoney(ticketType.price), quantity);
 
     // Create booking, tickets, and payment in a transaction with atomic availability check
     const result = await db.$transaction(async (tx) => {

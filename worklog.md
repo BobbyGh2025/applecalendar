@@ -755,3 +755,48 @@ Stage Summary:
 - 110 Phase 4G tests all passing
 - Zero Phase 4G TypeScript/ESLint errors
 - Browser-verified interactivity confirmed
+---
+Task ID: 5C
+Agent: Main
+Task: Phase 5C — Database & Financial Data Foundation (all 21 steps)
+
+Work Log:
+- STEP 1: Complete database audit — inspected schema, seed, migrations, Prisma config, .env, all monetary code
+- STEP 2: Identified all 6 monetary fields — all already Int (SubscriptionPlan.price, TicketType.price, Booking.totalAmount, Payment.amount, Payment.refundedAmount, EventAnalytics.revenue)
+- STEP 3: Money architecture verified — integer minor units implemented throughout
+- STEP 4: Money utilities verified — src/lib/money.ts comprehensive with parseMoney, formatMoney, addMoney, subtractMoney, multiplyMoney, calculatePercentage, calculatePlatformFee, calculateOrganizerRevenue, isValidMoney, asMoney, DEFAULT_CURRENCY='GHS'
+- STEP 5: Currency strategy verified — GHS default, multi-currency support (GHS, USD, GBP, EUR, KES, NGN, ZAR, JPY, KRW)
+- STEP 6: PostgreSQL migration — installed pg + @types/pg, updated schema with PostgreSQL switch instructions, updated .env.example with both SQLite and PostgreSQL URLs
+- STEP 7: Prisma migration strategy — deprecated db:push (shows warning), added db:migrate:baseline script, existing baseline migration preserved
+- STEP 8: Data preservation documented — all monetary fields use Int, seed data uses minor units, conversion rules documented in money.ts comments
+- STEP 9: Financial models verified — schema already has all Int fields with Phase 5C comments
+- STEP 10: Financial calculation audit — booking route uses multiplyMoney, all arithmetic is integer-based
+- STEP 11: API contracts verified — Zod validates .int().min(0) on price field, API responses return minor-unit integers
+- STEP 12: Frontend money handling verified — all components use formatMoney/formatMoneyWithSymbol/parseMoneyOrThrow from @/lib/money
+- STEP 13: Database constraints — created src/lib/money-constraints.ts with application-layer validators, created prisma/migrations/1_money_constraints_postgresql/migration.sql with CHECK constraints + indexes
+- STEP 14-16: Compatibility verified — Subscription, Payment, Booking models all use integer minor units correctly
+- STEP 17: Seed data verified — uses minor units (0, 9900, 29900, 79900 for plans; 29900, 79900 etc. for tickets)
+- STEP 18: Added comprehensive Phase 5C verification tests in src/__tests__/phase5c-verification.test.ts (9 test groups, ~40 tests)
+- STEP 19: PostgreSQL migration tested via schema validation (no PostgreSQL in sandbox — documented procedure)
+- STEP 20: All 792 tests pass, lint clean (only pre-existing server-keeper.js errors)
+- STEP 21: Final repository search — NO Float monetary fields (only geographic Float), NO parseFloat on money, NO unsafe /100 or *100 on money, NO toFixed on money
+
+Fixes Applied:
+1. CRITICAL: phase4g-ticketing.test.ts — replaced all decimal money values with proper minor-unit integers (25.00→2500, 50.00→5000, etc.) and updated all toBe() expectations
+2. CRITICAL: admin-dashboard.tsx + organizer-analytics.tsx — added tickFormatter to YAxis and custom formatter to ChartTooltipContent for revenue charts (previously showed raw minor units like 5050 instead of ₵50.50)
+3. MEDIUM: events/[id]/book/route.ts — changed `ticketType.price * quantity` to `multiplyMoney(asMoney(ticketType.price), quantity)` for consistency and validation
+4. LOW: Added JWT_SECRET to .env (was missing, causing login 500 errors)
+
+Stage Summary:
+- All 21 Phase 5C steps completed
+- 792/792 tests pass (750 pre-existing + 42 Phase 5C verification tests)
+- Schema: 0 Float monetary fields (all Int with Phase 5C comments)
+- Seed data: all monetary values in integer minor units
+- API: all monetary values returned as integer minor units, Zod validates .int()
+- Frontend: all money display uses formatMoney/formatMoneyWithSymbol from @/lib/money
+- Database constraints: application-layer validators + PostgreSQL CHECK constraints migration
+- PostgreSQL: driver installed, schema documented for provider switch, .env.example updated
+- Prisma: db:push deprecated, migrate dev/deploy strategy documented
+- No unsafe arithmetic patterns found (no parseFloat/toFixed on money, no manual /100 or *100)
+- Browser verified: admin dashboard shows "₵299.00", free events show "Free", API returns integer minor units
+- READY FOR PHASE 5D

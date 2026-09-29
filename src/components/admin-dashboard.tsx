@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/stores/app-store';
 import { apiFetch } from '@/lib/api';
 import { Users, Calendar, Ticket, DollarSign } from 'lucide-react';
-import { formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
+import { formatMoney, formatMoneyWithSymbol, DEFAULT_CURRENCY } from '@/lib/money';
 import { format } from 'date-fns';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
@@ -89,8 +89,8 @@ export function AdminDashboard() {
               <LineChart data={stats.revenueByMonth || []}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" fontSize={12} />
-                <YAxis fontSize={12} />
-                <ChartTooltip content={<ChartTooltipContent />} />
+                <YAxis fontSize={12} tickFormatter={(v: number) => formatMoney(v, DEFAULT_CURRENCY)} />
+                <ChartTooltip content={<ChartTooltipContent formatter={(v: number) => formatMoneyWithSymbol(v, DEFAULT_CURRENCY)} />} />
                 <Line type="monotone" dataKey="revenue" stroke="var(--color-revenue)" strokeWidth={2} dot={{ r: 4 }} />
               </LineChart>
             </ChartContainer>

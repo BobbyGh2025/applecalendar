@@ -225,6 +225,9 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenPaylo
   const payload = await verifyToken(token);
   if (!payload) return null;
 
+  // Validate sessionId claim exists — tokens without it are rejected
+  if (!payload.sessionId) return null;
+
   // Check that the session hasn't been revoked
   const session = await db.refreshToken.findUnique({
     where: { id: payload.sessionId },
@@ -277,11 +280,17 @@ export async function refreshSession(rawRefreshToken: string): Promise<RefreshRe
     throw new AuthError('Session has expired');
   }
 
-  // 3. Revoke the old token (rotation)
-  await db.refreshToken.update({
-    where: { id: storedToken.id },
+  // 3. Revoke the old token atomically (rotation + concurrent-refresh protection)
+  //    Using updateMany with `isRevoked: false` ensures that if two concurrent
+  //    requests both validate the same refresh token, only the first one to reach
+  //    this line will see count=1 and proceed. The second will see count=0 and fail.
+  const revokeResult = await db.refreshToken.updateMany({
+    where: { id: storedToken.id, isRevoked: false },
     data: { isRevoked: true },
   });
+  if (revokeResult.count === 0) {
+    throw new AuthError('Session has been revoked');
+  }
 
   // 4. Verify user is still active
   const user = await db.user.findUnique({

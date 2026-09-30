@@ -870,3 +870,227 @@ Stage Summary:
 - Currency display fix: public-discover.tsx now uses event.currency instead of hardcoded GHS
 - Provider strategy: Option B — SQLite for dev, PostgreSQL for production
 - 792/792 tests pass, build succeeds, browser verified
+
+---
+
+## Tasks 4–7: Phase 5D Infrastructure — Middleware, CORS, Security Headers, Request ID
+
+**Date:** 2025
+**Task IDs:** 4, 5, 6, 7
+**Description:** Implement Phase 5D cross-cutting infrastructure: Next.js middleware with request ID generation, security headers, and origin-based CORS; remove wildcard CORS from next.config.ts; add CORS utility module for API routes.
+
+### Files Created/Modified (3):
+
+1. **`src/middleware.ts`** — NEW — Next.js middleware (API routes only via `matcher: '/api/:path*'`)
+   - **Request ID (Step 7):** Validates incoming `X-Request-ID` (1-64 chars, alphanumeric/dash/dot); generates `crypto.randomUUID()` if missing/invalid; sets on response header
+   - **Security Headers (Step 5):** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Strict-Transport-Security` (only when `X-Forwarded-Proto: https`)
+   - **CORS (Step 6):** Origin-based allowlist (dev: `http://localhost:3000`; prod: `CORS_ALLOWED_ORIGINS` env var); sets `Access-Control-Allow-Origin` to specific matching origin (never wildcard); `Allow-Credentials: true`; full preflight handling (OPTIONS → 204); `Max-Age: 86400`
+   - **Scope:** Only runs on `/api/*` routes; does NOT handle auth or rate limiting (those stay in API routes)
+
+2. **`next.config.ts`** — MODIFIED — Removed `headers()` function that set wildcard CORS (`Access-Control-Allow-Origin: *`). Middleware now handles CORS properly with origin-based allowlist.
+
+3. **`src/lib/cors.ts`** — NEW — CORS utility module for API routes
+   - `getAllowedOrigins()` — Reads `CORS_ALLOWED_ORIGINS` env var, defaults to `['http://localhost:3000']`
+   - `isOriginAllowed(origin)` — Checks origin against allowlist
+   - `handlePreflight(request)` — Defensive preflight handler for edge cases where middleware is bypassed
+
+### Design Decisions:
+- Middleware scoped to `/api/*` only — avoids breaking page SSR/SSG
+- No CSP in this phase (could break Next.js internals and chart rendering)
+- HSTS conditional on `X-Forwarded-Proto` — only set behind HTTPS proxy
+- CORS allows non-matching origins through (browser blocks them; server-side requests lack Origin)
+- Wildcard CORS removed from next.config.ts to prevent double CORS header conflicts
+
+---
+
+## Task 10-13: Phase 5D Infrastructure — Health, Readiness & Rate Limit Abstraction
+
+**Date:** 2025
+**Task IDs:** 10, 11, 12, 13
+**Description:** Implement Phase 5D infrastructure: liveness probe, readiness probe, and rate-limit store abstraction with response headers.
+
+### Files Created/Modified (3 files):
+
+1. **`src/app/api/health/route.ts`** (Task 12 — new)
+   - GET /api/health — Liveness probe
+   - Returns 200 with `{ status: 'ok', timestamp, service }` if the process is alive
+   - Does NOT check external dependencies
+   - Cache-Control: no-store, no-cache
+
+2. **`src/app/api/ready/route.ts`** (Task 13 — new)
+   - GET /api/ready — Readiness probe
+   - Checks critical dependency: database via `db.$queryRaw\`SELECT 1\``
+   - Returns 200 with per-check latency if all healthy, 503 if any dependency fails
+   - Response includes `{ status, timestamp, service, checks: { database: { status, latencyMs, error? } } }`
+   - Cache-Control: no-store, no-cache
+
+3. **`src/lib/rate-limit.ts`** (Tasks 10-11 — rewrite)
+   - **RateLimitStore interface** — Pluggable store abstraction with `increment`, `get`, `cleanup` methods for future Redis replacement
+   - **MemoryStore class** — Current single-instance implementation (wraps existing logic with proper Map-based storage)
+   - **RateLimitResult** — Enhanced result type including `limit` and `headers` fields
+   - **Rate-limit response headers** — X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset (Unix seconds)
+   - **setRateLimitStore / getRateLimitStore** — Store replacement functions for multi-instance deployments
+   - **Periodic cleanup** — setInterval(60s) with `.unref()` to not block process exit
+   - **RateLimitError** — Enhanced with `resetAt` property and `retryAfter` getter
+   - **JSDoc documentation** — Multi-instance limitation clearly documented
+
+### Architecture Notes:
+- `/api/health` is a lightweight liveness check (no DB call) — suitable for container restart probes
+- `/api/ready` is a readiness check (with DB call) — suitable for traffic routing probes
+- Rate limit store is swappable via `setRateLimitStore()` — RedisStore can replace MemoryStore in Phase 5E+
+- Lint: no new errors introduced
+
+---
+
+## Phase 5D: Environment Validation & Structured Logging
+
+**Date:** 2025
+**Task IDs:** 2, 3, 8
+**Description:** Create centralized environment validation (env.ts) and structured logging (logger.ts) infrastructure.
+
+### Files Created:
+
+1. **`src/lib/env.ts`** — Centralized Environment Configuration
+   - Lazy-validated singleton via Proxy (validates on first access)
+   - Required vars: `DATABASE_URL`, `JWT_SECRET` (fail in production if missing)
+   - Optional vars with defaults: `NODE_ENV`, `DEFAULT_CURRENCY`, `PLATFORM_FEE_PERCENT`
+   - New vars: `APP_URL`, `CORS_ALLOWED_ORIGINS`
+   - Derived booleans: `isProduction`, `isDevelopment`, `isTest`
+   - Test mode: safe defaults for all vars
+   - Development mode: fallback values with console warnings
+   - `_resetEnv()` export for test cache busting
+
+2. **`src/lib/logger.ts`** — Structured Logger
+   - Four levels: `debug`, `info`, `warn`, `error`
+   - Debug suppressed in production
+   - Production: JSON output (log aggregation ready)
+   - Development: human-readable format (`timestamp [LEVEL] message | key=val`)
+   - Sensitive key redaction: passwords, tokens, secrets, JWTs, API keys, etc.
+   - Deep redaction for nested objects
+   - `withContext()` for child loggers (e.g., per-request context)
+   - **Bug fix applied:** Removed duplicate `isSensitiveKeyCheck` function; single `isSensitiveKey` using `SENSITIVE_PARTIAL_MATCHES`
+
+### Files Modified:
+
+3. **`.env.example`** — Added new environment variables
+   - `APP_URL` — Application URL for CORS/redirects
+   - `CORS_ALLOWED_ORIGINS` — Comma-separated allowed origins for production CORS
+
+### Lint: no new errors introduced (pre-existing server-keeper.js errors unrelated)
+
+---
+
+## Phase 5D Infrastructure: Error Handling, Database, Request Protection, HTTP Hardening, Production Config
+
+**Date:** 2025
+**Task IDs:** 9, 14, 15, 16, 17, 18
+**Description:** Production-readiness infrastructure improvements across error handling, database client, request protection, HTTP method hardening, and production config.
+
+### Task 1: Error Handling Improvements (Step 9) — `src/lib/errors.ts`
+
+- **`requestId` field** on `ApiError`: New optional `requestId?: string` property. Propagated in `toJSON()` output and `toResponse()`. `ApiError.fromZodError()` now accepts optional `requestId`.
+- **Prisma error detection**: Added `isPrismaError()` duck-type check (code starting with 'P'). No import of Prisma runtime internals.
+- **Prisma-specific handling in `handleApiError()`**:
+  - `P2021` (record not found) → 404 `NOT_FOUND`
+  - `P2025` (record not found on operation) → 404 `NOT_FOUND`
+  - `P2002` (unique constraint) → 409 `CONFLICT` with human-readable field names in dev, generic in prod
+  - Other Prisma errors → 500 sanitized
+- **Production sanitization**: Prisma `meta`, `clientVersion`, SQL, and stack traces never leak in production. Error messages replaced with `[sanitized]` in production logs.
+- **`requestId` propagation**: `handleApiError()` now accepts optional `requestId` parameter, included in all error responses when available.
+
+### Task 2: Database Production Readiness (Steps 14, 15) — `src/lib/db.ts`
+
+- **JSDoc header**: Documents singleton pattern, query logging behavior, production deployment flow (`prisma migrate deploy`, not `db:push`), and connection pooling defaults.
+- **`gracefulDisconnect()`**: New exported async function calling `db.$disconnect()`. Intended for SIGTERM/SIGINT handlers.
+- **No behavioral changes**: Existing singleton pattern and dev logging unchanged.
+
+### Task 3: Request-Size Protection (Step 16) — `src/middleware.ts`
+
+- **Documented body size limit**: Added JSDoc comment explaining Next.js's default 1MB body size limit on API routes and how to configure it per-route or globally.
+- **No code changes**: Next.js default is sufficient and well-documented.
+
+### Task 4: HTTP Method Hardening (Step 17) — Verified
+
+- **Next.js native 405 handling**: In App Router, only exported HTTP method handlers (GET, POST, PATCH, DELETE, PUT) are accepted. Unexported methods automatically return `405 Method Not Allowed`.
+- **Verified across routes**: `/api/events` exports GET+POST, `/api/events/[id]` exports GET+PATCH+DELETE, `/api/bookings` exports GET, `/api/auth` exports POST, `/api/venues` exports GET. All use explicit method exports.
+- **No code changes needed**: Next.js handles this natively and correctly.
+
+### Task 5: Production Config (Step 18) — `next.config.ts` Verified
+
+- **`output: "standalone"`** ✓ — Correct for containerized deployments
+- **`poweredByHeader: false`** ✓ — Removes X-Powered-By header
+- **`ignoreBuildErrors: true`** — Noted as deliberate trade-off (not changed)
+- **`reactStrictMode: true`** ✓ — Enabled
+- **No changes needed**.
+
+### Test Results
+- All 792 tests pass across 25 test files.
+- No new lint errors introduced (pre-existing `server-keeper.js` errors unrelated).
+
+
+## Task 21: Phase 5D — Security Regression Tests
+
+**Date:** 2026-09-30
+**Task ID:** 21
+**Description:** Create comprehensive test file at `src/__tests__/phase5d-infrastructure.test.ts` covering all Phase 5D infrastructure.
+
+### Changes Made:
+
+1. **Created `src/__tests__/phase5d-infrastructure.test.ts`** — 45 tests across 10 describe blocks:
+   - **1. Environment Validation** (5 tests): Safe defaults, boolean flags, numeric parsing, DEFAULT_CURRENCY=GHS, module exports
+   - **2. Security Headers** (6 tests): X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS conditional logic
+   - **3. CORS** (6 tests): Default origins, env configuration, origin validation accept/reject, preflight handling for allowed/disallowed origins
+   - **4. Request IDs** (4 tests): UUID format validation, uniqueness, valid/oversized request ID patterns
+   - **5. Rate Limiting** (7 tests): Under/over limit, rate limit headers, RateLimitError 429 status, retryAfter, MemoryStore interface, store replacement
+   - **6. Health Endpoint** (3 tests): 200 status, status:ok, timestamp+service
+   - **7. Readiness Endpoint** (3 tests): 200 when DB connected, database check details, 503 when DB unavailable
+   - **8. Error Handling** (5 tests): ApiError envelope, production sanitization, AuthError handling, ZodError handling, retryAfter getter
+   - **9. Structured Logger** (5 tests): info/error methods, debug suppression in production, sensitive key redaction, withContext child logger
+   - **10. API Error Envelope Consistency** (1 test): All error types follow `{ success: false, error: { code, message } }` format
+
+2. **Fixed CORS env test** — Used `delete process.env.CORS_ALLOWED_ORIGINS` instead of assigning `undefined` (which Node.js coerces to string `"undefined"`), preventing env var corruption across tests.
+
+### Test Results:
+- **45/45 tests passing** in `phase5d-infrastructure.test.ts`
+- **All existing tests still passing** (errors.test.ts, rate-limit.test.ts, api-error-structure.test.ts)
+
+### Key Design Decisions:
+- Mocked `@/lib/db` with `$queryRaw` fn for readiness endpoint tests
+- Mocked `@/lib/auth` to avoid heavy jose/token dependencies while preserving `instanceof` compatibility
+- Used `setRateLimitStore(new MemoryStore())` in `beforeEach` for rate limit test isolation
+- Used real `NextResponse` (not mocked) for health/ready endpoint tests to verify actual response bodies
+- Properly saved/restored `process.env.CORS_ALLOWED_ORIGINS` using `delete` for undefined values
+---
+Task ID: 5D-main
+Agent: Main
+Task: Phase 5D — Production Infrastructure & Operational Hardening
+
+Work Log:
+- Performed complete infrastructure audit (Step 1)
+- Created src/lib/env.ts — centralized environment validation with lazy Proxy singleton (Steps 2-3)
+- Created src/lib/logger.ts — structured logging with sensitive key redaction (Step 8)
+- Created src/middleware.ts — request ID, security headers, CORS (Steps 4-7)
+- Updated next.config.ts — removed wildcard CORS headers() function (Step 6)
+- Created src/lib/cors.ts — CORS utility module (Step 6)
+- Rewrote src/lib/rate-limit.ts — pluggable store architecture, response headers (Steps 10-11)
+- Created src/app/api/health/route.ts — liveness probe (Step 12)
+- Created src/app/api/ready/route.ts — readiness probe with DB check (Step 13)
+- Updated src/lib/errors.ts — Prisma error handling, requestId, logger integration (Step 9)
+- Updated src/lib/db.ts — gracefulDisconnect, production docs (Steps 14-15)
+- Updated .env with JWT_SECRET and new vars (Step 2)
+- Updated .env.example with all vars including future-phase reservations (Step 2)
+- Created src/__tests__/phase5d-infrastructure.test.ts — 45 tests (Step 21)
+- Created DEPLOYMENT.md — production deployment runbook (Step 25)
+- Fixed api-error-structure test for new RateLimitError details format
+- Verified: 837/837 tests pass, build succeeds, browser works
+- Verified: Security headers present on API responses (nosniff, DENY, Referrer-Policy, etc.)
+- Verified: CORS returns specific origin (not wildcard) for allowed origins
+- Verified: CORS returns no Access-Control headers for disallowed origins
+- Verified: X-Request-ID generated and returned on every API response
+- Verified: Health/ready endpoints return correct status codes
+
+Stage Summary:
+- Phase 5D infrastructure complete: env validation, middleware, security headers, CORS, request IDs, structured logging, rate limit abstraction, health/ready endpoints, error handling, deployment docs
+- 837 tests passing (792 existing + 45 new Phase 5D)
+- Build succeeds, browser verified
+- PostgreSQL migration still untested against live server (Phase 5C limitation persists)

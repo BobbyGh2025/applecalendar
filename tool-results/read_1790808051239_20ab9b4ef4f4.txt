@@ -801,3 +801,181 @@
    801→- Browser verified: admin dashboard shows "₵299.00", free events show "Free", API returns integer minor units
    802→- READY FOR PHASE 5D
    803→
+   804→## Task 5: Create PostgreSQL Baseline Migration
+   805→
+   806→**Date:** 2025
+   807→**Task ID:** 5
+   808→**Description:** Convert the SQLite-specific baseline migration (`prisma/migrations/0_baseline/migration.sql`) to PostgreSQL-compatible SQL so that `prisma migrate deploy` works correctly against a PostgreSQL production database.
+   809→
+   810→### Rationale:
+   811→- The baseline migration was generated with `provider = "sqlite"` and contained SQLite-specific SQL
+   812→- Development uses `db:push` (which doesn't use migrations), so the migration directory is exclusively for production deployment
+   813→- Production uses PostgreSQL, so migrations must be PostgreSQL-compatible
+   814→- This is standard Prisma workflow: migrations target the production database provider
+   815→
+   816→### Transformations Applied (765-line file):
+   817→
+   818→| SQLite Type/Clause | PostgreSQL Equivalent | Count |
+   819→|---|---|---|
+   820→| `DATETIME` | `TIMESTAMP(3)` | 74 replacements |
+   821→| `REAL` | `DOUBLE PRECISION` | 4 replacements |
+   822→| `ON UPDATE CASCADE` | *(removed)* | 39 removals |
+   823→
+   824→**No-change types** (already PostgreSQL-compatible):
+   825→- `BOOLEAN` → `BOOLEAN` (native PostgreSQL support)
+   826→- `INTEGER` → `INTEGER` (same)
+   827→- `TEXT` → `TEXT` (same)
+   828→- `PRIMARY KEY` → `PRIMARY KEY` (same)
+   829→
+   830→### Verification Results:
+   831→- ✅ No `DATETIME` remains
+   832→- ✅ No standalone `REAL` remains (only in `DOUBLE PRECISION`)
+   833→- ✅ No `ON UPDATE` clauses remain (PostgreSQL defaults to NO ACTION)
+   834→- ✅ 74 `TIMESTAMP(3)` columns (matches original 74 `DATETIME`)
+   835→- ✅ 4 `DOUBLE PRECISION` columns (matches original 4 `REAL`)
+   836→- ✅ Geographic columns (`venueLat`, `venueLng`, `lat`, `lng`) → `DOUBLE PRECISION`
+   837→- ✅ Monetary columns (`price`, `totalAmount`, `amount`, `refundedAmount`, `revenue`) → `INTEGER` (cents)
+   838→- ✅ All `ON DELETE` clauses preserved correctly (CASCADE, RESTRICT, SET NULL)
+   839→
+   840→### Files Modified:
+   841→- `prisma/migrations/0_baseline/migration.sql` — Replaced SQLite SQL with PostgreSQL-compatible SQL
+   842→
+   843→---
+   844→Task ID: 5C-closure
+   845→Agent: Main
+   846→Task: Phase 5C PostgreSQL/Migration Closure Verification
+   847→
+   848→Work Log:
+   849→- Read and analyzed prisma/schema.prisma, .env, package.json, migrations, seed.ts
+   850→- Determined PostgreSQL is NOT available in sandbox (no psql, no pg_isready, no systemd service)
+   851→- Discovered 0_baseline/migration.sql was SQLite-specific (74× DATETIME, 4× REAL, 39× ON UPDATE CASCADE)
+   852→- Created PostgreSQL-compatible baseline migration: DATETIME→TIMESTAMP(3), REAL→DOUBLE PRECISION, removed ON UPDATE CASCADE
+   853→- Verified money constraint migration SQL is valid PostgreSQL
+   854→- Re-seeded SQLite database — seed completed successfully
+   855→- Ran full test suite — 792/792 tests pass
+   856→- Ran production build — compiles successfully
+   857→- Verified seed data monetary values are all integer minor units
+   858→- Verified geographic Float fields remain proper floats (lat/lng)
+   859→- Verified currency display: SubscriptionPlans=GHS, Events/Tickets=USD (intentional)
+   860→- Fixed currency display bug in public-discover.tsx (was using DEFAULT_CURRENCY instead of event.currency)
+   861→- Browser verified: prices now display correctly ($199.00, $15.00, etc.) with proper currency symbol
+   862→- Final repository search: No Phase 5C monetary defects found; all Float/parseFloat/toFixed/*100//100 occurrences classified as legitimate
+   863→- Lint: 2 pre-existing errors in server-keeper.js (not Phase 5C related)
+   864→
+   865→Stage Summary:
+   866→- PostgreSQL NOT available in sandbox — execution verification unavailable
+   867→- Baseline migration converted from SQLite to PostgreSQL-compatible SQL
+   868→- Migration directory now targets PostgreSQL production deployment
+   869→- SQLite development continues via db:push (bypasses migrations)
+   870→- Currency display fix: public-discover.tsx now uses event.currency instead of hardcoded GHS
+   871→- Provider strategy: Option B — SQLite for dev, PostgreSQL for production
+   872→- 792/792 tests pass, build succeeds, browser verified
+   873→
+   874→---
+   875→
+   876→## Tasks 4–7: Phase 5D Infrastructure — Middleware, CORS, Security Headers, Request ID
+   877→
+   878→**Date:** 2025
+   879→**Task IDs:** 4, 5, 6, 7
+   880→**Description:** Implement Phase 5D cross-cutting infrastructure: Next.js middleware with request ID generation, security headers, and origin-based CORS; remove wildcard CORS from next.config.ts; add CORS utility module for API routes.
+   881→
+   882→### Files Created/Modified (3):
+   883→
+   884→1. **`src/middleware.ts`** — NEW — Next.js middleware (API routes only via `matcher: '/api/:path*'`)
+   885→   - **Request ID (Step 7):** Validates incoming `X-Request-ID` (1-64 chars, alphanumeric/dash/dot); generates `crypto.randomUUID()` if missing/invalid; sets on response header
+   886→   - **Security Headers (Step 5):** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Strict-Transport-Security` (only when `X-Forwarded-Proto: https`)
+   887→   - **CORS (Step 6):** Origin-based allowlist (dev: `http://localhost:3000`; prod: `CORS_ALLOWED_ORIGINS` env var); sets `Access-Control-Allow-Origin` to specific matching origin (never wildcard); `Allow-Credentials: true`; full preflight handling (OPTIONS → 204); `Max-Age: 86400`
+   888→   - **Scope:** Only runs on `/api/*` routes; does NOT handle auth or rate limiting (those stay in API routes)
+   889→
+   890→2. **`next.config.ts`** — MODIFIED — Removed `headers()` function that set wildcard CORS (`Access-Control-Allow-Origin: *`). Middleware now handles CORS properly with origin-based allowlist.
+   891→
+   892→3. **`src/lib/cors.ts`** — NEW — CORS utility module for API routes
+   893→   - `getAllowedOrigins()` — Reads `CORS_ALLOWED_ORIGINS` env var, defaults to `['http://localhost:3000']`
+   894→   - `isOriginAllowed(origin)` — Checks origin against allowlist
+   895→   - `handlePreflight(request)` — Defensive preflight handler for edge cases where middleware is bypassed
+   896→
+   897→### Design Decisions:
+   898→- Middleware scoped to `/api/*` only — avoids breaking page SSR/SSG
+   899→- No CSP in this phase (could break Next.js internals and chart rendering)
+   900→- HSTS conditional on `X-Forwarded-Proto` — only set behind HTTPS proxy
+   901→- CORS allows non-matching origins through (browser blocks them; server-side requests lack Origin)
+   902→- Wildcard CORS removed from next.config.ts to prevent double CORS header conflicts
+   903→
+   904→---
+   905→
+   906→## Task 10-13: Phase 5D Infrastructure — Health, Readiness & Rate Limit Abstraction
+   907→
+   908→**Date:** 2025
+   909→**Task IDs:** 10, 11, 12, 13
+   910→**Description:** Implement Phase 5D infrastructure: liveness probe, readiness probe, and rate-limit store abstraction with response headers.
+   911→
+   912→### Files Created/Modified (3 files):
+   913→
+   914→1. **`src/app/api/health/route.ts`** (Task 12 — new)
+   915→   - GET /api/health — Liveness probe
+   916→   - Returns 200 with `{ status: 'ok', timestamp, service }` if the process is alive
+   917→   - Does NOT check external dependencies
+   918→   - Cache-Control: no-store, no-cache
+   919→
+   920→2. **`src/app/api/ready/route.ts`** (Task 13 — new)
+   921→   - GET /api/ready — Readiness probe
+   922→   - Checks critical dependency: database via `db.$queryRaw\`SELECT 1\``
+   923→   - Returns 200 with per-check latency if all healthy, 503 if any dependency fails
+   924→   - Response includes `{ status, timestamp, service, checks: { database: { status, latencyMs, error? } } }`
+   925→   - Cache-Control: no-store, no-cache
+   926→
+   927→3. **`src/lib/rate-limit.ts`** (Tasks 10-11 — rewrite)
+   928→   - **RateLimitStore interface** — Pluggable store abstraction with `increment`, `get`, `cleanup` methods for future Redis replacement
+   929→   - **MemoryStore class** — Current single-instance implementation (wraps existing logic with proper Map-based storage)
+   930→   - **RateLimitResult** — Enhanced result type including `limit` and `headers` fields
+   931→   - **Rate-limit response headers** — X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset (Unix seconds)
+   932→   - **setRateLimitStore / getRateLimitStore** — Store replacement functions for multi-instance deployments
+   933→   - **Periodic cleanup** — setInterval(60s) with `.unref()` to not block process exit
+   934→   - **RateLimitError** — Enhanced with `resetAt` property and `retryAfter` getter
+   935→   - **JSDoc documentation** — Multi-instance limitation clearly documented
+   936→
+   937→### Architecture Notes:
+   938→- `/api/health` is a lightweight liveness check (no DB call) — suitable for container restart probes
+   939→- `/api/ready` is a readiness check (with DB call) — suitable for traffic routing probes
+   940→- Rate limit store is swappable via `setRateLimitStore()` — RedisStore can replace MemoryStore in Phase 5E+
+   941→- Lint: no new errors introduced
+   942→
+   943→---
+   944→
+   945→## Phase 5D: Environment Validation & Structured Logging
+   946→
+   947→**Date:** 2025
+   948→**Task IDs:** 2, 3, 8
+   949→**Description:** Create centralized environment validation (env.ts) and structured logging (logger.ts) infrastructure.
+   950→
+   951→### Files Created:
+   952→
+   953→1. **`src/lib/env.ts`** — Centralized Environment Configuration
+   954→   - Lazy-validated singleton via Proxy (validates on first access)
+   955→   - Required vars: `DATABASE_URL`, `JWT_SECRET` (fail in production if missing)
+   956→   - Optional vars with defaults: `NODE_ENV`, `DEFAULT_CURRENCY`, `PLATFORM_FEE_PERCENT`
+   957→   - New vars: `APP_URL`, `CORS_ALLOWED_ORIGINS`
+   958→   - Derived booleans: `isProduction`, `isDevelopment`, `isTest`
+   959→   - Test mode: safe defaults for all vars
+   960→   - Development mode: fallback values with console warnings
+   961→   - `_resetEnv()` export for test cache busting
+   962→
+   963→2. **`src/lib/logger.ts`** — Structured Logger
+   964→   - Four levels: `debug`, `info`, `warn`, `error`
+   965→   - Debug suppressed in production
+   966→   - Production: JSON output (log aggregation ready)
+   967→   - Development: human-readable format (`timestamp [LEVEL] message | key=val`)
+   968→   - Sensitive key redaction: passwords, tokens, secrets, JWTs, API keys, etc.
+   969→   - Deep redaction for nested objects
+   970→   - `withContext()` for child loggers (e.g., per-request context)
+   971→   - **Bug fix applied:** Removed duplicate `isSensitiveKeyCheck` function; single `isSensitiveKey` using `SENSITIVE_PARTIAL_MATCHES`
+   972→
+   973→### Files Modified:
+   974→
+   975→3. **`.env.example`** — Added new environment variables
+   976→   - `APP_URL` — Application URL for CORS/redirects
+   977→   - `CORS_ALLOWED_ORIGINS` — Comma-separated allowed origins for production CORS
+   978→
+   979→### Lint: no new errors introduced (pre-existing server-keeper.js errors unrelated)
+   980→
+   981→

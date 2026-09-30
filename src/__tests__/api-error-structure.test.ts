@@ -100,7 +100,7 @@ describe('Standardized API error structure', () => {
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('RATE_LIMITED');
     expect(body.error.message).toBe('Too many requests. Please try again later.');
-    expect(body.error.details).toEqual({ remaining: 0, resetAt: expect.any(Number) });
+    expect(body.error.details).toEqual({ remaining: 0, retryAfter: expect.any(Number) });
   });
 
   it('Zod VALIDATION_ERROR has status 422 and details array', () => {

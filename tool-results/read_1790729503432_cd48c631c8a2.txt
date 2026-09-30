@@ -1,0 +1,766 @@
+     1→     1→-- CreateTable
+     2→     2→CREATE TABLE "User" (
+     3→     3→    "id" TEXT NOT NULL PRIMARY KEY,
+     4→     4→    "email" TEXT NOT NULL,
+     5→     5→    "password" TEXT NOT NULL,
+     6→     6→    "name" TEXT NOT NULL,
+     7→     7→    "avatar" TEXT,
+     8→     8→    "phone" TEXT,
+     9→     9→    "bio" TEXT,
+    10→    10→    "role" TEXT NOT NULL DEFAULT 'PUBLIC',
+    11→    11→    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    12→    12→    "emailVerified" DATETIME,
+    13→    13→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    14→    14→    "updatedAt" DATETIME NOT NULL
+    15→    15→);
+    16→    16→
+    17→    17→-- CreateTable
+    18→    18→CREATE TABLE "StaffAssignment" (
+    19→    19→    "id" TEXT NOT NULL PRIMARY KEY,
+    20→    20→    "userId" TEXT NOT NULL,
+    21→    21→    "eventId" TEXT NOT NULL,
+    22→    22→    "role" TEXT NOT NULL DEFAULT 'CHECKIN',
+    23→    23→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    24→    24→    CONSTRAINT "StaffAssignment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    25→    25→    CONSTRAINT "StaffAssignment_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    26→    26→);
+    27→    27→
+    28→    28→-- CreateTable
+    29→    29→CREATE TABLE "Category" (
+    30→    30→    "id" TEXT NOT NULL PRIMARY KEY,
+    31→    31→    "name" TEXT NOT NULL,
+    32→    32→    "slug" TEXT NOT NULL,
+    33→    33→    "icon" TEXT,
+    34→    34→    "color" TEXT NOT NULL DEFAULT '#6366f1',
+    35→    35→    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    36→    36→    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    37→    37→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    38→    38→    "updatedAt" DATETIME NOT NULL
+    39→    39→);
+    40→    40→
+    41→    41→-- CreateTable
+    42→    42→CREATE TABLE "Tag" (
+    43→    43→    "id" TEXT NOT NULL PRIMARY KEY,
+    44→    44→    "name" TEXT NOT NULL,
+    45→    45→    "slug" TEXT NOT NULL,
+    46→    46→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    47→    47→);
+    48→    48→
+    49→    49→-- CreateTable
+    50→    50→CREATE TABLE "SubscriptionPlan" (
+    51→    51→    "id" TEXT NOT NULL PRIMARY KEY,
+    52→    52→    "name" TEXT NOT NULL,
+    53→    53→    "slug" TEXT NOT NULL,
+    54→    54→    "description" TEXT,
+    55→    55→    "price" INTEGER NOT NULL DEFAULT 0,
+    56→    56→    "interval" TEXT NOT NULL DEFAULT 'MONTHLY',
+    57→    57→    "currency" TEXT NOT NULL DEFAULT 'GHS',
+    58→    58→    "maxEvents" INTEGER NOT NULL DEFAULT 5,
+    59→    59→    "maxTicketsPerEvent" INTEGER NOT NULL DEFAULT 100,
+    60→    60→    "maxTicketTypesPerEvent" INTEGER NOT NULL DEFAULT 3,
+    61→    61→    "maxStaff" INTEGER NOT NULL DEFAULT 1,
+    62→    62→    "maxMediaPerEvent" INTEGER NOT NULL DEFAULT 3,
+    63→    63→    "maxAttendeesTotal" INTEGER NOT NULL DEFAULT 500,
+    64→    64→    "canAdvertise" BOOLEAN NOT NULL DEFAULT false,
+    65→    65→    "canCustomBranding" BOOLEAN NOT NULL DEFAULT false,
+    66→    66→    "canApiAccess" BOOLEAN NOT NULL DEFAULT false,
+    67→    67→    "analyticsLevel" TEXT NOT NULL DEFAULT 'BASIC',
+    68→    68→    "trialDays" INTEGER NOT NULL DEFAULT 0,
+    69→    69→    "features" TEXT NOT NULL DEFAULT '[]',
+    70→    70→    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    71→    71→    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    72→    72→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    73→    73→    "updatedAt" DATETIME NOT NULL
+    74→    74→);
+    75→    75→
+    76→    76→-- CreateTable
+    77→    77→CREATE TABLE "Subscription" (
+    78→    78→    "id" TEXT NOT NULL PRIMARY KEY,
+    79→    79→    "userId" TEXT NOT NULL,
+    80→    80→    "planId" TEXT NOT NULL,
+    81→    81→    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    82→    82→    "startDate" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    83→    83→    "endDate" DATETIME,
+    84→    84→    "autoRenew" BOOLEAN NOT NULL DEFAULT true,
+    85→    85→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    86→    86→    "updatedAt" DATETIME NOT NULL,
+    87→    87→    CONSTRAINT "Subscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    88→    88→    CONSTRAINT "Subscription_planId_fkey" FOREIGN KEY ("planId") REFERENCES "SubscriptionPlan" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    89→    89→);
+    90→    90→
+    91→    91→-- CreateTable
+    92→    92→CREATE TABLE "OrganizerSubscription" (
+    93→    93→    "id" TEXT NOT NULL PRIMARY KEY,
+    94→    94→    "organizerId" TEXT NOT NULL,
+    95→    95→    "planId" TEXT NOT NULL,
+    96→    96→    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    97→    97→    "startDate" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    98→    98→    "endDate" DATETIME,
+    99→    99→    "trialStart" DATETIME,
+   100→   100→    "trialEnd" DATETIME,
+   101→   101→    "isInTrial" BOOLEAN NOT NULL DEFAULT false,
+   102→   102→    "autoRenew" BOOLEAN NOT NULL DEFAULT true,
+   103→   103→    "cancelledAt" DATETIME,
+   104→   104→    "cancelReason" TEXT,
+   105→   105→    "billingProvider" TEXT NOT NULL DEFAULT 'MANUAL',
+   106→   106→    "billingProviderRef" TEXT,
+   107→   107→    "billingCustomerId" TEXT,
+   108→   108→    "paymentStatus" TEXT NOT NULL DEFAULT 'CURRENT',
+   109→   109→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   110→   110→    "updatedAt" DATETIME NOT NULL,
+   111→   111→    CONSTRAINT "OrganizerSubscription_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+   112→   112→    CONSTRAINT "OrganizerSubscription_planId_fkey" FOREIGN KEY ("planId") REFERENCES "SubscriptionPlan" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+   113→   113→);
+   114→   114→
+   115→   115→-- CreateTable
+   116→   116→CREATE TABLE "Event" (
+   117→   117→    "id" TEXT NOT NULL PRIMARY KEY,
+   118→   118→    "title" TEXT NOT NULL,
+   119→   119→    "slug" TEXT NOT NULL,
+   120→   120→    "description" TEXT NOT NULL,
+   121→   121→    "shortDescription" TEXT,
+   122→   122→    "coverImage" TEXT,
+   123→   123→    "startDate" DATETIME NOT NULL,
+   124→   124→    "endDate" DATETIME,
+   125→   125→    "startTime" TEXT,
+   126→   126→    "endTime" TEXT,
+   127→   127→    "timezone" TEXT NOT NULL DEFAULT 'UTC',
+   128→   128→    "venueName" TEXT,
+   129→   129→    "venueAddress" TEXT,
+   130→   130→    "venueCity" TEXT,
+   131→   131→    "venueState" TEXT,
+   132→   132→    "venueCountry" TEXT NOT NULL DEFAULT 'GH',
+   133→   133→    "venueLat" REAL,
+   134→   134→    "venueLng" REAL,
+   135→   135→    "isVirtual" BOOLEAN NOT NULL DEFAULT false,
+   136→   136→    "virtualUrl" TEXT,
+   137→   137→    "capacity" INTEGER,
+   138→   138→    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+   139→   139→    "isFeatured" BOOLEAN NOT NULL DEFAULT false,
+   140→   140→    "isPaid" BOOLEAN NOT NULL DEFAULT false,
+   141→   141→    "currency" TEXT NOT NULL DEFAULT 'GHS',
+   142→   142→    "organizerId" TEXT NOT NULL,
+   143→   143→    "categoryId" TEXT,
+   144→   144→    "venueId" TEXT,
+   145→   145→    "contactEmail" TEXT,
+   146→   146→    "contactPhone" TEXT,
+   147→   147→    "ageRestriction" TEXT,
+   148→   148→    "visibility" TEXT NOT NULL DEFAULT 'PUBLIC',
+   149→   149→    "rejectionReason" TEXT,
+   150→   150→    "moderatedBy" TEXT,
+   151→   151→    "moderatedAt" DATETIME,
+   152→   152→    "isBookable" BOOLEAN NOT NULL DEFAULT true,
+   153→   153→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   154→   154→    "updatedAt" DATETIME NOT NULL,
+   155→   155→    CONSTRAINT "Event_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+   156→   156→    CONSTRAINT "Event_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+   157→   157→    CONSTRAINT "Event_venueId_fkey" FOREIGN KEY ("venueId") REFERENCES "Venue" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+   158→   158→);
+   159→   159→
+   160→   160→-- CreateTable
+   161→   161→CREATE TABLE "EventTag" (
+   162→   162→    "id" TEXT NOT NULL PRIMARY KEY,
+   163→   163→    "eventId" TEXT NOT NULL,
+   164→   164→    "tagId" TEXT NOT NULL,
+   165→   165→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   166→   166→    CONSTRAINT "EventTag_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+   167→   167→    CONSTRAINT "EventTag_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "Tag" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   168→   168→);
+   169→   169→
+   170→   170→-- CreateTable
+   171→   171→CREATE TABLE "EventSession" (
+   172→   172→    "id" TEXT NOT NULL PRIMARY KEY,
+   173→   173→    "eventId" TEXT NOT NULL,
+   174→   174→    "title" TEXT NOT NULL,
+   175→   175→    "description" TEXT,
+   176→   176→    "startTime" TEXT NOT NULL,
+   177→   177→    "endTime" TEXT NOT NULL,
+   178→   178→    "date" DATETIME,
+   179→   179→    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+   180→   180→    "venueId" TEXT,
+   181→   181→    "venueName" TEXT,
+   182→   182→    "participantId" TEXT,
+   183→   183→    "sessionType" TEXT NOT NULL DEFAULT 'SESSION',
+   184→   184→    "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
+   185→   185→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   186→   186→    "updatedAt" DATETIME NOT NULL,
+   187→   187→    CONSTRAINT "EventSession_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+   188→   188→    CONSTRAINT "EventSession_venueId_fkey" FOREIGN KEY ("venueId") REFERENCES "Venue" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+   189→   189→    CONSTRAINT "EventSession_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "EventParticipant" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+   190→   190→);
+   191→   191→
+   192→   192→-- CreateTable
+   193→   193→CREATE TABLE "EventParticipant" (
+   194→   194→    "id" TEXT NOT NULL PRIMARY KEY,
+   195→   195→    "eventId" TEXT NOT NULL,
+   196→   196→    "name" TEXT NOT NULL,
+   197→   197→    "bio" TEXT,
+   198→   198→    "image" TEXT,
+   199→   199→    "role" TEXT NOT NULL DEFAULT 'SPEAKER',
+   200→   200→    "title" TEXT,
+   201→   201→    "organization" TEXT,
+   202→   202→    "socialLinks" TEXT,
+   203→   203→    "email" TEXT,
+   204→   204→    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+   205→   205→    "isFeatured" BOOLEAN NOT NULL DEFAULT false,
+   206→   206→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   207→   207→    "updatedAt" DATETIME NOT NULL,
+   208→   208→    CONSTRAINT "EventParticipant_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   209→   209→);
+   210→   210→
+   211→   211→-- CreateTable
+   212→   212→CREATE TABLE "EventMedia" (
+   213→   213→    "id" TEXT NOT NULL PRIMARY KEY,
+   214→   214→    "eventId" TEXT NOT NULL,
+   215→   215→    "url" TEXT NOT NULL,
+   216→   216→    "type" TEXT NOT NULL,
+   217→   217→    "category" TEXT NOT NULL DEFAULT 'GALLERY',
+   218→   218→    "caption" TEXT,
+   219→   219→    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+   220→   220→    "fileSize" INTEGER,
+   221→   221→    "mimeType" TEXT,
+   222→   222→    "uploadedBy" TEXT NOT NULL,
+   223→   223→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   224→   224→    "updatedAt" DATETIME NOT NULL,
+   225→   225→    CONSTRAINT "EventMedia_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+   226→   226→    CONSTRAINT "EventMedia_uploadedBy_fkey" FOREIGN KEY ("uploadedBy") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+   227→   227→);
+   228→   228→
+   229→   229→-- CreateTable
+   230→   230→CREATE TABLE "Venue" (
+   231→   231→    "id" TEXT NOT NULL PRIMARY KEY,
+   232→   232→    "name" TEXT NOT NULL,
+   233→   233→    "slug" TEXT NOT NULL,
+   234→   234→    "description" TEXT,
+   235→   235→    "address" TEXT NOT NULL,
+   236→   236→    "city" TEXT NOT NULL,
+   237→   237→    "state" TEXT,
+   238→   238→    "country" TEXT NOT NULL DEFAULT 'GH',
+   239→   239→    "postalCode" TEXT,
+   240→   240→    "lat" REAL,
+   241→   241→    "lng" REAL,
+   242→   242→    "googleMapsUrl" TEXT,
+   243→   243→    "coverImage" TEXT,
+   244→   244→    "capacity" INTEGER,
+   245→   245→    "amenities" TEXT,
+   246→   246→    "contactName" TEXT,
+   247→   247→    "contactEmail" TEXT,
+   248→   248→    "contactPhone" TEXT,
+   249→   249→    "website" TEXT,
+   250→   250→    "organizerId" TEXT,
+   251→   251→    "isPublic" BOOLEAN NOT NULL DEFAULT true,
+   252→   252→    "isActive" BOOLEAN NOT NULL DEFAULT true,
+   253→   253→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   254→   254→    "updatedAt" DATETIME NOT NULL,
+   255→   255→    CONSTRAINT "Venue_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+   256→   256→);
+   257→   257→
+   258→   258→-- CreateTable
+   259→   259→CREATE TABLE "TicketType" (
+   260→   260→    "id" TEXT NOT NULL PRIMARY KEY,
+   261→   261→    "eventId" TEXT NOT NULL,
+   262→   262→    "name" TEXT NOT NULL,
+   263→   263→    "description" TEXT,
+   264→   264→    "price" INTEGER NOT NULL DEFAULT 0,
+   265→   265→    "currency" TEXT NOT NULL DEFAULT 'GHS',
+   266→   266→    "quantity" INTEGER NOT NULL,
+   267→   267→    "soldCount" INTEGER NOT NULL DEFAULT 0,
+   268→   268→    "minPerOrder" INTEGER NOT NULL DEFAULT 1,
+   269→   269→    "maxPerOrder" INTEGER NOT NULL DEFAULT 10,
+   270→   270→    "saleStart" DATETIME,
+   271→   271→    "saleEnd" DATETIME,
+   272→   272→    "isActive" BOOLEAN NOT NULL DEFAULT true,
+   273→   273→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   274→   274→    "updatedAt" DATETIME NOT NULL,
+   275→   275→    CONSTRAINT "TicketType_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   276→   276→);
+   277→   277→
+   278→   278→-- CreateTable
+   279→   279→CREATE TABLE "Ticket" (
+   280→   280→    "id" TEXT NOT NULL PRIMARY KEY,
+   281→   281→    "ticketTypeId" TEXT NOT NULL,
+   282→   282→    "bookingId" TEXT NOT NULL,
+   283→   283→    "qrCode" TEXT NOT NULL,
+   284→   284→    "status" TEXT NOT NULL DEFAULT 'VALID',
+   285→   285→    "checkedInAt" DATETIME,
+   286→   286→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   287→   287→    "updatedAt" DATETIME NOT NULL,
+   288→   288→    CONSTRAINT "Ticket_ticketTypeId_fkey" FOREIGN KEY ("ticketTypeId") REFERENCES "TicketType" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+   289→   289→    CONSTRAINT "Ticket_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+   290→   290→);
+   291→   291→
+   292→   292→-- CreateTable
+   293→   293→CREATE TABLE "Booking" (
+   294→   294→    "id" TEXT NOT NULL PRIMARY KEY,
+   295→   295→    "userId" TEXT NOT NULL,
+   296→   296→    "eventId" TEXT NOT NULL,
+   297→   297→    "totalAmount" INTEGER NOT NULL DEFAULT 0,
+   298→   298→    "currency" TEXT NOT NULL DEFAULT 'GHS',
+   299→   299→    "status" TEXT NOT NULL DEFAULT 'PENDING',
+   300→   300→    "bookingRef" TEXT NOT NULL,
+   301→   301→    "cancellationReason" TEXT,
+   302→   302→    "cancelledBy" TEXT,
+   303→   303→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   304→   304→    "updatedAt" DATETIME NOT NULL,
+   305→   305→    CONSTRAINT "Booking_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+   306→   306→    CONSTRAINT "Booking_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+   307→   307→);
+   308→   308→
+   309→   309→-- CreateTable
+   310→   310→CREATE TABLE "Payment" (
+   311→   311→    "id" TEXT NOT NULL PRIMARY KEY,
+   312→   312→    "bookingId" TEXT NOT NULL,
+   313→   313→    "userId" TEXT NOT NULL,
+   314→   314→    "amount" INTEGER NOT NULL,
+   315→   315→    "currency" TEXT NOT NULL DEFAULT 'GHS',
+   316→   316→    "method" TEXT NOT NULL DEFAULT 'STRIPE',
+   317→   317→    "status" TEXT NOT NULL DEFAULT 'PENDING',
+   318→   318→    "transactionId" TEXT,
+   319→   319→    "providerRef" TEXT,
+   320→   320→    "providerCustomerId" TEXT,
+   321→   321→    "webhookEventId" TEXT,
+   322→   322→    "idempotencyKey" TEXT,
+   323→   323→    "failureReason" TEXT,
+   324→   324→    "refundedAmount" INTEGER NOT NULL DEFAULT 0,
+   325→   325→    "refundRef" TEXT,
+   326→   326→    "metadata" TEXT,
+   327→   327→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   328→   328→    "updatedAt" DATETIME NOT NULL,
+   329→   329→    CONSTRAINT "Payment_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+   330→   330→    CONSTRAINT "Payment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+   331→   331→);
+   332→   332→
+   333→   333→-- CreateTable
+   334→   334→CREATE TABLE "Review" (
+   335→   335→    "id" TEXT NOT NULL PRIMARY KEY,
+   336→   336→    "userId" TEXT NOT NULL,
+   337→   337→    "eventId" TEXT NOT NULL,
+   338→   338→    "rating" INTEGER NOT NULL,
+   339→   339→    "comment" TEXT,
+   340→   340→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   341→   341→    "updatedAt" DATETIME NOT NULL,
+   342→   342→    CONSTRAINT "Review_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+   343→   343→    CONSTRAINT "Review_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   344→   344→);
+   345→   345→
+   346→   346→-- CreateTable
+   347→   347→CREATE TABLE "Notification" (
+   348→   348→    "id" TEXT NOT NULL PRIMARY KEY,
+   349→   349→    "userId" TEXT NOT NULL,
+   350→   350→    "title" TEXT NOT NULL,
+   351→   351→    "message" TEXT NOT NULL,
+   352→   352→    "type" TEXT NOT NULL DEFAULT 'INFO',
+   353→   353→    "isRead" BOOLEAN NOT NULL DEFAULT false,
+   354→   354→    "link" TEXT,
+   355→   355→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   356→   356→    CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   357→   357→);
+   358→   358→
+   359→   359→-- CreateTable
+   360→   360→CREATE TABLE "Advertisement" (
+   361→   361→    "id" TEXT NOT NULL PRIMARY KEY,
+   362→   362→    "title" TEXT NOT NULL,
+   363→   363→    "imageUrl" TEXT,
+   364→   364→    "linkUrl" TEXT,
+   365→   365→    "position" TEXT NOT NULL DEFAULT 'SIDEBAR',
+   366→   366→    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+   367→   367→    "impressions" INTEGER NOT NULL DEFAULT 0,
+   368→   368→    "clicks" INTEGER NOT NULL DEFAULT 0,
+   369→   369→    "startDate" DATETIME,
+   370→   370→    "endDate" DATETIME,
+   371→   371→    "eventId" TEXT,
+   372→   372→    "advertiserId" TEXT,
+   373→   373→    "organizerId" TEXT,
+   374→   374→    "approvalStatus" TEXT NOT NULL DEFAULT 'PENDING',
+   375→   375→    "reviewedBy" TEXT,
+   376→   376→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   377→   377→    "updatedAt" DATETIME NOT NULL,
+   378→   378→    CONSTRAINT "Advertisement_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+   379→   379→    CONSTRAINT "Advertisement_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+   380→   380→);
+   381→   381→
+   382→   382→-- CreateTable
+   383→   383→CREATE TABLE "EventAnalytics" (
+   384→   384→    "id" TEXT NOT NULL PRIMARY KEY,
+   385→   385→    "eventId" TEXT NOT NULL,
+   386→   386→    "date" TEXT NOT NULL,
+   387→   387→    "views" INTEGER NOT NULL DEFAULT 0,
+   388→   388→    "clicks" INTEGER NOT NULL DEFAULT 0,
+   389→   389→    "bookings" INTEGER NOT NULL DEFAULT 0,
+   390→   390→    "revenue" INTEGER NOT NULL DEFAULT 0,
+   391→   391→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   392→   392→    CONSTRAINT "EventAnalytics_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   393→   393→);
+   394→   394→
+   395→   395→-- CreateTable
+   396→   396→CREATE TABLE "SystemSetting" (
+   397→   397→    "id" TEXT NOT NULL PRIMARY KEY,
+   398→   398→    "key" TEXT NOT NULL,
+   399→   399→    "value" TEXT NOT NULL,
+   400→   400→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   401→   401→    "updatedAt" DATETIME NOT NULL
+   402→   402→);
+   403→   403→
+   404→   404→-- CreateTable
+   405→   405→CREATE TABLE "OrganizerProfile" (
+   406→   406→    "id" TEXT NOT NULL PRIMARY KEY,
+   407→   407→    "userId" TEXT NOT NULL,
+   408→   408→    "organizationName" TEXT NOT NULL,
+   409→   409→    "slug" TEXT NOT NULL,
+   410→   410→    "description" TEXT,
+   411→   411→    "logo" TEXT,
+   412→   412→    "coverImage" TEXT,
+   413→   413→    "website" TEXT,
+   414→   414→    "contactEmail" TEXT,
+   415→   415→    "phone" TEXT,
+   416→   416→    "address" TEXT,
+   417→   417→    "city" TEXT,
+   418→   418→    "state" TEXT,
+   419→   419→    "country" TEXT,
+   420→   420→    "socialLinks" TEXT,
+   421→   421→    "isVerified" BOOLEAN NOT NULL DEFAULT false,
+   422→   422→    "approvalStatus" TEXT NOT NULL DEFAULT 'PENDING',
+   423→   423→    "status" TEXT NOT NULL DEFAULT 'PENDING_APPROVAL',
+   424→   424→    "statusReason" TEXT,
+   425→   425→    "statusChangedBy" TEXT,
+   426→   426→    "statusChangedAt" DATETIME,
+   427→   427→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   428→   428→    "updatedAt" DATETIME NOT NULL,
+   429→   429→    CONSTRAINT "OrganizerProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   430→   430→);
+   431→   431→
+   432→   432→-- CreateTable
+   433→   433→CREATE TABLE "OrganizerMembership" (
+   434→   434→    "id" TEXT NOT NULL PRIMARY KEY,
+   435→   435→    "organizerId" TEXT NOT NULL,
+   436→   436→    "userId" TEXT NOT NULL,
+   437→   437→    "role" TEXT NOT NULL DEFAULT 'STAFF',
+   438→   438→    "permissions" TEXT NOT NULL DEFAULT '[]',
+   439→   439→    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+   440→   440→    "invitedByEmail" TEXT,
+   441→   441→    "joinedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   442→   442→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   443→   443→    "updatedAt" DATETIME NOT NULL,
+   444→   444→    CONSTRAINT "OrganizerMembership_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+   445→   445→    CONSTRAINT "OrganizerMembership_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   446→   446→);
+   447→   447→
+   448→   448→-- CreateTable
+   449→   449→CREATE TABLE "OrganizerInvitation" (
+   450→   450→    "id" TEXT NOT NULL PRIMARY KEY,
+   451→   451→    "organizerId" TEXT NOT NULL,
+   452→   452→    "email" TEXT NOT NULL,
+   453→   453→    "role" TEXT NOT NULL DEFAULT 'STAFF',
+   454→   454→    "permissions" TEXT NOT NULL DEFAULT '[]',
+   455→   455→    "tokenHash" TEXT NOT NULL,
+   456→   456→    "expiresAt" DATETIME NOT NULL,
+   457→   457→    "acceptedAt" DATETIME,
+   458→   458→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   459→   459→    CONSTRAINT "OrganizerInvitation_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   460→   460→);
+   461→   461→
+   462→   462→-- CreateTable
+   463→   463→CREATE TABLE "PasswordResetToken" (
+   464→   464→    "id" TEXT NOT NULL PRIMARY KEY,
+   465→   465→    "userId" TEXT NOT NULL,
+   466→   466→    "tokenHash" TEXT NOT NULL,
+   467→   467→    "expiresAt" DATETIME NOT NULL,
+   468→   468→    "usedAt" DATETIME,
+   469→   469→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   470→   470→    CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   471→   471→);
+   472→   472→
+   473→   473→-- CreateTable
+   474→   474→CREATE TABLE "EmailVerificationToken" (
+   475→   475→    "id" TEXT NOT NULL PRIMARY KEY,
+   476→   476→    "userId" TEXT NOT NULL,
+   477→   477→    "tokenHash" TEXT NOT NULL,
+   478→   478→    "expiresAt" DATETIME NOT NULL,
+   479→   479→    "usedAt" DATETIME,
+   480→   480→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   481→   481→    CONSTRAINT "EmailVerificationToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   482→   482→);
+   483→   483→
+   484→   484→-- CreateTable
+   485→   485→CREATE TABLE "RefreshToken" (
+   486→   486→    "id" TEXT NOT NULL PRIMARY KEY,
+   487→   487→    "userId" TEXT NOT NULL,
+   488→   488→    "tokenHash" TEXT NOT NULL,
+   489→   489→    "expiresAt" DATETIME NOT NULL,
+   490→   490→    "isRevoked" BOOLEAN NOT NULL DEFAULT false,
+   491→   491→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   492→   492→    CONSTRAINT "RefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   493→   493→);
+   494→   494→
+   495→   495→-- CreateTable
+   496→   496→CREATE TABLE "AuditLog" (
+   497→   497→    "id" TEXT NOT NULL PRIMARY KEY,
+   498→   498→    "actorId" TEXT,
+   499→   499→    "action" TEXT NOT NULL,
+   500→   500→    "entityType" TEXT NOT NULL,
+   501→   501→    "entityId" TEXT NOT NULL,
+   502→   502→    "oldValue" TEXT,
+   503→   503→    "newValue" TEXT,
+   504→   504→    "reason" TEXT,
+   505→   505→    "ipAddress" TEXT,
+   506→   506→    "userAgent" TEXT,
+   507→   507→    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   508→   508→    CONSTRAINT "AuditLog_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+   509→   509→);
+   510→   510→
+   511→   511→-- CreateIndex
+   512→   512→CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+   513→   513→
+   514→   514→-- CreateIndex
+   515→   515→CREATE INDEX "StaffAssignment_userId_idx" ON "StaffAssignment"("userId");
+   516→   516→
+   517→   517→-- CreateIndex
+   518→   518→CREATE INDEX "StaffAssignment_eventId_idx" ON "StaffAssignment"("eventId");
+   519→   519→
+   520→   520→-- CreateIndex
+   521→   521→CREATE UNIQUE INDEX "StaffAssignment_userId_eventId_key" ON "StaffAssignment"("userId", "eventId");
+   522→   522→
+   523→   523→-- CreateIndex
+   524→   524→CREATE UNIQUE INDEX "Category_name_key" ON "Category"("name");
+   525→   525→
+   526→   526→-- CreateIndex
+   527→   527→CREATE UNIQUE INDEX "Category_slug_key" ON "Category"("slug");
+   528→   528→
+   529→   529→-- CreateIndex
+   530→   530→CREATE UNIQUE INDEX "Tag_name_key" ON "Tag"("name");
+   531→   531→
+   532→   532→-- CreateIndex
+   533→   533→CREATE UNIQUE INDEX "Tag_slug_key" ON "Tag"("slug");
+   534→   534→
+   535→   535→-- CreateIndex
+   536→   536→CREATE UNIQUE INDEX "SubscriptionPlan_slug_key" ON "SubscriptionPlan"("slug");
+   537→   537→
+   538→   538→-- CreateIndex
+   539→   539→CREATE INDEX "Subscription_userId_idx" ON "Subscription"("userId");
+   540→   540→
+   541→   541→-- CreateIndex
+   542→   542→CREATE INDEX "Subscription_planId_idx" ON "Subscription"("planId");
+   543→   543→
+   544→   544→-- CreateIndex
+   545→   545→CREATE UNIQUE INDEX "OrganizerSubscription_organizerId_key" ON "OrganizerSubscription"("organizerId");
+   546→   546→
+   547→   547→-- CreateIndex
+   548→   548→CREATE INDEX "OrganizerSubscription_planId_idx" ON "OrganizerSubscription"("planId");
+   549→   549→
+   550→   550→-- CreateIndex
+   551→   551→CREATE INDEX "OrganizerSubscription_status_idx" ON "OrganizerSubscription"("status");
+   552→   552→
+   553→   553→-- CreateIndex
+   554→   554→CREATE UNIQUE INDEX "Event_slug_key" ON "Event"("slug");
+   555→   555→
+   556→   556→-- CreateIndex
+   557→   557→CREATE INDEX "Event_organizerId_idx" ON "Event"("organizerId");
+   558→   558→
+   559→   559→-- CreateIndex
+   560→   560→CREATE INDEX "Event_status_idx" ON "Event"("status");
+   561→   561→
+   562→   562→-- CreateIndex
+   563→   563→CREATE INDEX "Event_categoryId_idx" ON "Event"("categoryId");
+   564→   564→
+   565→   565→-- CreateIndex
+   566→   566→CREATE INDEX "Event_startDate_idx" ON "Event"("startDate");
+   567→   567→
+   568→   568→-- CreateIndex
+   569→   569→CREATE INDEX "Event_venueId_idx" ON "Event"("venueId");
+   570→   570→
+   571→   571→-- CreateIndex
+   572→   572→CREATE INDEX "Event_status_startDate_idx" ON "Event"("status", "startDate");
+   573→   573→
+   574→   574→-- CreateIndex
+   575→   575→CREATE INDEX "Event_organizerId_status_idx" ON "Event"("organizerId", "status");
+   576→   576→
+   577→   577→-- CreateIndex
+   578→   578→CREATE INDEX "EventTag_eventId_idx" ON "EventTag"("eventId");
+   579→   579→
+   580→   580→-- CreateIndex
+   581→   581→CREATE INDEX "EventTag_tagId_idx" ON "EventTag"("tagId");
+   582→   582→
+   583→   583→-- CreateIndex
+   584→   584→CREATE UNIQUE INDEX "EventTag_eventId_tagId_key" ON "EventTag"("eventId", "tagId");
+   585→   585→
+   586→   586→-- CreateIndex
+   587→   587→CREATE INDEX "EventSession_eventId_idx" ON "EventSession"("eventId");
+   588→   588→
+   589→   589→-- CreateIndex
+   590→   590→CREATE INDEX "EventSession_eventId_date_idx" ON "EventSession"("eventId", "date");
+   591→   591→
+   592→   592→-- CreateIndex
+   593→   593→CREATE INDEX "EventParticipant_eventId_idx" ON "EventParticipant"("eventId");
+   594→   594→
+   595→   595→-- CreateIndex
+   596→   596→CREATE UNIQUE INDEX "EventParticipant_eventId_name_key" ON "EventParticipant"("eventId", "name");
+   597→   597→
+   598→   598→-- CreateIndex
+   599→   599→CREATE INDEX "EventMedia_eventId_idx" ON "EventMedia"("eventId");
+   600→   600→
+   601→   601→-- CreateIndex
+   602→   602→CREATE INDEX "EventMedia_eventId_category_idx" ON "EventMedia"("eventId", "category");
+   603→   603→
+   604→   604→-- CreateIndex
+   605→   605→CREATE UNIQUE INDEX "Venue_slug_key" ON "Venue"("slug");
+   606→   606→
+   607→   607→-- CreateIndex
+   608→   608→CREATE INDEX "Venue_city_idx" ON "Venue"("city");
+   609→   609→
+   610→   610→-- CreateIndex
+   611→   611→CREATE INDEX "Venue_country_idx" ON "Venue"("country");
+   612→   612→
+   613→   613→-- CreateIndex
+   614→   614→CREATE INDEX "Venue_organizerId_idx" ON "Venue"("organizerId");
+   615→   615→
+   616→   616→-- CreateIndex
+   617→   617→CREATE INDEX "Venue_slug_idx" ON "Venue"("slug");
+   618→   618→
+   619→   619→-- CreateIndex
+   620→   620→CREATE INDEX "TicketType_eventId_idx" ON "TicketType"("eventId");
+   621→   621→
+   622→   622→-- CreateIndex
+   623→   623→CREATE UNIQUE INDEX "Ticket_qrCode_key" ON "Ticket"("qrCode");
+   624→   624→
+   625→   625→-- CreateIndex
+   626→   626→CREATE INDEX "Ticket_bookingId_idx" ON "Ticket"("bookingId");
+   627→   627→
+   628→   628→-- CreateIndex
+   629→   629→CREATE INDEX "Ticket_ticketTypeId_idx" ON "Ticket"("ticketTypeId");
+   630→   630→
+   631→   631→-- CreateIndex
+   632→   632→CREATE INDEX "Ticket_status_idx" ON "Ticket"("status");
+   633→   633→
+   634→   634→-- CreateIndex
+   635→   635→CREATE UNIQUE INDEX "Booking_bookingRef_key" ON "Booking"("bookingRef");
+   636→   636→
+   637→   637→-- CreateIndex
+   638→   638→CREATE INDEX "Booking_userId_idx" ON "Booking"("userId");
+   639→   639→
+   640→   640→-- CreateIndex
+   641→   641→CREATE INDEX "Booking_eventId_idx" ON "Booking"("eventId");
+   642→   642→
+   643→   643→-- CreateIndex
+   644→   644→CREATE INDEX "Booking_status_idx" ON "Booking"("status");
+   645→   645→
+   646→   646→-- CreateIndex
+   647→   647→CREATE INDEX "Booking_eventId_status_idx" ON "Booking"("eventId", "status");
+   648→   648→
+   649→   649→-- CreateIndex
+   650→   650→CREATE INDEX "Booking_userId_status_idx" ON "Booking"("userId", "status");
+   651→   651→
+   652→   652→-- CreateIndex
+   653→   653→CREATE UNIQUE INDEX "Payment_bookingId_key" ON "Payment"("bookingId");
+   654→   654→
+   655→   655→-- CreateIndex
+   656→   656→CREATE UNIQUE INDEX "Payment_idempotencyKey_key" ON "Payment"("idempotencyKey");
+   657→   657→
+   658→   658→-- CreateIndex
+   659→   659→CREATE INDEX "Payment_userId_idx" ON "Payment"("userId");
+   660→   660→
+   661→   661→-- CreateIndex
+   662→   662→CREATE INDEX "Payment_status_idx" ON "Payment"("status");
+   663→   663→
+   664→   664→-- CreateIndex
+   665→   665→CREATE INDEX "Review_eventId_idx" ON "Review"("eventId");
+   666→   666→
+   667→   667→-- CreateIndex
+   668→   668→CREATE UNIQUE INDEX "Review_userId_eventId_key" ON "Review"("userId", "eventId");
+   669→   669→
+   670→   670→-- CreateIndex
+   671→   671→CREATE INDEX "Notification_userId_idx" ON "Notification"("userId");
+   672→   672→
+   673→   673→-- CreateIndex
+   674→   674→CREATE INDEX "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead");
+   675→   675→
+   676→   676→-- CreateIndex
+   677→   677→CREATE INDEX "Advertisement_organizerId_idx" ON "Advertisement"("organizerId");
+   678→   678→
+   679→   679→-- CreateIndex
+   680→   680→CREATE INDEX "EventAnalytics_eventId_date_idx" ON "EventAnalytics"("eventId", "date");
+   681→   681→
+   682→   682→-- CreateIndex
+   683→   683→CREATE UNIQUE INDEX "EventAnalytics_eventId_date_key" ON "EventAnalytics"("eventId", "date");
+   684→   684→
+   685→   685→-- CreateIndex
+   686→   686→CREATE UNIQUE INDEX "SystemSetting_key_key" ON "SystemSetting"("key");
+   687→   687→
+   688→   688→-- CreateIndex
+   689→   689→CREATE UNIQUE INDEX "OrganizerProfile_userId_key" ON "OrganizerProfile"("userId");
+   690→   690→
+   691→   691→-- CreateIndex
+   692→   692→CREATE UNIQUE INDEX "OrganizerProfile_slug_key" ON "OrganizerProfile"("slug");
+   693→   693→
+   694→   694→-- CreateIndex
+   695→   695→CREATE INDEX "OrganizerProfile_slug_idx" ON "OrganizerProfile"("slug");
+   696→   696→
+   697→   697→-- CreateIndex
+   698→   698→CREATE INDEX "OrganizerProfile_approvalStatus_idx" ON "OrganizerProfile"("approvalStatus");
+   699→   699→
+   700→   700→-- CreateIndex
+   701→   701→CREATE INDEX "OrganizerProfile_status_idx" ON "OrganizerProfile"("status");
+   702→   702→
+   703→   703→-- CreateIndex
+   704→   704→CREATE INDEX "OrganizerMembership_organizerId_idx" ON "OrganizerMembership"("organizerId");
+   705→   705→
+   706→   706→-- CreateIndex
+   707→   707→CREATE INDEX "OrganizerMembership_userId_idx" ON "OrganizerMembership"("userId");
+   708→   708→
+   709→   709→-- CreateIndex
+   710→   710→CREATE INDEX "OrganizerMembership_organizerId_status_idx" ON "OrganizerMembership"("organizerId", "status");
+   711→   711→
+   712→   712→-- CreateIndex
+   713→   713→CREATE UNIQUE INDEX "OrganizerMembership_organizerId_userId_key" ON "OrganizerMembership"("organizerId", "userId");
+   714→   714→
+   715→   715→-- CreateIndex
+   716→   716→CREATE UNIQUE INDEX "OrganizerInvitation_tokenHash_key" ON "OrganizerInvitation"("tokenHash");
+   717→   717→
+   718→   718→-- CreateIndex
+   719→   719→CREATE INDEX "OrganizerInvitation_organizerId_idx" ON "OrganizerInvitation"("organizerId");
+   720→   720→
+   721→   721→-- CreateIndex
+   722→   722→CREATE INDEX "OrganizerInvitation_tokenHash_idx" ON "OrganizerInvitation"("tokenHash");
+   723→   723→
+   724→   724→-- CreateIndex
+   725→   725→CREATE UNIQUE INDEX "OrganizerInvitation_organizerId_email_key" ON "OrganizerInvitation"("organizerId", "email");
+   726→   726→
+   727→   727→-- CreateIndex
+   728→   728→CREATE UNIQUE INDEX "PasswordResetToken_tokenHash_key" ON "PasswordResetToken"("tokenHash");
+   729→   729→
+   730→   730→-- CreateIndex
+   731→   731→CREATE INDEX "PasswordResetToken_userId_idx" ON "PasswordResetToken"("userId");
+   732→   732→
+   733→   733→-- CreateIndex
+   734→   734→CREATE INDEX "PasswordResetToken_tokenHash_idx" ON "PasswordResetToken"("tokenHash");
+   735→   735→
+   736→   736→-- CreateIndex
+   737→   737→CREATE UNIQUE INDEX "EmailVerificationToken_tokenHash_key" ON "EmailVerificationToken"("tokenHash");
+   738→   738→
+   739→   739→-- CreateIndex
+   740→   740→CREATE INDEX "EmailVerificationToken_userId_idx" ON "EmailVerificationToken"("userId");
+   741→   741→
+   742→   742→-- CreateIndex
+   743→   743→CREATE INDEX "EmailVerificationToken_tokenHash_idx" ON "EmailVerificationToken"("tokenHash");
+   744→   744→
+   745→   745→-- CreateIndex
+   746→   746→CREATE UNIQUE INDEX "RefreshToken_tokenHash_key" ON "RefreshToken"("tokenHash");
+   747→   747→
+   748→   748→-- CreateIndex
+   749→   749→CREATE INDEX "RefreshToken_userId_idx" ON "RefreshToken"("userId");
+   750→   750→
+   751→   751→-- CreateIndex
+   752→   752→CREATE INDEX "RefreshToken_tokenHash_idx" ON "RefreshToken"("tokenHash");
+   753→   753→
+   754→   754→-- CreateIndex
+   755→   755→CREATE INDEX "AuditLog_actorId_idx" ON "AuditLog"("actorId");
+   756→   756→
+   757→   757→-- CreateIndex
+   758→   758→CREATE INDEX "AuditLog_entityType_entityId_idx" ON "AuditLog"("entityType", "entityId");
+   759→   759→
+   760→   760→-- CreateIndex
+   761→   761→CREATE INDEX "AuditLog_action_idx" ON "AuditLog"("action");
+   762→   762→
+   763→   763→-- CreateIndex
+   764→   764→CREATE INDEX "AuditLog_createdAt_idx" ON "AuditLog"("createdAt");
+   765→   765→
+   766→   766→

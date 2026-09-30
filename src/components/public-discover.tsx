@@ -62,6 +62,7 @@ interface Event {
   venueCity: string | null;
   isVirtual: boolean;
   isPaid: boolean;
+  currency: string;
   capacity: number;
   shortDescription: string | null;
   isFeatured?: boolean;
@@ -360,7 +361,7 @@ export function PublicDiscover() {
                         {format(new Date(ev.startDate), 'MMM d, yyyy')}
                       </div>
                       <p className="mt-2 font-semibold text-emerald-600 text-sm">
-                        {ev.isPaid ? formatMoneyWithSymbol(getMinPrice(ev), DEFAULT_CURRENCY) : 'Free'}
+                        {ev.isPaid ? formatMoneyWithSymbol(getMinPrice(ev), ev.currency || DEFAULT_CURRENCY) : 'Free'}
                       </p>
                     </CardContent>
                   </Card>
@@ -445,7 +446,7 @@ export function PublicDiscover() {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-emerald-600">
-                          {ev.isPaid ? formatMoneyWithSymbol(getMinPrice(ev), DEFAULT_CURRENCY) : 'Free'}
+                          {ev.isPaid ? formatMoneyWithSymbol(getMinPrice(ev), ev.currency || DEFAULT_CURRENCY) : 'Free'}
                         </span>
                         {ev._count?.reviews > 0 && (
                           <div className="flex items-center gap-1 text-sm text-muted-foreground">

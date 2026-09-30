@@ -800,3 +800,73 @@ Stage Summary:
 - No unsafe arithmetic patterns found (no parseFloat/toFixed on money, no manual /100 or *100)
 - Browser verified: admin dashboard shows "₵299.00", free events show "Free", API returns integer minor units
 - READY FOR PHASE 5D
+
+## Task 5: Create PostgreSQL Baseline Migration
+
+**Date:** 2025
+**Task ID:** 5
+**Description:** Convert the SQLite-specific baseline migration (`prisma/migrations/0_baseline/migration.sql`) to PostgreSQL-compatible SQL so that `prisma migrate deploy` works correctly against a PostgreSQL production database.
+
+### Rationale:
+- The baseline migration was generated with `provider = "sqlite"` and contained SQLite-specific SQL
+- Development uses `db:push` (which doesn't use migrations), so the migration directory is exclusively for production deployment
+- Production uses PostgreSQL, so migrations must be PostgreSQL-compatible
+- This is standard Prisma workflow: migrations target the production database provider
+
+### Transformations Applied (765-line file):
+
+| SQLite Type/Clause | PostgreSQL Equivalent | Count |
+|---|---|---|
+| `DATETIME` | `TIMESTAMP(3)` | 74 replacements |
+| `REAL` | `DOUBLE PRECISION` | 4 replacements |
+| `ON UPDATE CASCADE` | *(removed)* | 39 removals |
+
+**No-change types** (already PostgreSQL-compatible):
+- `BOOLEAN` → `BOOLEAN` (native PostgreSQL support)
+- `INTEGER` → `INTEGER` (same)
+- `TEXT` → `TEXT` (same)
+- `PRIMARY KEY` → `PRIMARY KEY` (same)
+
+### Verification Results:
+- ✅ No `DATETIME` remains
+- ✅ No standalone `REAL` remains (only in `DOUBLE PRECISION`)
+- ✅ No `ON UPDATE` clauses remain (PostgreSQL defaults to NO ACTION)
+- ✅ 74 `TIMESTAMP(3)` columns (matches original 74 `DATETIME`)
+- ✅ 4 `DOUBLE PRECISION` columns (matches original 4 `REAL`)
+- ✅ Geographic columns (`venueLat`, `venueLng`, `lat`, `lng`) → `DOUBLE PRECISION`
+- ✅ Monetary columns (`price`, `totalAmount`, `amount`, `refundedAmount`, `revenue`) → `INTEGER` (cents)
+- ✅ All `ON DELETE` clauses preserved correctly (CASCADE, RESTRICT, SET NULL)
+
+### Files Modified:
+- `prisma/migrations/0_baseline/migration.sql` — Replaced SQLite SQL with PostgreSQL-compatible SQL
+
+---
+Task ID: 5C-closure
+Agent: Main
+Task: Phase 5C PostgreSQL/Migration Closure Verification
+
+Work Log:
+- Read and analyzed prisma/schema.prisma, .env, package.json, migrations, seed.ts
+- Determined PostgreSQL is NOT available in sandbox (no psql, no pg_isready, no systemd service)
+- Discovered 0_baseline/migration.sql was SQLite-specific (74× DATETIME, 4× REAL, 39× ON UPDATE CASCADE)
+- Created PostgreSQL-compatible baseline migration: DATETIME→TIMESTAMP(3), REAL→DOUBLE PRECISION, removed ON UPDATE CASCADE
+- Verified money constraint migration SQL is valid PostgreSQL
+- Re-seeded SQLite database — seed completed successfully
+- Ran full test suite — 792/792 tests pass
+- Ran production build — compiles successfully
+- Verified seed data monetary values are all integer minor units
+- Verified geographic Float fields remain proper floats (lat/lng)
+- Verified currency display: SubscriptionPlans=GHS, Events/Tickets=USD (intentional)
+- Fixed currency display bug in public-discover.tsx (was using DEFAULT_CURRENCY instead of event.currency)
+- Browser verified: prices now display correctly ($199.00, $15.00, etc.) with proper currency symbol
+- Final repository search: No Phase 5C monetary defects found; all Float/parseFloat/toFixed/*100//100 occurrences classified as legitimate
+- Lint: 2 pre-existing errors in server-keeper.js (not Phase 5C related)
+
+Stage Summary:
+- PostgreSQL NOT available in sandbox — execution verification unavailable
+- Baseline migration converted from SQLite to PostgreSQL-compatible SQL
+- Migration directory now targets PostgreSQL production deployment
+- SQLite development continues via db:push (bypasses migrations)
+- Currency display fix: public-discover.tsx now uses event.currency instead of hardcoded GHS
+- Provider strategy: Option B — SQLite for dev, PostgreSQL for production
+- 792/792 tests pass, build succeeds, browser verified

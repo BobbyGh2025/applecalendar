@@ -16,7 +16,11 @@
  *   ALTER TABLE "Payment"           ADD CONSTRAINT "chk_payment_refunded_lte_amount"    CHECK ("refundedAmount" <= "amount");
  *   ALTER TABLE "EventAnalytics"    ADD CONSTRAINT "chk_analytics_revenue_nonneg"       CHECK ("revenue" >= 0);
  *
- * Additional recommended indexes for financial queries:
+ *  (Phase 5E additions)
+ *   ALTER TABLE "Refund"              ADD CONSTRAINT "chk_refund_amount_nonneg"           CHECK ("amount" >= 0);
+ *   ALTER TABLE "Refund"              ADD CONSTRAINT "chk_refund_amount_lte_payment"      CHECK ("amount" <= (SELECT "amount" FROM "Payment" WHERE "id" = "paymentId"));
+ *   ALTER TABLE "TicketType"        ADD CONSTRAINT "chk_ticket_type_reserved_nonneg"     CHECK ("reservedCount" >= 0);
+ *   ALTER TABLE "TicketType"        ADD CONSTRAINT "chk_ticket_type_reserved_lte_avail"  CHECK ("reservedCount" <= "quantity" - "soldCount");
  *
  *   CREATE INDEX idx_payment_booking_status  ON "Payment" ("bookingId", "status");
  *   CREATE INDEX idx_booking_event_status    ON "Booking"  ("eventId", "status", "totalAmount");
@@ -97,4 +101,44 @@ export function validateEventAnalyticsMoneyConstraints(data: {
   revenue: number;
 }): void {
   assertNonNegativeMoney(data.revenue, 'EventAnalytics.revenue');
+}
+
+// ─── Phase 5E: Refund Constraints ───
+
+/**
+ * Validate monetary fields on a Refund record before write.
+ * Refund amount must be non-negative and not exceed the payment amount.
+ */
+export function validateRefundMoneyConstraints(data: {
+  amount: number;
+  paymentAmount: number;
+}): void {
+  assertNonNegativeMoney(data.amount, 'Refund.amount');
+  if (data.amount > data.paymentAmount) {
+    throw new Error(
+      `Constraint violation: Refund.amount (${data.amount}) cannot exceed Payment.amount (${data.paymentAmount})`
+    );
+  }
+}
+
+/**
+ * Validate TicketType inventory constraints.
+ * reservedCount must be non-negative and not exceed available inventory.
+ */
+export function validateTicketTypeInventoryConstraints(data: {
+  quantity: number;
+  soldCount: number;
+  reservedCount: number;
+}): void {
+  if (data.reservedCount < 0) {
+    throw new Error(
+      `Constraint violation: TicketType.reservedCount must be non-negative, got ${data.reservedCount}`
+    );
+  }
+  const available = data.quantity - data.soldCount;
+  if (data.reservedCount > available) {
+    throw new Error(
+      `Constraint violation: TicketType.reservedCount (${data.reservedCount}) exceeds available inventory (${available} = quantity ${data.quantity} - soldCount ${data.soldCount})`
+    );
+  }
 }

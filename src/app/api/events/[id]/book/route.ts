@@ -136,7 +136,7 @@ export async function POST(
           userId: user.id,
           amount: totalAmount,
           currency: ticketType.currency,
-          method: totalAmount > 0 ? 'STRIPE' : 'FREE',
+          provider: totalAmount > 0 ? 'PAYSTACK' : 'FREE',
           status: totalAmount > 0 ? 'PENDING' : 'COMPLETED',
         },
       });

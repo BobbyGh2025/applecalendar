@@ -373,21 +373,22 @@ model Venue {
 // ============ TICKETING ============
 
 model TicketType {
-  id          String   @id @default(cuid())
-  eventId     String
-  name        String
-  description String?
-  price       Int      @default(0) // Integer minor units (Phase 5C). GHS 50.00 → 5000
-  currency    String   @default("GHS")
-  quantity    Int      // total available
-  soldCount   Int      @default(0)
-  minPerOrder Int      @default(1)
-  maxPerOrder Int      @default(10)
-  saleStart   DateTime?
-  saleEnd     DateTime?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  eventId       String
+  name          String
+  description   String?
+  price         Int      @default(0) // Integer minor units (Phase 5C). GHS 50.00 → 5000
+  currency      String   @default("GHS")
+  quantity      Int      // total available
+  soldCount     Int      @default(0) // Confirmed sold (payment completed)
+  reservedCount Int      @default(0) // Phase 5E: Reserved for pending payments (not yet confirmed)
+  minPerOrder   Int      @default(1)
+  maxPerOrder   Int      @default(10)
+  saleStart     DateTime?
+  saleEnd       DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   tickets Ticket[]
@@ -400,7 +401,7 @@ model Ticket {
   ticketTypeId  String
   bookingId     String
   qrCode        String   @unique
-  status        String   @default("VALID") // VALID, USED, CANCELLED, EXPIRED
+  status        String   @default("VALID") // PENDING, VALID, USED, CANCELLED, EXPIRED — Phase 5E: PENDING for deferred issuance
   checkedInAt   DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -414,17 +415,19 @@ model Ticket {
 }
 
 model Booking {
-  id                String   @id @default(cuid())
-  userId            String
-  eventId           String
-  totalAmount       Int      @default(0) // Integer minor units (Phase 5C). GHS 100.00 → 10000
-  currency          String   @default("GHS")
-  status            String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, REFUNDED
-  bookingRef        String   @unique
+  id                 String    @id @default(cuid())
+  userId             String
+  eventId            String
+  totalAmount        Int       @default(0) // Integer minor units (Phase 5C). GHS 100.00 → 10000
+  currency           String    @default("GHS")
+  status             String    @default("PENDING") // PENDING, CONFIRMED, CANCELLED, REFUNDED
+  bookingRef         String    @unique
+  confirmedAt        DateTime? // Phase 5E: When booking was confirmed (payment completed or free event)
+  expiresAt          DateTime? // Phase 5E: Payment timeout — booking expires if not paid by this time
   cancellationReason String?
-  cancelledBy       String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  cancelledBy        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   user    User    @relation(fields: [userId], references: [id])
   event   Event   @relation(fields: [eventId], references: [id])
@@ -436,33 +439,44 @@ model Booking {
   @@index([status])
   @@index([eventId, status])
   @@index([userId, status])
+  @@index([expiresAt])
 }
 
 model Payment {
-  id                  String   @id @default(cuid())
-  bookingId           String   @unique
+  id                  String    @id @default(cuid())
+  bookingId           String    @unique
   userId              String
-  amount              Int      // Integer minor units (Phase 5C). GHS 100.00 → 10000
-  currency            String   @default("GHS")
-  method              String   @default("STRIPE") // STRIPE, PAYPAL, PAYSTACK, BANK_TRANSFER
-  status              String   @default("PENDING") // PENDING, COMPLETED, FAILED, REFUNDED
+  amount              Int       // Integer minor units (Phase 5C). GHS 100.00 → 10000
+  currency            String    @default("GHS")
+  provider            String    @default("PAYSTACK") @map("method") // Phase 5E: Renamed from 'method'. DB column preserved as 'method'. PAYSTACK, MANUAL, FREE
+  status              String    @default("PENDING") // Phase 5E: PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED, EXPIRED, REFUNDED
   transactionId       String?
   providerRef         String?   // Payment intent/charge ID from provider
   providerCustomerId  String?   // Customer ID in provider system
   webhookEventId      String?   // Last webhook event ID processed
   idempotencyKey      String?   @unique // Prevents duplicate charges on retry
   failureReason       String?   // Provider's failure message
-  refundedAmount      Int      @default(0) // Integer minor units (Phase 5C). GHS 50.00 → 5000
+  refundedAmount      Int       @default(0) // Integer minor units (Phase 5C). GHS 50.00 → 5000
   refundRef           String?   // Provider's refund reference
   metadata            String?   // JSON — provider-specific data
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  expiresAt           DateTime? // Phase 5E: Payment must be completed by this time or expires
+  processedAt         DateTime? // Phase 5E: When status transitioned to PROCESSING
+  completedAt         DateTime? // Phase 5E: When status transitioned to COMPLETED
+  failedAt            DateTime? // Phase 5E: When status transitioned to FAILED
+  cancelledAt         DateTime? // Phase 5E: When status transitioned to CANCELLED
+  cancelledReason     String?   // Phase 5E: Reason for cancellation
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  booking Booking @relation(fields: [bookingId], references: [id])
-  user    User    @relation(fields: [userId], references: [id])
+  booking       Booking              @relation(fields: [bookingId], references: [id])
+  user          User                 @relation(fields: [userId], references: [id])
+  attempts PaymentAttempt[]
+  refunds  Refund[]
 
   @@index([userId])
   @@index([status])
+  @@index([providerRef])
+  @@index([status, createdAt])
 }
 
 // ============ REVIEWS ============
@@ -676,6 +690,70 @@ model RefreshToken {
 
   @@index([userId])
   @@index([tokenHash])
+}
+
+// ============ PAYMENT DOMAIN (Phase 5E) ============
+
+/// PaymentAttempt: tracks each attempt to process a payment through a provider.
+/// Enables retry audit trail and provider-specific debugging.
+model PaymentAttempt {
+  id              String   @id @default(cuid())
+  paymentId       String
+  provider        String   // PAYSTACK, MANUAL
+  providerRef     String?  // Reference from provider for this attempt
+  status          String   @default("PENDING") // PENDING, SUCCESS, FAILED
+  requestPayload  String?  // JSON — what was sent to provider (redacted secrets)
+  responsePayload String?  // JSON — what provider returned
+  failureReason   String?
+  createdAt       DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([status])
+}
+
+/// PaymentWebhookEvent: deduplication and audit for incoming payment webhooks.
+/// Prevents double-processing of the same provider event.
+/// No FK to Payment — webhook events arrive with providerRef; the service layer
+/// resolves the Payment by providerRef. This avoids FK failures for out-of-order events.
+model PaymentWebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String    @default("PAYSTACK")
+  eventId         String    @unique // Provider's event ID — dedup key
+  eventType       String    // charge.success, charge.failed, refund.processed, etc.
+  eventReference  String?   // Provider's transaction reference (links to Payment.providerRef)
+  payload         String    // JSON — raw webhook body (for audit/debugging)
+  signature       String?   // HMAC signature received (for verification audit)
+  processed       Boolean   @default(false)
+  processedAt     DateTime?
+  processingError String?
+  createdAt       DateTime  @default(now())
+
+  @@index([processed])
+  @@index([eventReference])
+  @@index([createdAt])
+}
+
+/// Refund: full refund lifecycle with status machine.
+/// REQUESTED → PROCESSING → COMPLETED | FAILED
+model Refund {
+  id            String    @id @default(cuid())
+  paymentId     String
+  amount        Int       // Integer minor units — Phase 5E: never Float/Decimal
+  reason        String?
+  status        String    @default("REQUESTED") // REQUESTED, PROCESSING, COMPLETED, FAILED
+  providerRef   String?   // Provider's refund reference
+  failureReason String?
+  requestedBy   String?   // userId who requested the refund
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([status])
 }
 
 // ============ AUDIT LOG ============

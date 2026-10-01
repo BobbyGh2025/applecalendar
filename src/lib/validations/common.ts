@@ -110,11 +110,20 @@ export const eventStatusField = z.enum(eventStatuses, {
   message: 'Invalid event status',
 });
 
-/** Booking statuses */
+/** Booking statuses — Phase 5E: PENDING for paid bookings awaiting payment */
 export const bookingStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'REFUNDED'] as const;
 
-/** Payment statuses */
-export const paymentStatuses = ['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED'] as const;
+/** Payment statuses — Phase 5E: full payment state machine */
+export const paymentStatuses = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED'] as const;
+
+/** Payment providers — Phase 5E */
+export const paymentProviders = ['PAYSTACK', 'MANUAL', 'FREE'] as const;
+
+/** Refund statuses — Phase 5E */
+export const refundStatuses = ['REQUESTED', 'PROCESSING', 'COMPLETED', 'FAILED'] as const;
+
+/** Ticket statuses — Phase 5E: PENDING for deferred issuance */
+export const ticketStatuses = ['PENDING', 'VALID', 'USED', 'CANCELLED', 'EXPIRED'] as const;
 
 /** Ad positions */
 export const adPositions = ['SIDEBAR', 'BANNER', 'POPUP'] as const;

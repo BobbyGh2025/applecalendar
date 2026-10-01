@@ -1094,3 +1094,32 @@ Stage Summary:
 - 837 tests passing (792 existing + 45 new Phase 5D)
 - Build succeeds, browser verified
 - PostgreSQL migration still untested against live server (Phase 5C limitation persists)
+
+---
+Task ID: Phase-5E-Stage-1
+Agent: main
+Task: Phase 5E Stage 1 — Foundation (schema migration, validation layer, env config, data backfill)
+
+Work Log:
+- Queried all 18 bookings with payment/ticket info to produce migration report
+- Identified 2 PENDING+PENDING bookings with VALID tickets (APC-*-2, evt-2 Summer Music Festival)
+- Identified 0 CONFIRMED+PENDING bookings (none existed)
+- Verified 0 checked-in tickets on any problematic booking
+- Applied Prisma schema changes: Payment field rename (method→provider with @map), 5 new timestamp fields, reservedCount on TicketType, confirmedAt/expiresAt on Booking, 3 new models (PaymentAttempt, PaymentWebhookEvent, Refund)
+- Ran prisma db push — schema applied successfully, Prisma Client regenerated
+- Applied data backfill: Rule A (2 bookings fixed — tickets VALID→PENDING), Rule B (0), Rule C (16 confirmedAt backfilled)
+- Updated validation constants: paymentStatuses expanded to 7 states, added paymentProviders, refundStatuses, ticketStatuses
+- Updated env.ts with 5 Paystack/payment environment variables
+- Updated .env with Paystack dev placeholders and PAYMENT_EXPIRY_MINUTES=15
+- Updated booking route field reference from method→provider (no behavior change)
+- Added validateRefundMoneyConstraints() and validateTicketTypeInventoryConstraints() to money-constraints.ts
+- Verified all post-migration invariants: 0 violations, all soldCount preserved, all reservedCount=0, confirmedAt backfilled
+- Committed as f0cf381
+
+Stage Summary:
+- 7 files changed, 199 insertions, 43 deletions
+- 23 models in schema (was 20, +3 new)
+- No Paystack API calls made (guardrail #6 satisfied)
+- No production booking behavior changed (guardrail #8 satisfied)
+- All financial invariants maintained: integer minor-unit, soldCount preserved, reservedCount starts at 0
+- Migration is reversible: @map("method") preserves DB column; backfill sets can be undone by reverting ticket statuses and confirmedAt values

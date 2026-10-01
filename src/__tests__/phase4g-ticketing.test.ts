@@ -386,19 +386,19 @@ describe('Phase 4G: API Error Consistency', () => {
 // ─── Unit Tests: Free Events ───
 
 describe('Phase 4G: Free Event Handling', () => {
-  it('Free ticket (price=0) creates payment with method=FREE and status=COMPLETED', () => {
+  it('Free ticket (price=0) creates payment with provider=FREE and status=COMPLETED', () => {
     const totalAmount = 0;
-    const method = totalAmount > 0 ? 'STRIPE' : 'FREE';
+    const provider = totalAmount > 0 ? 'PAYSTACK' : 'FREE';
     const status = totalAmount > 0 ? 'PENDING' : 'COMPLETED';
-    expect(method).toBe('FREE');
+    expect(provider).toBe('FREE');
     expect(status).toBe('COMPLETED');
   });
 
-  it('Paid ticket (price>0) creates payment with method=STRIPE and status=PENDING', () => {
+  it('Paid ticket (price>0) creates payment with provider=PAYSTACK and status=PENDING', () => {
     const totalAmount = 50;
-    const method = totalAmount > 0 ? 'STRIPE' : 'FREE';
+    const provider = totalAmount > 0 ? 'PAYSTACK' : 'FREE';
     const status = totalAmount > 0 ? 'PENDING' : 'COMPLETED';
-    expect(method).toBe('STRIPE');
+    expect(provider).toBe('PAYSTACK');
     expect(status).toBe('PENDING');
   });
 
@@ -841,7 +841,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
         userId: publicUserId,
         amount: 5000, // GHS 50.00 in minor units (Phase 5C)
         currency: 'GHS',
-        method: 'STRIPE',
+        provider: 'STRIPE',
         status: 'PENDING',
       },
     });
@@ -1096,7 +1096,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
     });
     expect(payment).not.toBeNull();
     expect(payment!.amount).toBe(5000); // GHS 50.00 in minor units (Phase 5C)
-    expect(payment!.method).toBe('STRIPE');
+    expect(payment!.provider).toBe('STRIPE');
     expect(payment!.status).toBe('PENDING');
   });
 
@@ -1278,7 +1278,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
         userId: publicUserId,
         amount: 2500, // GHS 25.00 in minor units (Phase 5C)
         currency: 'GHS',
-        method: 'STRIPE',
+        provider: 'STRIPE',
         status: 'PENDING',
       },
     });
@@ -1502,7 +1502,7 @@ describe('Phase 4G: Database-backed Ticketing Integration', () => {
     // 10. minPerOrder/maxPerOrder check
     // 11. Atomic soldCount increment (prevents overselling)
     // 12. Booking creation with CONFIRMED status
-    // 13. Payment creation (FREE for price=0, STRIPE/PENDING for price>0)
+    // 13. Payment creation (FREE for price=0, PAYSTACK/PENDING for price>0)
     // 14. Ticket creation with crypto-strong QR codes
     // All steps are verified by the existing code and tests
     expect(true).toBe(true);

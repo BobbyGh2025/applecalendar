@@ -437,7 +437,7 @@ describe('Event Delete Protection', () => {
         userId: booker.id,
         amount: 100,
         currency: 'GHS',
-        method: 'PAYSTACK',
+        provider: 'PAYSTACK',
         status: 'COMPLETED',
         transactionId: 'txn-preserve-test',
       },
@@ -989,7 +989,7 @@ describe('Payment Provider Metadata', () => {
         userId: booker.id,
         amount: 200,
         currency: 'GHS',
-        method: 'PAYSTACK',
+        provider: 'PAYSTACK',
         status: 'COMPLETED',
         providerRef: 'paystack-ref-123',
         providerCustomerId: 'cust-456',
@@ -1001,7 +1001,7 @@ describe('Payment Provider Metadata', () => {
     expect(payment.providerRef).toBe('paystack-ref-123');
     expect(payment.providerCustomerId).toBe('cust-456');
     expect(payment.idempotencyKey).toBeDefined();
-    expect(payment.method).toBe('PAYSTACK');
+    expect(payment.provider).toBe('PAYSTACK');
     expect(payment.refundedAmount).toBe(0);
 
     // Clean up

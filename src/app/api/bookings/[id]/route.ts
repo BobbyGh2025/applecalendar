@@ -44,7 +44,7 @@ export async function GET(
             amount: true,
             currency: true,
             status: true,
-            method: true,
+            provider: true,
           },
         },
       },

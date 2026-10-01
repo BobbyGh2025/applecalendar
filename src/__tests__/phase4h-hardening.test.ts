@@ -476,7 +476,7 @@ describe('Phase 4H: Database-backed Security Integration', () => {
         userId: publicUserId,
         amount: 50.00,
         currency: 'GHS',
-        method: 'STRIPE',
+        provider: 'STRIPE',
         status: 'PENDING',
       },
     });
@@ -518,7 +518,7 @@ describe('Phase 4H: Database-backed Security Integration', () => {
         userId: publicUserId,
         amount: 100.00,
         currency: 'GHS',
-        method: 'STRIPE',
+        provider: 'STRIPE',
         status: 'COMPLETED',
         transactionId: 'txn-completed-123',
       },
@@ -561,7 +561,7 @@ describe('Phase 4H: Database-backed Security Integration', () => {
         userId: publicUserId,
         amount: 75.00,
         currency: 'GHS',
-        method: 'STRIPE',
+        provider: 'STRIPE',
         status: 'PENDING',
       },
     });
@@ -601,7 +601,7 @@ describe('Phase 4H: Database-backed Security Integration', () => {
         userId: publicUserId,
         amount: 25.00,
         currency: 'GHS',
-        method: 'STRIPE',
+        provider: 'STRIPE',
         status: 'COMPLETED',
       },
     });

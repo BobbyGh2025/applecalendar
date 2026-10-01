@@ -116,8 +116,24 @@ export const bookingStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'REFUNDED']
 /** Payment statuses — Phase 5E: full payment state machine */
 export const paymentStatuses = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED'] as const;
 
-/** Payment providers — Phase 5E */
+/** Payment providers — Phase 5E: providers that may be used for NEW payment creation */
 export const paymentProviders = ['PAYSTACK', 'MANUAL', 'FREE'] as const;
+
+/** Payment provider values — Phase 5E: all values that may legitimately exist in the database.
+ *  Includes STRIPE as a LEGACY provider for historical records created before Phase 5E.
+ *  New payment creation MUST use paymentProviders (above), not this list.
+ *  STRIPE is read-only: existing records are preserved, new STRIPE payments are blocked. */
+export const paymentProviderValues = ['PAYSTACK', 'MANUAL', 'FREE', 'STRIPE'] as const;
+
+/** Zod field for validating a provider when creating a NEW payment (STRIPE blocked) */
+export const paymentProviderField = z.enum(paymentProviders, {
+  message: 'Invalid payment provider. Allowed: PAYSTACK, MANUAL, FREE',
+});
+
+/** Zod field for validating a provider value from the database (STRIPE allowed as legacy) */
+export const paymentProviderValueField = z.enum(paymentProviderValues, {
+  message: 'Invalid payment provider value',
+});
 
 /** Refund statuses — Phase 5E */
 export const refundStatuses = ['REQUESTED', 'PROCESSING', 'COMPLETED', 'FAILED'] as const;

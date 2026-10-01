@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
             amount: true,
             currency: true,
             status: true,
-            method: true,
+            provider: true,
           },
         },
       },

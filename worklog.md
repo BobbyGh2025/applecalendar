@@ -1123,3 +1123,34 @@ Stage Summary:
 - No production booking behavior changed (guardrail #8 satisfied)
 - All financial invariants maintained: integer minor-unit, soldCount preserved, reservedCount starts at 0
 - Migration is reversible: @map("method") preserves DB column; backfill sets can be undone by reverting ticket statuses and confirmedAt values
+
+---
+Task ID: Phase-5E-STRIPE-Compat
+Agent: main
+Task: STRIPE legacy provider compatibility closure
+
+Work Log:
+- Inspected all uses of paymentProviders, provider, payment.provider, method, STRIPE across codebase
+- Found 3 API routes with stale `method: true` in Prisma selects (bookings, booking detail, organizer bookings)
+- Found 3 test files using `method: 'STRIPE'` and `payment.method` (phase4a, phase4g, phase4h)
+- Implemented two-layer provider validation strategy:
+  - paymentProviders = ['PAYSTACK', 'MANUAL', 'FREE'] for NEW payments
+  - paymentProviderValues = ['PAYSTACK', 'MANUAL', 'FREE', 'STRIPE'] for all valid DB values
+  - paymentProviderField (Zod) for new payment creation — rejects STRIPE
+  - paymentProviderValueField (Zod) for DB read validation — accepts STRIPE
+- Fixed all 3 API route Prisma selects: method → provider
+- Updated all test file references: method → provider
+- Created focused test file: phase5e-stripe-compat.test.ts (13 tests)
+- All 13 focused tests pass
+- Full test suite: 27 files, 850 tests — all pass
+- TypeScript: 0 errors in changed files
+- Verified 0 DB mutations (all 4 existing payments still STRIPE)
+- Committed as 8cb5fdd
+
+Stage Summary:
+- STRIPE is now a recognized LEGACY provider — read-only, no new creation
+- Historical STRIPE values safely pass through validation and API responses
+- New STRIPE payment creation is blocked at the Zod validation layer
+- No Paystack API calls made
+- No booking confirmation behavior changed
+- No payment state machine implemented (Stage 2 scope)

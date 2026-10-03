@@ -1154,3 +1154,36 @@ Stage Summary:
 - No Paystack API calls made
 - No booking confirmation behavior changed
 - No payment state machine implemented (Stage 2 scope)
+---
+Task ID: 5E-S2
+Agent: main
+Task: Phase 5E Stage 2 — Core Payment Domain Service Layer
+
+Work Log:
+- Inspected entire existing architecture: 23 Prisma models, 5 existing services, all API routes, money utilities, validation constants, auth helpers, env config, test infrastructure
+- Created 15 specialized domain error types (PaymentDomainError hierarchy)
+- Implemented Payment State Machine with all legal/illegal transitions and timestamp mapping
+- Implemented Payment Provider Abstraction (IPaymentProvider interface, provider registry, strongly typed request/result objects)
+- Created Paystack adapter (interface only, throws ProviderIntegrationPending for all operations — NO network calls)
+- Created MANUAL provider adapter (initializes successfully, verification not programmatic)
+- Created FREE provider adapter (immediate success, no web>refunds)
+- Implemented Inventory Reservation Service with raw SQL atomic updates for concurrency safety
+- Implemented Booking Payment Service (determineProvider, createBookingPayment, idempotency keys)
+- Implemented Ticket Issuance Service (createPendingTickets, activateTickets, cancelTickets, expireTickets, idempotent)
+- Implemented Booking Confirmation Service (atomic payment→booking→tickets→inventory in Prisma transaction)
+- Implemented Payment Attempt Service (automatic payload redaction for sensitive fields)
+- Implemented Webhook Processing Service (dedup by eventId, amount/currency verification, payment state transition)
+- Implemented Refund Service (REQUESTED→PROCESSING→COMPLETED/FAILED lifecycle, duplicate prevention)
+- Implemented Payment Expiry Service (sweep + single payment, releases inventory, expires tickets)
+- Created services index file for convenient re-exports
+- Wrote 77 focused Stage 2 tests covering all services and 15 financial invariants
+- All 927 tests pass across 28 test files
+- TypeScript: 0 errors in service files and test files
+- Lint: 0 errors in service files and test files (pre-existing errors only in server-keeper.js)
+- Committed: c2616f9bb3efbf6547* with clean working tree
+
+Stage Summary:
+- 17 new service files created in src/lib/services/
+- 1 new test file with 77 tests
+- No schema changes, no records modified, no Paystack network calls
+- Full test suite passing: 927 tests, 28 files

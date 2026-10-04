@@ -29,6 +29,7 @@
 import { db } from '@/lib/db';
 import { validatePaymentTransition } from './payment-state-machine';
 import { confirmBookingOnPaymentSuccess } from './booking-confirmation';
+import { releaseReservation } from './inventory';
 import {
   WebhookAlreadyProcessed,
   WebhookAmountMismatch,
@@ -159,33 +160,39 @@ export async function processWebhookEvent(
         ? 'Payment completed and booking confirmed'
         : 'Payment already completed (idempotent)';
     } else if (event.isPaymentFailure) {
-      // Payment failure → transition payment to FAILED
+      // Payment failure → transition payment to FAILED + release inventory
+      // Must be transactional: if inventory release fails, payment should not be FAILED
       const transition = validatePaymentTransition(payment.status, 'FAILED');
-      await db.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: 'FAILED',
-          failedAt: transition.timestampFields.failedAt ?? new Date(),
-        },
-      });
-      outcome = 'Payment failed';
 
-      // Release reserved inventory for failed payment
-      const booking = await db.booking.findUnique({
-        where: { id: payment.bookingId },
-        include: { tickets: { select: { ticketTypeId: true } } },
+      await db.$transaction(async (tx) => {
+        // 1. Transition Payment → FAILED
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: 'FAILED',
+            failedAt: transition.timestampFields.failedAt ?? new Date(),
+          },
+        });
+
+        // 2. Release reserved inventory for each ticket type
+        const booking = await tx.booking.findUnique({
+          where: { id: payment.bookingId },
+          include: { tickets: { select: { ticketTypeId: true } } },
+        });
+
+        if (booking) {
+          const ticketTypeCounts = new Map<string, number>();
+          for (const ticket of booking.tickets) {
+            const count = ticketTypeCounts.get(ticket.ticketTypeId) ?? 0;
+            ticketTypeCounts.set(ticket.ticketTypeId, count + 1);
+          }
+          for (const [ticketTypeId, quantity] of ticketTypeCounts) {
+            await releaseReservation({ ticketTypeId, quantity, tx });
+          }
+        }
       });
-      if (booking) {
-        const ticketTypeCounts = new Map<string, number>();
-        for (const ticket of booking.tickets) {
-          const count = ticketTypeCounts.get(ticket.ticketTypeId) ?? 0;
-          ticketTypeCounts.set(ticket.ticketTypeId, count + 1);
-        }
-        for (const [ticketTypeId, quantity] of ticketTypeCounts) {
-          const { releaseReservation } = await import('./inventory');
-          await releaseReservation({ ticketTypeId, quantity });
-        }
-      }
+
+      outcome = 'Payment failed';
     } else {
       outcome = `Event type "${event.eventType}" not actionable`;
     }

@@ -26,6 +26,7 @@ import { db } from '@/lib/db';
 import { paymentProviders } from '@/lib/validations/common';
 import { ProviderNotSupported } from './payment-domain-errors';
 import { validatePaymentMoneyConstraints } from '@/lib/money-constraints';
+import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
 
 // ─── Types ───
@@ -146,7 +147,7 @@ export async function createBookingPayment(
   // 5. Calculate expiry (only for pending payments)
   let expiresAt: Date | null = null;
   if (!isFree) {
-    const minutes = expiryMinutes ?? 15; // Default 15 minutes
+    const minutes = expiryMinutes ?? env.PAYMENT_EXPIRY_MINUTES;
     expiresAt = new Date(Date.now() + minutes * 60 * 1000);
   }
 

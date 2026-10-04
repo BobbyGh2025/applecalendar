@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { AuthError } from '@/lib/auth';
+import { PaymentDomainError } from '@/lib/services/payment-domain-errors';
 import { logger } from '@/lib/logger';
 
 // ─── Prisma Error Detection ───
@@ -103,6 +104,29 @@ export function handleApiError(error: unknown, requestId?: string): NextResponse
       error.requestId = requestId;
     }
     return NextResponse.json(error.toJSON(), { status: error.statusCode });
+  }
+
+  // PaymentDomainError — map to structured response with domain-specific code
+  if (error instanceof PaymentDomainError) {
+    logger.warn('Payment domain error', {
+      code: error.code,
+      statusCode: error.statusCode,
+      errorMessage: isProduction ? '[sanitized]' : error.message,
+      requestId,
+    });
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: error.code,
+          message: error.message,
+          ...(error.details && !isProduction && { details: error.details }),
+          ...(requestId && { requestId }),
+        },
+      },
+      { status: error.statusCode }
+    );
   }
 
   // Prisma errors — handle specific codes with clean responses

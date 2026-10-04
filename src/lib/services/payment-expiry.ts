@@ -23,7 +23,7 @@
  */
 
 import { db } from '@/lib/db';
-import { validatePaymentTransition, canBeExpired } from './payment-state-machine';
+import { validatePaymentTransition, canBeExpired, type PaymentStatus } from './payment-state-machine';
 import { releaseReservation } from './inventory';
 import { expireTickets } from './ticket-service';
 import { logger } from '@/lib/logger';
@@ -132,7 +132,7 @@ export async function expireSinglePayment(
   }
 
   // 2. Check if payment can be expired
-  if (!canBeExpired(payment.status as any)) {
+  if (!canBeExpired(payment.status as PaymentStatus)) {
     logger.info('Payment cannot be expired (wrong status)', { paymentId, status: payment.status });
     return { paymentExpired: false, bookingExpired: false, inventoryReleased: [], ticketsExpired: 0 };
   }

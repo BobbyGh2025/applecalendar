@@ -28,6 +28,7 @@ export {
   PaymentNotFound,
   PaymentAlreadyConfirmed,
   FreeEventRequiresFreeProvider,
+  RefundNotFound,
   RefundNotEligible,
   RefundAmountExceedsPayment,
   DuplicateRefund,

@@ -31,6 +31,7 @@ import { db } from '@/lib/db';
 import { validatePaymentTransition } from './payment-state-machine';
 import {
   PaymentNotFound,
+  RefundNotFound,
   RefundNotEligible,
   RefundAmountExceedsPayment,
   DuplicateRefund,
@@ -191,7 +192,7 @@ export async function processRefundCompletion(
   });
 
   if (!refund) {
-    throw new PaymentNotFound(refundId);
+    throw new RefundNotFound(refundId);
   }
 
   // Idempotent: already completed

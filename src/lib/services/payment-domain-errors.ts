@@ -131,6 +131,13 @@ export class FreeEventRequiresFreeProvider extends PaymentDomainError {
 
 // ─── Refund Errors ───
 
+export class RefundNotFound extends PaymentDomainError {
+  constructor(refundId: string) {
+    super('REFUND_NOT_FOUND', `Refund not found: ${refundId}`, 404, { refundId });
+    this.name = 'RefundNotFound';
+  }
+}
+
 export class RefundNotEligible extends PaymentDomainError {
   constructor(paymentId: string, reason: string) {
     super(

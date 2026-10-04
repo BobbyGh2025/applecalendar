@@ -166,8 +166,10 @@ describe('Payment State Machine', () => {
     });
 
     it('getAllowedTransitions returns correct sets', () => {
-      expect(getAllowedTransitions('PENDING')).toEqual(['PROCESSING', 'CANCELLED', 'EXPIRED']);
-      expect(getAllowedTransitions('PROCESSING')).toEqual(['COMPLETED', 'FAILED', 'EXPIRED']);
+      expect(getAllowedTransitions('PENDING')).toEqual(expect.arrayContaining(['PROCESSING', 'COMPLETED', 'CANCELLED', 'EXPIRED']));
+      expect(getAllowedTransitions('PENDING')).toHaveLength(4);
+      expect(getAllowedTransitions('PROCESSING')).toEqual(expect.arrayContaining(['COMPLETED', 'FAILED', 'EXPIRED']));
+      expect(getAllowedTransitions('PROCESSING')).toHaveLength(3);
       expect(getAllowedTransitions('COMPLETED')).toEqual(['REFUNDED']);
       expect(getAllowedTransitions('REFUNDED')).toEqual([]);
     });

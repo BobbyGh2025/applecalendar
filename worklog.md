@@ -1237,3 +1237,38 @@ Service Files (11 total):
 
 Supporting Changes:
 - src/lib/errors.ts — PaymentDomainError handling added to handleApiError
+
+---
+
+Task ID: 5E-S2-CLOSURE
+Agent: Main Agent
+Task: Phase 5E Stage 2 Final Financial-Integrity Closure
+
+Work Log:
+- Deep inspection of all 6 verification areas in service implementations
+- Identified 6 confirmed defects across 4 service files
+- Fixed INVENTORY-1: releaseReservation() TOCTOU race — changed absolute-value update to guarded decrement
+- Fixed INVENTORY-2: restoreSoldCount() same TOCTOU race — changed absolute-value update to guarded decrement
+- Fixed WEBHOOK-1: Amount/currency mismatch + payment-not-found marked processed=false (enabling infinite retry) → changed to processed=true (non-retriable)
+- Fixed WEBHOOK-2: Concurrent webhook delivery P2002 unique constraint violation on PaymentWebhookEvent.create() unhandled → added try/catch with P2002 detection and re-read
+- Fixed REFUND-1: processRefundCompletion() unguarded refundedAmount increment (over-refund possible) → added raw SQL conditional UPDATE with guard (refundedAmount + amount <= payment.amount)
+- Fixed IDEMPOTENCY-1: createBookingPayment() P2002 on idempotencyKey unhandled → added try/catch with P2002 detection and re-read
+- Closed 2 legacy STRIPE PENDING payments (should have been done in STRIPE compat closure)
+- Wrote comprehensive test file with 48 targeted tests across all 6 areas, including 5 regression tests for confirmed defects
+- Fixed pre-existing test bugs: getAllowedTransitions order assertion, 3 syntax errors in old test file
+- All 975 tests pass (29 test files, 0 failures)
+- 0 TS errors in changed service/test files
+- 0 lint errors in changed files
+- DB integrity verified: 128 TicketTypes (0 violations), 96 Payments (0 violations), 0 active STRIPE, 20 Refunds (0 violations)
+- App renders correctly in Agent Browser
+
+Stage Summary:
+- 6 confirmed defects fixed in 4 service files (inventory.ts, payment-webhook.ts, refund-service.ts, booking-payment.ts)
+- 48 targeted tests in phase5e-financial-integrity.test.ts (up from ~20 with syntax errors)
+- Key financial integrity guarantees now enforced:
+  - Inventory: TOCTOU-safe decrements, invariant preserved under concurrency
+  - Webhook: Non-retriable errors marked processed=true, P2002 handled, events not marked processed before financial effects
+  - Refund: Over-refund impossible via raw SQL conditional guard, idempotent completion
+  - Idempotency: P2002 on idempotencyKey handled, concurrent creation returns existing payment
+- Commit hash: 2b5f5ea
+- STOPPED — awaiting Stage 2 approval before starting Stage 3

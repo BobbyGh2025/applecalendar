@@ -71,6 +71,20 @@ export function generateIdempotencyKey(): string {
   return `pay-${timestamp}-${random}`;
 }
 
+// ─── Helper: Prisma Unique Constraint Violation Detection ───
+
+/**
+ * Detect Prisma P2002 error (unique constraint violation).
+ * Used to handle concurrent payment creation requests with the same idempotencyKey.
+ */
+function isPrismaUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as { code: string }).code === 'P2002'
+  );
+}
+
 // ─── Core: Determine Provider ───
 
 /**
@@ -182,27 +196,63 @@ export async function createBookingPayment(
   }
 
   // 6. Create the Payment record
-  const payment = await db.payment.create({
-    data: {
-      bookingId,
-      userId,
-      amount,
-      currency,
-      provider,
-      status,
-      idempotencyKey: key,
-      expiresAt,
-      // For free payments, set completedAt immediately
-      completedAt: isFree ? new Date() : null,
-    },
-    select: {
-      id: true,
-      provider: true,
-      status: true,
-      idempotencyKey: true,
-      expiresAt: true,
-    },
-  });
+  // Wrap in try/catch to handle P2002 unique constraint violation on idempotencyKey.
+  // A concurrent request with the same key could create the payment between our
+  // findUnique check and this create — we must return the existing payment, not throw.
+  let payment: { id: string; provider: string; status: string; idempotencyKey: string | null; expiresAt: Date | null };
+  try {
+    payment = await db.payment.create({
+      data: {
+        bookingId,
+        userId,
+        amount,
+        currency,
+        provider,
+        status,
+        idempotencyKey: key,
+        expiresAt,
+        // For free payments, set completedAt immediately
+        completedAt: isFree ? new Date() : null,
+      },
+      select: {
+        id: true,
+        provider: true,
+        status: true,
+        idempotencyKey: true,
+        expiresAt: true,
+      },
+    });
+  } catch (createError) {
+    if (isPrismaUniqueConstraintViolation(createError)) {
+      // Concurrent request created the payment — read and return it (idempotent)
+      const concurrent = await db.payment.findUnique({
+        where: { idempotencyKey: key },
+        select: {
+          id: true,
+          provider: true,
+          status: true,
+          idempotencyKey: true,
+          expiresAt: true,
+        },
+      });
+      if (concurrent) {
+        logger.info('Payment created by concurrent request (idempotencyKey race)', {
+          paymentId: concurrent.id,
+          idempotencyKey: key,
+        });
+        return {
+          paymentId: concurrent.id,
+          provider: concurrent.provider,
+          status: concurrent.status,
+          idempotencyKey: concurrent.idempotencyKey!,
+          requiresPaymentAction: concurrent.status !== 'COMPLETED',
+          authorizationUrl: null,
+          expiresAt: concurrent.expiresAt,
+        };
+      }
+    }
+    throw createError;
+  }
 
   logger.info('Payment created for booking', {
     paymentId: payment.id,

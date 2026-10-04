@@ -96,19 +96,49 @@ export async function processWebhookEvent(
   if (existingEvent) {
     webhookEventId = existingEvent.id;
   } else {
-    const webhookEvent = await db.paymentWebhookEvent.create({
-      data: {
-        provider: event.provider,
-        eventId: event.eventId,
-        eventType: event.eventType,
-        eventReference: event.eventReference,
-        payload: rawPayload ?? JSON.stringify(event),
-        signature: signature ?? null,
-        processed: false,
-      },
-      select: { id: true },
-    });
-    webhookEventId = webhookEvent.id;
+    try {
+      const webhookEvent = await db.paymentWebhookEvent.create({
+        data: {
+          provider: event.provider,
+          eventId: event.eventId,
+          eventType: event.eventType,
+          eventReference: event.eventReference,
+          payload: rawPayload ?? JSON.stringify(event),
+          signature: signature ?? null,
+          processed: false,
+        },
+        select: { id: true },
+      });
+      webhookEventId = webhookEvent.id;
+    } catch (createError) {
+      // Handle concurrent delivery: another process may have created the event
+      // between our findUnique and this create (P2002 = unique constraint violation).
+      if (isPrismaUniqueConstraintViolation(createError)) {
+        const concurrent = await db.paymentWebhookEvent.findUnique({
+          where: { eventId: event.eventId },
+          select: { id: true, processed: true },
+        });
+        if (concurrent) {
+          if (concurrent.processed) {
+            logger.info('Webhook event created+processed by concurrent delivery (dedup)', {
+              eventId: event.eventId,
+            });
+            return {
+              webhookEventId: concurrent.id,
+              processed: false,
+              paymentId: null,
+              outcome: 'Event already processed — duplicate ignored',
+            };
+          }
+          // Event exists but not yet processed — proceed (idempotent processing)
+          webhookEventId = concurrent.id;
+        } else {
+          throw createError; // Shouldn't happen, but re-throw if it does
+        }
+      } else {
+        throw createError;
+      }
+    }
   }
 
   // 3. Locate the payment by provider reference
@@ -124,8 +154,9 @@ export async function processWebhookEvent(
   });
 
   if (!payment) {
-    // Payment not found — mark event as processed with error
-    await markEventProcessed(webhookEventId, false, 'Payment not found for provider reference');
+    // Payment not found — mark event as processed=true (non-retriable: retrying won't
+    // make the payment appear). This prevents infinite retry loops for orphaned webhooks.
+    await markEventProcessed(webhookEventId, true, 'Payment not found for provider reference');
     return {
       webhookEventId,
       processed: true,
@@ -136,13 +167,17 @@ export async function processWebhookEvent(
 
   // 4. Verify amount matches
   if (event.amount !== payment.amount) {
-    await markEventProcessed(webhookEventId, false, 'Amount mismatch');
+    // Amount mismatch is a permanent error — retrying won't fix it.
+    // Mark as processed=true to prevent infinite retry loops.
+    await markEventProcessed(webhookEventId, true, 'Amount mismatch');
     throw new WebhookAmountMismatch(payment.amount, event.amount);
   }
 
   // 5. Verify currency matches
   if (event.currency !== payment.currency) {
-    await markEventProcessed(webhookEventId, false, 'Currency mismatch');
+    // Currency mismatch is a permanent error — retrying won't fix it.
+    // Mark as processed=true to prevent infinite retry loops.
+    await markEventProcessed(webhookEventId, true, 'Currency mismatch');
     throw new WebhookCurrencyMismatch(payment.currency, event.currency);
   }
 
@@ -219,6 +254,21 @@ export async function processWebhookEvent(
 
     throw error;
   }
+}
+
+// ─── Helper: Prisma Unique Constraint Violation Detection ───
+
+/**
+ * Detect Prisma P2002 error (unique constraint violation).
+ * Used to handle concurrent webhook deliveries that race to create
+ * the same PaymentWebhookEvent record.
+ */
+function isPrismaUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as { code: string }).code === 'P2002'
+  );
 }
 
 // ─── Helper: Mark Event Processed ───

@@ -236,17 +236,42 @@ export async function processRefundCompletion(
       return;
     }
 
-    // 2. Increment Payment.refundedAmount
-    const updatedPayment = await tx.payment.update({
+    // 2. Increment Payment.refundedAmount with over-refund guard
+    // Use raw SQL conditional update: only increment if refundedAmount + amount <= payment.amount
+    // This prevents over-refund when two sequential partial refunds race past requestRefund's check.
+    const refundIncrement = await tx.$executeRaw`
+      UPDATE "Payment"
+      SET "refundedAmount" = "refundedAmount" + ${refund.amount}
+      WHERE "id" = ${refund.paymentId}
+        AND ("refundedAmount" + ${refund.amount}) <= "amount"
+    `;
+
+    if (refundIncrement === 0) {
+      // Over-refund guard triggered: refundedAmount + this refund would exceed payment.amount.
+      // Mark the refund as FAILED instead of COMPLETED to prevent financial inconsistency.
+      await tx.refund.update({
+        where: { id: refundId },
+        data: {
+          status: 'FAILED',
+          failureReason: `Over-refund guard: refundedAmount + ${refund.amount} would exceed payment amount ${refund.payment.amount}`,
+        },
+      });
+      logger.error('Over-refund guard triggered — refund marked as FAILED', {
+        refundId,
+        paymentId: refund.paymentId,
+        refundAmount: refund.amount,
+        paymentAmount: refund.payment.amount,
+      });
+      return;
+    }
+
+    const updatedPayment = await tx.payment.findUnique({
       where: { id: refund.paymentId },
-      data: {
-        refundedAmount: { increment: refund.amount },
-      },
       select: { amount: true, refundedAmount: true, status: true },
     });
 
     // 3. If full refund (refundedAmount >= amount), transition Payment → REFUNDED
-    if (updatedPayment.refundedAmount >= refund.payment.amount && updatedPayment.status === 'COMPLETED') {
+    if (updatedPayment && updatedPayment.refundedAmount >= refund.payment.amount && updatedPayment.status === 'COMPLETED') {
       const transition = validatePaymentTransition('COMPLETED', 'REFUNDED');
       await tx.payment.update({
         where: { id: refund.paymentId },

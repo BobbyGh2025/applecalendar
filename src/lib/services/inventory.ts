@@ -168,18 +168,36 @@ export async function releaseReservation(params: ReleaseInventoryParams): Promis
       select: { reservedCount: true },
     });
     if (current && current.reservedCount > 0) {
-      // Decrement by whatever is actually reserved (at most reservedCount)
+      // Decrement by whatever is actually reserved (at most reservedCount).
+      // Use updateMany with guard (reservedCount >= safeDecrement) instead of
+      // absolute-value update to prevent TOCTOU race: another concurrent
+      // reserveInventory() between our read and write must not lose its increment.
       const safeDecrement = Math.min(current.reservedCount, quantity);
-      await client.ticketType.update({
-        where: { id: ticketTypeId },
-        data: { reservedCount: current.reservedCount - safeDecrement },
+      const guardResult = await client.ticketType.updateMany({
+        where: {
+          id: ticketTypeId,
+          reservedCount: { gte: safeDecrement },
+        },
+        data: {
+          reservedCount: { decrement: safeDecrement },
+        },
       });
-      logger.warn('Reservation release guard triggered — safe decrement applied', {
-        ticketTypeId,
-        requestedQty: quantity,
-        actualReserved: current.reservedCount,
-        decremented: safeDecrement,
-      });
+      if (guardResult.count === 0) {
+        // reservedCount decreased between our read and write (another release or confirm).
+        // This is idempotent — the reservation was already released.
+        logger.info('Reservation release safe-decrement guard triggered (idempotent)', {
+          ticketTypeId,
+          requestedQty: quantity,
+          attemptedDecrement: safeDecrement,
+        });
+      } else {
+        logger.warn('Reservation release guard triggered — safe decrement applied', {
+          ticketTypeId,
+          requestedQty: quantity,
+          actualReserved: current.reservedCount,
+          decremented: safeDecrement,
+        });
+      }
     } else {
       logger.info('Reservation already released (idempotent)', { ticketTypeId, quantity });
     }
@@ -316,17 +334,35 @@ export async function restoreSoldCount(
       select: { soldCount: true },
     });
     if (current && current.soldCount > 0) {
+      // Use updateMany with guard (soldCount >= safeDecrement) instead of
+      // absolute-value update to prevent TOCTOU race: another concurrent
+      // directSoldIncrement() between our read and write must not lose its increment.
       const safeDecrement = Math.min(current.soldCount, quantity);
-      await client.ticketType.update({
-        where: { id: ticketTypeId },
-        data: { soldCount: current.soldCount - safeDecrement },
+      const guardResult = await client.ticketType.updateMany({
+        where: {
+          id: ticketTypeId,
+          soldCount: { gte: safeDecrement },
+        },
+        data: {
+          soldCount: { decrement: safeDecrement },
+        },
       });
-      logger.warn('SoldCount decrement guard triggered — safe decrement applied', {
-        ticketTypeId,
-        requestedQty: quantity,
-        actualSold: current.soldCount,
-        decremented: safeDecrement,
-      });
+      if (guardResult.count === 0) {
+        // soldCount decreased between our read and write (another restore or confirm).
+        // This is idempotent — the sold count was already restored.
+        logger.info('SoldCount safe-decrement guard triggered (idempotent)', {
+          ticketTypeId,
+          requestedQty: quantity,
+          attemptedDecrement: safeDecrement,
+        });
+      } else {
+        logger.warn('SoldCount decrement guard triggered — safe decrement applied', {
+          ticketTypeId,
+          requestedQty: quantity,
+          actualSold: current.soldCount,
+          decremented: safeDecrement,
+        });
+      }
     } else {
       logger.info('SoldCount already restored (idempotent)', { ticketTypeId, quantity });
     }

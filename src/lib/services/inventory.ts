@@ -155,15 +155,34 @@ export async function releaseReservation(params: ReleaseInventoryParams): Promis
   });
 
   if (result.count === 0) {
-    // Safety: if the guard prevented decrement, force reservedCount to 0 (data repair)
-    logger.warn('Reservation release guard triggered — forcing reservedCount to 0', {
-      ticketTypeId,
-      quantity,
-    });
-    await client.ticketType.update({
+    // Guard triggered: reservedCount < quantity.
+    // This means the reservation was already partially or fully released (idempotent),
+    // or reservedCount was never fully incremented.
+    //
+    // Do NOT force reservedCount = 0 — that would destroy legitimate reservations
+    // from other concurrent bookings on the same ticket type.
+    //
+    // Instead, safely decrement by the actual remaining reservedCount (clamp to 0).
+    const current = await client.ticketType.findUnique({
       where: { id: ticketTypeId },
-      data: { reservedCount: 0 },
+      select: { reservedCount: true },
     });
+    if (current && current.reservedCount > 0) {
+      // Decrement by whatever is actually reserved (at most reservedCount)
+      const safeDecrement = Math.min(current.reservedCount, quantity);
+      await client.ticketType.update({
+        where: { id: ticketTypeId },
+        data: { reservedCount: current.reservedCount - safeDecrement },
+      });
+      logger.warn('Reservation release guard triggered — safe decrement applied', {
+        ticketTypeId,
+        requestedQty: quantity,
+        actualReserved: current.reservedCount,
+        decremented: safeDecrement,
+      });
+    } else {
+      logger.info('Reservation already released (idempotent)', { ticketTypeId, quantity });
+    }
   }
 
   logger.info('Reservation released', { ticketTypeId, quantity });
@@ -284,15 +303,33 @@ export async function restoreSoldCount(
   });
 
   if (result.count === 0) {
-    // Safety: force soldCount to not go below 0
-    logger.warn('SoldCount decrement guard triggered — forcing soldCount to 0', {
-      ticketTypeId,
-      quantity,
-    });
-    await client.ticketType.update({
+    // Guard triggered: soldCount < quantity.
+    // This means soldCount was already partially or fully restored (idempotent),
+    // or soldCount was never fully incremented.
+    //
+    // Do NOT force soldCount = 0 — that would destroy legitimate sales from
+    // other confirmed bookings on the same ticket type.
+    //
+    // Instead, safely decrement by the actual remaining soldCount (clamp to 0).
+    const current = await client.ticketType.findUnique({
       where: { id: ticketTypeId },
-      data: { soldCount: 0 },
+      select: { soldCount: true },
     });
+    if (current && current.soldCount > 0) {
+      const safeDecrement = Math.min(current.soldCount, quantity);
+      await client.ticketType.update({
+        where: { id: ticketTypeId },
+        data: { soldCount: current.soldCount - safeDecrement },
+      });
+      logger.warn('SoldCount decrement guard triggered — safe decrement applied', {
+        ticketTypeId,
+        requestedQty: quantity,
+        actualSold: current.soldCount,
+        decremented: safeDecrement,
+      });
+    } else {
+      logger.info('SoldCount already restored (idempotent)', { ticketTypeId, quantity });
+    }
   }
 
   logger.info('Sold count restored (cancellation)', { ticketTypeId, quantity });

@@ -120,34 +120,39 @@ export async function requestRefund(
     throw new RefundAmountExceedsPayment(amount, remainingRefundable);
   }
 
-  // 4. Check for duplicate active refund (REQUESTED or PROCESSING)
-  const activeRefund = await db.refund.findFirst({
-    where: {
-      paymentId,
-      status: { in: ['REQUESTED', 'PROCESSING'] },
-    },
-    select: { id: true },
-  });
+  // 4-5. Atomic: check for duplicate active refund + create new refund
+  // Must be in a transaction to prevent TOCTOU race: two concurrent requests
+  // could both pass the duplicate check and both create refunds.
+  const refund = await db.$transaction(async (tx) => {
+    // Check for duplicate active refund (REQUESTED or PROCESSING)
+    const activeRefund = await tx.refund.findFirst({
+      where: {
+        paymentId,
+        status: { in: ['REQUESTED', 'PROCESSING'] },
+      },
+      select: { id: true },
+    });
 
-  if (activeRefund) {
-    throw new DuplicateRefund(paymentId);
-  }
+    if (activeRefund) {
+      throw new DuplicateRefund(paymentId);
+    }
 
-  // 5. Create the Refund record
-  const refund = await db.refund.create({
-    data: {
-      paymentId,
-      amount,
-      reason: reason ?? null,
-      status: 'REQUESTED',
-      requestedBy,
-    },
-    select: {
-      id: true,
-      status: true,
-      amount: true,
-      paymentId: true,
-    },
+    // Create the Refund record
+    return tx.refund.create({
+      data: {
+        paymentId,
+        amount,
+        reason: reason ?? null,
+        status: 'REQUESTED',
+        requestedBy,
+      },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        paymentId: true,
+      },
+    });
   });
 
   logger.info('Refund requested', {
@@ -209,17 +214,27 @@ export async function processRefundCompletion(
     );
   }
 
-  // Atomic transaction
+  // Atomic transaction with status guard to prevent double-completion
   await db.$transaction(async (tx) => {
-    // 1. Update Refund status
-    await tx.refund.update({
-      where: { id: refundId },
+    // 1. Update Refund status — CONDITIONAL on current status being REQUESTED or PROCESSING
+    // This prevents two concurrent completions from both succeeding
+    const refundUpdate = await tx.refund.updateMany({
+      where: {
+        id: refundId,
+        status: { in: ['REQUESTED', 'PROCESSING'] },
+      },
       data: {
         status: 'COMPLETED',
         providerRef: providerRef ?? null,
         processedAt: new Date(),
       },
     });
+
+    if (refundUpdate.count === 0) {
+      // Refund was already completed by a concurrent process — idempotent, no-op
+      logger.info('Refund already completed by concurrent process (idempotent)', { refundId });
+      return;
+    }
 
     // 2. Increment Payment.refundedAmount
     const updatedPayment = await tx.payment.update({
@@ -230,7 +245,7 @@ export async function processRefundCompletion(
       select: { amount: true, refundedAmount: true, status: true },
     });
 
-    // 3. If full refund (refundedAmount === amount), transition Payment → REFUNDED
+    // 3. If full refund (refundedAmount >= amount), transition Payment → REFUNDED
     if (updatedPayment.refundedAmount >= refund.payment.amount && updatedPayment.status === 'COMPLETED') {
       const transition = validatePaymentTransition('COMPLETED', 'REFUNDED');
       await tx.payment.update({

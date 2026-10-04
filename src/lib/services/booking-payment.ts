@@ -144,6 +144,36 @@ export async function createBookingPayment(
   // 4. Generate or use provided idempotency key
   const key = idempotencyKey ?? generateIdempotencyKey();
 
+  // 4b. Idempotency: if a payment with this idempotencyKey already exists, return it
+  // This prevents duplicate payment creation on retry (e.g., network timeout + retry)
+  const existingPayment = await db.payment.findUnique({
+    where: { idempotencyKey: key },
+    select: {
+      id: true,
+      provider: true,
+      status: true,
+      idempotencyKey: true,
+      expiresAt: true,
+      amount: true,
+    },
+  });
+
+  if (existingPayment) {
+    logger.info('Payment already exists for idempotencyKey (idempotent)', {
+      paymentId: existingPayment.id,
+      idempotencyKey: key,
+    });
+    return {
+      paymentId: existingPayment.id,
+      provider: existingPayment.provider,
+      status: existingPayment.status,
+      idempotencyKey: existingPayment.idempotencyKey!,
+      requiresPaymentAction: existingPayment.status !== 'COMPLETED',
+      authorizationUrl: null,
+      expiresAt: existingPayment.expiresAt,
+    };
+  }
+
   // 5. Calculate expiry (only for pending payments)
   let expiresAt: Date | null = null;
   if (!isFree) {

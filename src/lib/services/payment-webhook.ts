@@ -228,11 +228,14 @@ async function markEventProcessed(
   success: boolean,
   error?: string,
 ): Promise<void> {
+  // Only mark processed=true when financial effects are durably committed.
+  // Failed events remain processed=false so they can be retried.
+  // The processingError field records what went wrong for observability.
   await db.paymentWebhookEvent.update({
     where: { id: webhookEventId },
     data: {
-      processed: true,
-      processedAt: new Date(),
+      processed: success,
+      processedAt: success ? new Date() : null,
       ...(error && { processingError: error }),
     },
   });

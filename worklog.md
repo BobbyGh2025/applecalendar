@@ -1272,3 +1272,26 @@ Stage Summary:
   - Idempotency: P2002 on idempotencyKey handled, concurrent creation returns existing payment
 - Commit hash: 2b5f5ea
 - STOPPED — awaiting Stage 2 approval before starting Stage 3
+---
+Task ID: approval-gate-audit
+Agent: main
+Task: Phase 5E Stage 2 Approval Gate — Focused Final Audit (3 areas)
+
+Work Log:
+- Inspected processRefundCompletion() in refund-service.ts: confirmed all Payment + Refund updates happen inside single db.$transaction() with conditional updateMany guard and raw SQL over-refund guard. ATOMIC — no fix needed.
+- Inspected payment-webhook.ts: confirmed permanent rejections (payment-not-found, amount-mismatch, currency-mismatch) store reasons in processingError and mark processed=true. Confirmed transient failures mark processed=false for retry. Confirmed markEventProcessed(id,true) is called AFTER financial effects commit. All three sub-properties confirmed.
+- DISCOVERED DEFECT: PENDING→FAILED transition missing from payment state machine. This breaks the webhook failure path for payments that fail before reaching PROCESSING (e.g., provider rejects charge during initialization, or charge.failed webhook arrives while payment is still PENDING).
+- FIXED: Added PENDING→FAILED to LEGAL_TRANSITIONS map in payment-state-machine.ts and updated documentation comment.
+- Updated existing tests that asserted PENDING→FAILED was illegal: phase5e-financial-integrity.test.ts (line 1007-1009) and phase5e-stage2-core-services.test.ts (lines 169-170).
+- Created phase5e-approval-gate-audit.test.ts with 16 targeted regression tests covering all three audit areas.
+- Ran full test suite: 991 tests pass (30 test files).
+- Committed as 536a0ae.
+
+Stage Summary:
+- AUDIT 1 CONFIRMED: processRefundCompletion() IS atomic — all Payment and Refund updates in single db.$transaction()
+- AUDIT 2 CONFIRMED: Webhook events preserve permanent rejection reasons (processingError field), transient failures remain retryable (processed=false), no pre-commit acknowledgement (markEventProcessed called after financial effects)
+- AUDIT 3 DEFECT FOUND + FIXED: PENDING→FAILED transition added to state machine
+- 16 new regression tests in phase5e-approval-gate-audit.test.ts
+- Full suite: 991/991 pass
+- Commit: 536a0aeaba418dc43b58a0698d0800bfcd5c2d01
+- DB records changed: Yes (test suite created records during verification — expected for integration tests)

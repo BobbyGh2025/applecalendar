@@ -1295,3 +1295,26 @@ Stage Summary:
 - Full suite: 991/991 pass
 - Commit: 536a0aeaba418dc43b58a0698d0800bfcd5c2d01
 - DB records changed: Yes (test suite created records during verification — expected for integration tests)
+---
+Task ID: stage3
+Agent: main
+Task: Phase 5E Stage 3: Payment API Routes
+
+Work Log:
+- Inspected existing codebase patterns: auth, routes, validation, rate-limiting, error handling, response format
+- Designed 10 API endpoints with authorization rules and rate limits
+- Created src/lib/validations/payments.ts with 7 Zod schemas
+- Implemented 10 route handlers across 10 files
+- Fixed createBookingPayment P2002 handler to also check bookingId (not just idempotencyKey)
+- Created 67 comprehensive tests covering: validation schemas, auth enforcement, ownership checks, webhook signature verification, domain service integration, refund authorization, manual confirmation, webhook processing, payment expiry, financial integrity, provider boundary, route response contracts, state machine
+- Ran full test suite: 1058/1058 pass
+- Committed as 572288a
+
+Stage Summary:
+- 10 API endpoints implemented with full auth, validation, and rate-limiting
+- No real Paystack calls (ProviderIntegrationPending → 501)
+- Webhook endpoint verifies HMAC-SHA512 signature with timing-safe comparison
+- All domain services reused — no duplicated financial logic
+- 67 new tests, 1058 total pass
+- 14 files changed, 2241 insertions
+- Commit: 572288a79e5b3cd06aa34cfd3f2fc46b60c7ccff

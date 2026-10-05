@@ -1004,9 +1004,9 @@ describe('Area 4: Payment State Machine', () => {
     expect(() => validatePaymentTransition('COMPLETED', 'CANCELLED')).toThrow();
     expect(() => validatePaymentTransition('COMPLETED', 'EXPIRED')).toThrow();
 
-    // PENDING cannot go to REFUNDED, FAILED directly
+    // PENDING cannot go to REFUNDED directly
     expect(() => validatePaymentTransition('PENDING', 'REFUNDED')).toThrow();
-    expect(() => validatePaymentTransition('PENDING', 'FAILED')).toThrow();
+    // PENDING → FAILED is legal (webhook charge.failed for payments that fail before reaching PROCESSING)
   });
 
   it('same-status transition is idempotent (not an error)', () => {

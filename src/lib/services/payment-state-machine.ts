@@ -7,7 +7,7 @@
  * without first validating the transition here.
  *
  * Legal transitions:
- *   PENDING    → PROCESSING | COMPLETED | CANCELLED | EXPIRED
+ *   PENDING    → PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED
  *   PROCESSING → COMPLETED  | FAILED    | EXPIRED
  *   COMPLETED  → REFUNDED
  *
@@ -46,7 +46,7 @@ export interface PaymentTransitionResult {
  * Key = current status, Value = Set of allowed target statuses.
  */
 const LEGAL_TRANSITIONS: Map<PaymentStatus, Set<PaymentStatus>> = new Map([
-  ['PENDING', new Set(['PROCESSING', 'COMPLETED', 'CANCELLED', 'EXPIRED'])],
+  ['PENDING', new Set(['PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED'])],
   ['PROCESSING', new Set(['COMPLETED', 'FAILED', 'EXPIRED'])],
   ['COMPLETED', new Set(['REFUNDED'])],
   // Terminal states — no outgoing transitions

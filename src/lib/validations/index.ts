@@ -131,6 +131,26 @@ export type {
   VerifyOrganizerInput,
 } from './organizer';
 
+// ---- Payments ----
+export {
+  initializePaymentSchema,
+  verifyPaymentSchema,
+  requestRefundSchema,
+  confirmManualPaymentSchema,
+  paymentQuerySchema,
+  processRefundSchema,
+  webhookQuerySchema,
+} from './payments';
+export type {
+  InitializePaymentInput,
+  VerifyPaymentInput,
+  RequestRefundInput,
+  ConfirmManualPaymentInput,
+  PaymentQueryInput,
+  ProcessRefundInput,
+  WebhookQueryInput,
+} from './payments';
+
 // ---- Identity ----
 export {
   forgotPasswordSchema,

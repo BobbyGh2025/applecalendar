@@ -225,7 +225,8 @@ export async function createBookingPayment(
   } catch (createError) {
     if (isPrismaUniqueConstraintViolation(createError)) {
       // Concurrent request created the payment — read and return it (idempotent)
-      const concurrent = await db.payment.findUnique({
+      // The P2002 could be on idempotencyKey OR bookingId — check both.
+      const concurrentByIdempotencyKey = await db.payment.findUnique({
         where: { idempotencyKey: key },
         select: {
           id: true,
@@ -235,19 +236,46 @@ export async function createBookingPayment(
           expiresAt: true,
         },
       });
-      if (concurrent) {
+      if (concurrentByIdempotencyKey) {
         logger.info('Payment created by concurrent request (idempotencyKey race)', {
-          paymentId: concurrent.id,
+          paymentId: concurrentByIdempotencyKey.id,
           idempotencyKey: key,
         });
         return {
-          paymentId: concurrent.id,
-          provider: concurrent.provider,
-          status: concurrent.status,
-          idempotencyKey: concurrent.idempotencyKey!,
-          requiresPaymentAction: concurrent.status !== 'COMPLETED',
+          paymentId: concurrentByIdempotencyKey.id,
+          provider: concurrentByIdempotencyKey.provider,
+          status: concurrentByIdempotencyKey.status,
+          idempotencyKey: concurrentByIdempotencyKey.idempotencyKey!,
+          requiresPaymentAction: concurrentByIdempotencyKey.status !== 'COMPLETED',
           authorizationUrl: null,
-          expiresAt: concurrent.expiresAt,
+          expiresAt: concurrentByIdempotencyKey.expiresAt,
+        };
+      }
+
+      // P2002 on bookingId — a payment already exists for this booking
+      const concurrentByBookingId = await db.payment.findUnique({
+        where: { bookingId },
+        select: {
+          id: true,
+          provider: true,
+          status: true,
+          idempotencyKey: true,
+          expiresAt: true,
+        },
+      });
+      if (concurrentByBookingId) {
+        logger.info('Payment already exists for booking (bookingId race)', {
+          paymentId: concurrentByBookingId.id,
+          bookingId,
+        });
+        return {
+          paymentId: concurrentByBookingId.id,
+          provider: concurrentByBookingId.provider,
+          status: concurrentByBookingId.status,
+          idempotencyKey: concurrentByBookingId.idempotencyKey ?? key,
+          requiresPaymentAction: concurrentByBookingId.status !== 'COMPLETED',
+          authorizationUrl: null,
+          expiresAt: concurrentByBookingId.expiresAt,
         };
       }
     }

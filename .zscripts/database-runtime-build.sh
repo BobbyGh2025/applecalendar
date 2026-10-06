@@ -4,6 +4,17 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/z/my-project}"
 BUILD_DIR="${BUILD_DIR:?BUILD_DIR is required}"
+DATABASE_RUNTIME_MODE="${DATABASE_RUNTIME_MODE:-sqlite}"
+
+if [ "$DATABASE_RUNTIME_MODE" = "external" ]; then
+    echo "🗄️  External database mode enabled; skipping packaged SQLite database."
+    exit 0
+fi
+
+if [ "$DATABASE_RUNTIME_MODE" != "sqlite" ]; then
+    echo "❌ Unknown DATABASE_RUNTIME_MODE: $DATABASE_RUNTIME_MODE (expected sqlite or external)"
+    exit 1
+fi
 SOURCE_DB_DIR="$PROJECT_DIR/db"
 SOURCE_DB_PATH="$SOURCE_DB_DIR/custom.db"
 TARGET_DB_DIR="$BUILD_DIR/db"

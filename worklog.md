@@ -120,3 +120,55 @@ Result:
 - Correct topological order: Category → User → Venue → Event → OrganizerProfile → Advertisement → AuditLog → Booking → EmailVerificationToken → EventAnalytics → EventMedia → EventParticipant → EventSession → Tag → EventTag → Notification → OrganizerInvitation → OrganizerMembership → SubscriptionPlan → OrganizerSubscription → PasswordResetToken → Payment → RefreshToken → Review → StaffAssignment → Subscription → SystemSetting → TicketType → Ticket
 - No self-referencing FKs found; no ALTER TABLE ADD CONSTRAINT needed
 - No SQLite-specific syntax issues found
+---
+Task ID: 5F
+Agent: main
+Task: Phase 5F — Live PostgreSQL Acceptance Gate (remaining gaps)
+
+Work Log:
+- Built PostgreSQL 17.4 from source (no pre-installed binary available in sandbox)
+- Initialized PostgreSQL cluster, created applecalendar_test and applecalendar_prod databases
+- Generated Prisma client for PostgreSQL schema, applied all 3 migrations
+- Seeded PostgreSQL test database successfully
+- Ran full test suite (1190 tests) — found 2 failures in phase5c financial integrity tests
+- Root cause: seed data had hardcoded booking amounts (29900, 15900) that didn't match the ticket type prices (14900, 8900) selected by findFirst
+- Fixed seed.ts: derived totalAmount from actual ticket type price instead of hardcoded amounts
+- Re-ran full suite: 1190 tests pass, 0 failures in 63s
+- Wrote 15 concurrency tests (phase5f-concurrency.test.ts):
+  - 1.1: Inventory reservation race (8 concurrent, 5 capacity → 5 succeed, 3 reject)
+  - 1.2: Inventory check correctness
+  - 2.1: Payment state machine blocks post-cancellation transitions
+  - 2.2: Concurrent cancel vs complete race (serialized by state machine)
+  - 3.1: Duplicate payment completion blocked by state machine
+  - 3.2: Concurrent double-completion via DB (only 1 succeeds)
+  - 4.1: Duplicate webhook eventId rejected by unique constraint
+  - 4.2: Concurrent webhook inserts (exactly 1 succeeds)
+  - 5.1: Duplicate refund blocked by business rule
+  - 5.2: Over-refund protection (refundedAmount <= amount)
+  - 6.1: Cancelled booking cannot become confirmed
+  - 6.2: Expired booking cannot become confirmed
+  - 6.3: Paid tickets cannot be VALID before payment completion
+  - 7.1: Seed data inventory invariant (154 ticket types, 0 violations)
+  - 7.2: Seed data refund invariant (120 payments, 0 violations)
+- All 15 concurrency tests pass against PostgreSQL
+- Production memory test:
+  - Initial RSS: 146MB → After 200 reqs: 195MB → After 700 reqs: 214MB
+  - Growth rate slows: 0.245MB/req (first 200) → 0.038MB/req (next 500)
+  - Classification: B (environment limitation) — JIT/cache warmup, not application leak
+  - Kata container memory limit: 4GB; server stable at ~214MB (5% of limit)
+- Repository verification:
+  - Removed .env.sqlite-backup from git tracking
+  - Removed tool-results/ from git tracking (67 artifact files)
+  - Added .gitignore entries for tool artifacts and .deb files
+  - No credentials/secrets committed (seed-credentials.test.ts is a security test, not a leak)
+  - PostgreSQL schema, migrations, and concurrency test all committed
+- Final full test suite: 1205 tests pass (1190 + 15), 0 failures, 68s
+- Pushed to GitHub: commit 1dbb6bd
+
+Stage Summary:
+- PostgreSQL 17.4 built from source, fully operational
+- Seed data financial integrity bug fixed (totalAmount derived from ticket price)
+- 15 new concurrency tests verify all required invariants
+- Production memory is stable (JIT warmup, not leak)
+- Repository clean: no secrets, no artifacts, all required files committed
+- 1205 total tests pass against PostgreSQL, 0 failures

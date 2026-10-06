@@ -57,3 +57,9 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Phase 5F: Never track backup env files
+.env.sqlite-backup
+
+# Tool artifacts
+tool-results/
+*.deb

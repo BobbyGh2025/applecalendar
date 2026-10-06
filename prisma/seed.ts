@@ -1077,27 +1077,31 @@ async function main() {
   console.log('✅ Event Content (Participants, Sessions, Media) created');
 
   // 9. Create bookings
+  // Booking amounts are derived from the actual ticket type selected (findFirst),
+  // ensuring totalAmount = ticket price × ticket count (financial integrity invariant).
   const bookingsData = [
-    { userId: publicUser.id, eventId: 'evt-4', status: 'CONFIRMED', amount: 0 },
-    { userId: publicUser.id, eventId: 'evt-1', status: 'CONFIRMED', amount: 29900 },
-    { userId: publicUser.id, eventId: 'evt-2', status: 'PENDING', amount: 15900 },
+    { userId: publicUser.id, eventId: 'evt-4', status: 'CONFIRMED' },
+    { userId: publicUser.id, eventId: 'evt-1', status: 'CONFIRMED' },
+    { userId: publicUser.id, eventId: 'evt-2', status: 'PENDING' },
   ];
 
   for (let i = 0; i < bookingsData.length; i++) {
     const b = bookingsData[i];
     const bookingRef = `APC-${Date.now()}-${i}`;
-    const booking = await prisma.booking.create({
-      data: { userId: b.userId, eventId: b.eventId, totalAmount: b.amount, currency: 'USD', status: b.status, bookingRef },
-    });
+    // Derive totalAmount from the actual ticket type to maintain financial integrity
     const ticketType = await prisma.ticketType.findFirst({ where: { eventId: b.eventId } });
+    const totalAmount = ticketType ? ticketType.price : 0;
+    const booking = await prisma.booking.create({
+      data: { userId: b.userId, eventId: b.eventId, totalAmount, currency: 'USD', status: b.status, bookingRef },
+    });
     if (ticketType) {
       await prisma.ticket.create({
-        data: { ticketTypeId: ticketType.id, bookingId: booking.id, qrCode: `QR-${bookingRef}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`, status: b.status === 'CONFIRMED' ? 'VALID' : 'VALID' },
+        data: { ticketTypeId: ticketType.id, bookingId: booking.id, qrCode: `QR-${bookingRef}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`, status: 'VALID' },
       });
     }
-    if (b.amount > 0) {
+    if (totalAmount > 0) {
       await prisma.payment.create({
-        data: { bookingId: booking.id, userId: b.userId, amount: b.amount, currency: 'USD', provider: 'PAYSTACK', status: b.status === 'CONFIRMED' ? 'COMPLETED' : 'PENDING', transactionId: `txn_${Math.random().toString(36).substring(2, 15)}` },
+        data: { bookingId: booking.id, userId: b.userId, amount: totalAmount, currency: 'USD', provider: 'PAYSTACK', status: b.status === 'CONFIRMED' ? 'COMPLETED' : 'PENDING', transactionId: `txn_${Math.random().toString(36).substring(2, 15)}` },
       });
     }
   }

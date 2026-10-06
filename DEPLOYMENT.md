@@ -27,16 +27,25 @@ export DATABASE_URL="postgresql://applecalendar:CHANGE_ME@localhost:5432/appleca
 
 ## 3. Prisma Migration Deployment
 
+Production uses the dedicated PostgreSQL schema. Set:
+
+`DATABASE_PROVIDER=postgresql`
+
+`DATABASE_RUNTIME_MODE=external`
+
+`DATABASE_URL=postgresql://applecalendar:CHANGE_ME@localhost:5432/applecalendar?schema=public`
+
+Then:
+
 ```bash
-# Generate Prisma client
-npx prisma generate
-
-# Deploy migrations (production — NOT db:push)
-npx prisma migrate deploy
-
-# Seed the database (first deployment only)
-npx prisma db seed
+bun run db:generate:postgres
+bun run db:migrate:deploy
+bun run db:seed
 ```
+
+The production build scripts honor `DATABASE_PROVIDER=postgresql` and skip packaging the development SQLite database when `DATABASE_RUNTIME_MODE=external`.
+
+For local development/preview, use `DATABASE_PROVIDER=sqlite` and `DATABASE_RUNTIME_MODE=sqlite`.
 
 **IMPORTANT**: Never use `prisma db push` in production. It does not track migration history and cannot be rolled back.
 
@@ -91,7 +100,19 @@ curl -f http://localhost:3000/api/ready
 - **Security headers**: All API responses include `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and `Strict-Transport-Security` (when behind HTTPS).
 - **Rate limit headers**: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` on all rate-limited responses.
 
-## 10. Known Limitations
+## 10. PostgreSQL Production Gate
+
+The repository now contains a dedicated `prisma/schema.postgresql.prisma` matching the application models while preserving the SQLite schema for development.
+
+Implemented:
+- explicit PostgreSQL Prisma client generation
+- PostgreSQL migration deployment
+- external-database packaging mode
+- runtime support for externally supplied PostgreSQL DATABASE_URL
+
+Still required before declaring this gate closed: run migrations, seed, health/readiness checks, and the full application test suite against a real PostgreSQL instance.
+
+## 11. Known Limitations
 
 - **Rate limiting is in-memory**: Not effective across multiple instances. Redis backend required for horizontal scaling (Phase 5E+).
 - **PostgreSQL migration untested against live server**: Migration SQL is PostgreSQL-compatible but has not been executed against a running PostgreSQL instance in this environment.

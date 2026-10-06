@@ -36,6 +36,13 @@ echo "📦 安装依赖..."
 bun install
 
 # 构建 Next.js 应用
+echo "Preparing Prisma client for selected database provider..."
+if [ "${DATABASE_PROVIDER:-sqlite}" = "postgresql" ]; then
+    bun run db:generate:postgres
+else
+    bun run db:generate:sqlite
+fi
+
 echo "🔨 构建 Next.js 应用..."
 bun run build
 
@@ -143,6 +150,7 @@ PROJECT_DIR="$NEXTJS_PROJECT_DIR" BUILD_DIR="$BUILD_DIR" \
 # 有 Preview 数据库时复制现有数据；没有时直接在部署产物中初始化空库。
 # 模板源码不携带 db/custom.db，不能依赖 dev.sh 必须在 Deploy 前成功运行过。
 PROJECT_DIR="$NEXTJS_PROJECT_DIR" BUILD_DIR="$BUILD_DIR" \
+DATABASE_RUNTIME_MODE="${DATABASE_RUNTIME_MODE:-sqlite}" \
     bash "$SCRIPT_DIR/database-runtime-build.sh"
 
 # 复制 Caddyfile（如果存在）

@@ -1,0 +1,781 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // ┌─────────────────────────────────────────────────────────────────────┐
+  // │ Phase 5C: Database Provider Configuration                         │
+  // │                                                                     │
+  // │ Development:  provider = "postgresql"  + file:./db/custom.db           │
+  // │ Production:   provider = "postgresql" + postgresql://...           │
+  // │                                                                     │
+  // │ Production uses this dedicated PostgreSQL schema with the existing   │
+  // │ PostgreSQL-compatible migrations. Run `prisma migrate deploy`        │
+  // │ against this schema before starting the production application.     │
+  // │                                                                     │
+  // │ All monetary fields are INTEGER minor units (never Float).          │
+  // │ Schema is fully PostgreSQL-compatible — no SQLite-specific types.   │
+  // └─────────────────────────────────────────────────────────────────────┘
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ ENUMS (as String constants) ============
+
+// ============ USER & AUTH ============
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String
+  avatar        String?
+  phone         String?
+  bio           String?
+  role          String    @default("PUBLIC") // SUPER_ADMIN, ORGANIZER, STAFF, PUBLIC
+  isActive      Boolean   @default(true)
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  ownedEvents       Event[]         @relation("EventOwner")
+  staffAssignments  StaffAssignment[]
+  bookings          Booking[]
+  reviews           Review[]
+  subscriptions     Subscription[]
+  notifications     Notification[]
+  payments          Payment[]
+  organizerProfile          OrganizerProfile?
+  memberships               OrganizerMembership[]
+  passwordResetTokens       PasswordResetToken[]
+  emailVerificationTokens   EmailVerificationToken[]
+  refreshTokens             RefreshToken[]
+  auditLogs                 AuditLog[]
+  uploadedMedia             EventMedia[]
+  ownedVenues               Venue[]             @relation("VenueCreator")
+}
+
+model StaffAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  role      String   @default("CHECKIN") // CHECKIN, SECURITY, SUPPORT
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([userId])
+  @@index([eventId])
+}
+
+// ============ CATEGORIES & TAGS ============
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  icon        String?
+  color       String   @default("#6366f1")
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  events Event[]
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  events EventTag[]
+}
+
+// ============ SUBSCRIPTIONS ============
+
+model SubscriptionPlan {
+  id                      String   @id @default(cuid())
+  name                    String
+  slug                    String   @unique
+  description             String?
+  price                   Int      @default(0) // Integer minor units (Phase 5C). GHS 99.00 → 9900
+  interval                String   @default("MONTHLY") // MONTHLY, YEARLY
+  currency                String   @default("GHS")
+  maxEvents               Int      @default(5)
+  maxTicketsPerEvent      Int      @default(100)
+  maxTicketTypesPerEvent  Int      @default(3)
+  maxStaff                Int      @default(1)
+  maxMediaPerEvent        Int      @default(3)
+  maxAttendeesTotal       Int      @default(500)
+  canAdvertise            Boolean  @default(false)
+  canCustomBranding       Boolean  @default(false)
+  canApiAccess            Boolean  @default(false)
+  analyticsLevel          String   @default("BASIC") // BASIC, ADVANCED, FULL
+  trialDays               Int      @default(0)
+  features                String   @default("[]") // JSON array of feature descriptions
+  isActive                Boolean  @default(true)
+  sortOrder               Int      @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  subscriptions              Subscription[]
+  organizerSubscriptions      OrganizerSubscription[]
+}
+
+model Subscription {
+  id                String    @id @default(cuid())
+  userId            String
+  planId            String
+  status            String    @default("ACTIVE") // ACTIVE, EXPIRED, CANCELLED
+  startDate         DateTime  @default(now())
+  endDate           DateTime?
+  autoRenew         Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId])
+  @@index([planId])
+}
+
+/// OrganizerSubscription: the authoritative subscription for organizations.
+/// Linked to OrganizerProfile (not User) so subscriptions belong to the org,
+/// not to an individual staff member. One active subscription per org.
+model OrganizerSubscription {
+  id                  String    @id @default(cuid())
+  organizerId         String    @unique
+  planId              String
+  status              String    @default("ACTIVE") // ACTIVE, TRIAL, EXPIRED, CANCELLED
+  startDate           DateTime  @default(now())
+  endDate             DateTime?
+  trialStart          DateTime?
+  trialEnd            DateTime?
+  isInTrial           Boolean   @default(false)
+  autoRenew           Boolean   @default(true)
+  cancelledAt         DateTime?
+  cancelReason        String?
+  billingProvider     String    @default("MANUAL") // MANUAL, PAYSTACK, STRIPE
+  billingProviderRef  String?
+  billingCustomerId   String?
+  paymentStatus       String    @default("CURRENT") // CURRENT, PAST_DUE, GRACE_PERIOD
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organizer OrganizerProfile @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([planId])
+  @@index([status])
+}
+
+// ============ EVENTS ============
+
+model Event {
+  id               String    @id @default(cuid())
+  title            String
+  slug             String    @unique
+  description      String
+  shortDescription String?
+  coverImage       String?
+  startDate        DateTime
+  endDate          DateTime?
+  startTime        String?
+  endTime          String?
+  timezone         String    @default("UTC")
+  venueName        String?
+  venueAddress     String?
+  venueCity        String?
+  venueState       String?
+  venueCountry     String    @default("GH")
+  venueLat         Float?
+  venueLng         Float?
+  isVirtual        Boolean   @default(false)
+  virtualUrl       String?
+  capacity         Int?
+  status           String    @default("DRAFT") // DRAFT, PENDING, PUBLISHED, CANCELLED, COMPLETED, REJECTED
+  isFeatured       Boolean   @default(false)
+  isPaid           Boolean   @default(false)
+  currency         String    @default("GHS")
+  organizerId      String
+  categoryId       String?
+  venueId          String?
+  contactEmail     String?
+  contactPhone     String?
+  ageRestriction   String?
+  visibility       String    @default("PUBLIC") // PUBLIC, PRIVATE, INVITE_ONLY
+  rejectionReason  String?
+  moderatedBy      String?
+  moderatedAt      DateTime?
+  isBookable       Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  organizer         User              @relation("EventOwner", fields: [organizerId], references: [id])
+  category          Category?         @relation(fields: [categoryId], references: [id])
+  venue             Venue?            @relation(fields: [venueId], references: [id])
+  tags              EventTag[]
+  ticketTypes       TicketType[]
+  bookings          Booking[]
+  reviews           Review[]
+  staffAssignments  StaffAssignment[]
+  analytics         EventAnalytics[]
+  advertisements    Advertisement[]
+  sessions          EventSession[]
+  participants      EventParticipant[]
+  media             EventMedia[]
+
+  @@index([organizerId])
+  @@index([status])
+  @@index([categoryId])
+  @@index([startDate])
+  @@index([venueId])
+  @@index([status, startDate])
+  @@index([organizerId, status])
+}
+
+model EventTag {
+  id        String   @id @default(cuid())
+  eventId   String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, tagId])
+  @@index([eventId])
+  @@index([tagId])
+}
+
+/// EventSession: scheduled program items within an event (keynotes, panels, breaks, etc.)
+model EventSession {
+  id            String    @id @default(cuid())
+  eventId       String
+  title         String
+  description   String?
+  startTime     String    // HH:MM
+  endTime       String    // HH:MM
+  date          DateTime? // For multi-day events
+  sortOrder     Int       @default(0)
+  venueId       String?   // FK → Venue (stage/room within venue)
+  venueName     String?   // Inline venue override (e.g., "Main Stage")
+  participantId String?   // FK → EventParticipant (speaker/artist)
+  sessionType   String    @default("SESSION") // SESSION, BREAK, REGISTRATION, KEYNOTE, PANEL, WORKSHOP, ENTERTAINMENT
+  status        String    @default("SCHEDULED") // SCHEDULED, CANCELLED
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  event       Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  venue       Venue?            @relation(fields: [venueId], references: [id])
+  participant EventParticipant? @relation(fields: [participantId], references: [id])
+
+  @@index([eventId])
+  @@index([eventId, date])
+}
+
+/// EventParticipant: speakers, artists, performers, moderators at an event.
+/// Generalized model — role field distinguishes participant type.
+model EventParticipant {
+  id           String    @id @default(cuid())
+  eventId      String
+  name         String
+  bio          String?
+  image        String?
+  role         String    @default("SPEAKER") // SPEAKER, ARTIST, PERFORMER, MODERATOR, PANELIST, DJ, HOST, INSTRUCTOR
+  title        String?   // Job title / designation
+  organization String?   // Affiliation
+  socialLinks  String?   // JSON: {twitter, linkedin, instagram, website, spotify}
+  email        String?   // Contact email (private — for organizer communication)
+  sortOrder    Int       @default(0)
+  isFeatured   Boolean   @default(false) // Headliner / keynote
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  event    Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sessions EventSession[] // Sessions this participant is assigned to
+
+  @@index([eventId])
+  @@unique([eventId, name])
+}
+
+/// EventMedia: metadata for event gallery images, videos, documents.
+/// URL-based only in Phase 4A — no file upload infrastructure yet.
+model EventMedia {
+  id        String   @id @default(cuid())
+  eventId   String
+  url       String
+  type      String   // IMAGE, VIDEO, DOCUMENT
+  category  String   @default("GALLERY") // POSTER, COVER, GALLERY, PROMOTIONAL_VIDEO, DOCUMENT, PROGRAM
+  caption   String?
+  sortOrder Int      @default(0)
+  fileSize  Int?     // Bytes
+  mimeType  String?  // MIME type
+  uploadedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [uploadedBy], references: [id])
+
+  @@index([eventId])
+  @@index([eventId, category])
+}
+
+// ============ VENUES ============
+
+/// Venue: reusable event venues. Supports Ghana-first with GH default.
+/// Organizers can create private venues; public venues are available to all.
+model Venue {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique
+  description   String?
+  address       String
+  city          String
+  state         String?
+  country       String    @default("GH")
+  postalCode    String?
+  lat           Float?
+  lng           Float?
+  googleMapsUrl String?
+  coverImage    String?
+  capacity      Int?
+  amenities     String?   // JSON array: ["parking", "wifi", "ac", "catering", "stage", "sound_system"]
+  contactName   String?
+  contactEmail  String?
+  contactPhone  String?
+  website       String?
+  organizerId   String?   // FK → User (creator — null for system/public venues)
+  isPublic      Boolean   @default(true)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  organizer User?          @relation("VenueCreator", fields: [organizerId], references: [id])
+  events    Event[]        // Events using this venue
+  sessions  EventSession[] // Sessions assigned to this venue
+
+  @@index([city])
+  @@index([country])
+  @@index([organizerId])
+  @@index([slug])
+}
+
+// ============ TICKETING ============
+
+model TicketType {
+  id            String   @id @default(cuid())
+  eventId       String
+  name          String
+  description   String?
+  price         Int      @default(0) // Integer minor units (Phase 5C). GHS 50.00 → 5000
+  currency      String   @default("GHS")
+  quantity      Int      // total available
+  soldCount     Int      @default(0) // Confirmed sold (payment completed)
+  reservedCount Int      @default(0) // Phase 5E: Reserved for pending payments (not yet confirmed)
+  minPerOrder   Int      @default(1)
+  maxPerOrder   Int      @default(10)
+  saleStart     DateTime?
+  saleEnd       DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tickets Ticket[]
+
+  @@index([eventId])
+}
+
+model Ticket {
+  id            String   @id @default(cuid())
+  ticketTypeId  String
+  bookingId     String
+  qrCode        String   @unique
+  status        String   @default("VALID") // PENDING, VALID, USED, CANCELLED, EXPIRED — Phase 5E: PENDING for deferred issuance
+  checkedInAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id])
+  booking    Booking    @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+  @@index([ticketTypeId])
+  @@index([status])
+}
+
+model Booking {
+  id                 String    @id @default(cuid())
+  userId             String
+  eventId            String
+  totalAmount        Int       @default(0) // Integer minor units (Phase 5C). GHS 100.00 → 10000
+  currency           String    @default("GHS")
+  status             String    @default("PENDING") // PENDING, CONFIRMED, CANCELLED, REFUNDED
+  bookingRef         String    @unique
+  confirmedAt        DateTime? // Phase 5E: When booking was confirmed (payment completed or free event)
+  expiresAt          DateTime? // Phase 5E: Payment timeout — booking expires if not paid by this time
+  cancellationReason String?
+  cancelledBy        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id])
+  event   Event   @relation(fields: [eventId], references: [id])
+  tickets Ticket[]
+  payment Payment?
+
+  @@index([userId])
+  @@index([eventId])
+  @@index([status])
+  @@index([eventId, status])
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model Payment {
+  id                  String    @id @default(cuid())
+  bookingId           String    @unique
+  userId              String
+  amount              Int       // Integer minor units (Phase 5C). GHS 100.00 → 10000
+  currency            String    @default("GHS")
+  provider            String    @default("PAYSTACK") @map("method") // Phase 5E: Renamed from 'method'. DB column preserved as 'method'. PAYSTACK, MANUAL, FREE
+  status              String    @default("PENDING") // Phase 5E: PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED, EXPIRED, REFUNDED
+  transactionId       String?
+  providerRef         String?   // Payment intent/charge ID from provider
+  providerCustomerId  String?   // Customer ID in provider system
+  webhookEventId      String?   // Last webhook event ID processed
+  idempotencyKey      String?   @unique // Prevents duplicate charges on retry
+  failureReason       String?   // Provider's failure message
+  refundedAmount      Int       @default(0) // Integer minor units (Phase 5C). GHS 50.00 → 5000
+  refundRef           String?   // Provider's refund reference
+  metadata            String?   // JSON — provider-specific data
+  expiresAt           DateTime? // Phase 5E: Payment must be completed by this time or expires
+  processedAt         DateTime? // Phase 5E: When status transitioned to PROCESSING
+  completedAt         DateTime? // Phase 5E: When status transitioned to COMPLETED
+  failedAt            DateTime? // Phase 5E: When status transitioned to FAILED
+  cancelledAt         DateTime? // Phase 5E: When status transitioned to CANCELLED
+  cancelledReason     String?   // Phase 5E: Reason for cancellation
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  booking       Booking              @relation(fields: [bookingId], references: [id])
+  user          User                 @relation(fields: [userId], references: [id])
+  attempts PaymentAttempt[]
+  refunds  Refund[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([providerRef])
+  @@index([status, createdAt])
+}
+
+// ============ REVIEWS ============
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  rating    Int      // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([eventId])
+}
+
+// ============ NOTIFICATIONS ============
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, BOOKING, PAYMENT, EVENT_UPDATE, SYSTEM
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+}
+
+// ============ ADVERTISEMENTS ============
+
+model Advertisement {
+  id              String    @id @default(cuid())
+  title           String
+  imageUrl        String?
+  linkUrl         String?
+  position        String    @default("SIDEBAR") // SIDEBAR, BANNER, POPUP
+  status          String    @default("ACTIVE") // ACTIVE, PAUSED, EXPIRED
+  impressions     Int       @default(0)
+  clicks          Int       @default(0)
+  startDate       DateTime?
+  endDate         DateTime?
+  eventId         String?
+  advertiserId    String?
+  organizerId     String?    // FK → OrganizerProfile (who owns this ad)
+  approvalStatus  String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  reviewedBy      String?    // userId of admin who reviewed
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  event      Event?           @relation(fields: [eventId], references: [id])
+  organizer  OrganizerProfile? @relation(fields: [organizerId], references: [id])
+
+  @@index([organizerId])
+}
+
+// ============ ANALYTICS ============
+
+model EventAnalytics {
+  id        String   @id @default(cuid())
+  eventId   String
+  date      String   // YYYY-MM-DD
+  views     Int      @default(0)
+  clicks    Int      @default(0)
+  bookings  Int      @default(0)
+  revenue   Int      @default(0) // Integer minor units (Phase 5C). GHS 1000.00 → 100000
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, date])
+  @@index([eventId, date])
+}
+
+model SystemSetting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============ ORGANIZER IDENTITY ============
+
+model OrganizerProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  organizationName String
+  slug             String    @unique
+  description      String?
+  logo             String?
+  coverImage       String?
+  website          String?
+  contactEmail     String?
+  phone            String?
+  address          String?
+  city             String?
+  state            String?
+  country          String?
+  socialLinks      String?   // JSON string
+  isVerified       Boolean   @default(false)
+  approvalStatus   String    @default("PENDING") // @deprecated Phase 5B: Use `status` instead. Kept for data compat only. Will be removed in Phase 5M.
+  status           String    @default("PENDING_APPROVAL") // PENDING_APPROVAL, APPROVED, REJECTED, ACTIVE, SUSPENDED, DEACTIVATED — authoritative field
+  statusReason     String?
+  statusChangedBy  String?
+  statusChangedAt  DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memberships            OrganizerMembership[]
+  invitations            OrganizerInvitation[]
+  organizerSubscription  OrganizerSubscription?
+  advertisements         Advertisement[]
+
+  @@index([slug])
+  @@index([approvalStatus])
+  @@index([status])
+}
+
+model OrganizerMembership {
+  id             String   @id @default(cuid())
+  organizerId    String
+  userId         String
+  role           String   @default("STAFF") // OWNER, MANAGER, STAFF
+  permissions    String   @default("[]") // JSON array of permission strings
+  status         String   @default("ACTIVE") // ACTIVE, SUSPENDED, REMOVED
+  invitedByEmail String?
+  joinedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizer OrganizerProfile @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizerId, userId])
+  @@index([organizerId])
+  @@index([userId])
+  @@index([organizerId, status])
+}
+
+/// OrganizerInvitation: token-hashed invitation to join an organization.
+/// Token is stored as SHA-256 hash (tokenHash), matching the security
+/// pattern used by PasswordResetToken and EmailVerificationToken.
+model OrganizerInvitation {
+  id          String    @id @default(cuid())
+  organizerId String
+  email       String
+  role        String    @default("STAFF")
+  permissions String    @default("[]")
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  organizer OrganizerProfile @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+
+  @@unique([organizerId, email])
+  @@index([organizerId])
+  @@index([tokenHash])
+}
+
+// ============ TOKENS & SECURITY ============
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+// ============ PAYMENT DOMAIN (Phase 5E) ============
+
+/// PaymentAttempt: tracks each attempt to process a payment through a provider.
+/// Enables retry audit trail and provider-specific debugging.
+model PaymentAttempt {
+  id              String   @id @default(cuid())
+  paymentId       String
+  provider        String   // PAYSTACK, MANUAL
+  providerRef     String?  // Reference from provider for this attempt
+  status          String   @default("PENDING") // PENDING, SUCCESS, FAILED
+  requestPayload  String?  // JSON — what was sent to provider (redacted secrets)
+  responsePayload String?  // JSON — what provider returned
+  failureReason   String?
+  createdAt       DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([status])
+}
+
+/// PaymentWebhookEvent: deduplication and audit for incoming payment webhooks.
+/// Prevents double-processing of the same provider event.
+/// No FK to Payment — webhook events arrive with providerRef; the service layer
+/// resolves the Payment by providerRef. This avoids FK failures for out-of-order events.
+model PaymentWebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String    @default("PAYSTACK")
+  eventId         String    @unique // Provider's event ID — dedup key
+  eventType       String    // charge.success, charge.failed, refund.processed, etc.
+  eventReference  String?   // Provider's transaction reference (links to Payment.providerRef)
+  payload         String    // JSON — raw webhook body (for audit/debugging)
+  signature       String?   // HMAC signature received (for verification audit)
+  processed       Boolean   @default(false)
+  processedAt     DateTime?
+  processingError String?
+  createdAt       DateTime  @default(now())
+
+  @@index([processed])
+  @@index([eventReference])
+  @@index([createdAt])
+}
+
+/// Refund: full refund lifecycle with status machine.
+/// REQUESTED → PROCESSING → COMPLETED | FAILED
+model Refund {
+  id            String    @id @default(cuid())
+  paymentId     String
+  amount        Int       // Integer minor units — Phase 5E: never Float/Decimal
+  reason        String?
+  status        String    @default("REQUESTED") // REQUESTED, PROCESSING, COMPLETED, FAILED
+  providerRef   String?   // Provider's refund reference
+  failureReason String?
+  requestedBy   String?   // userId who requested the refund
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([status])
+}
+
+// ============ AUDIT LOG ============
+
+/// AuditLog: records all significant admin/system actions for accountability.
+/// Never stores passwords, JWTs, refresh tokens, or other secrets.
+model AuditLog {
+  id          String    @id @default(cuid())
+  actorId     String?   // FK → User (null for system actions)
+  action      String    // CREATE, UPDATE, DELETE, APPROVE, REJECT, SUSPEND, REINSTATE, CANCEL
+  entityType  String    // Event, OrganizerProfile, User, OrganizerSubscription, etc.
+  entityId    String    // ID of the affected entity
+  oldValue    String?   // JSON of previous state (never secrets)
+  newValue    String?   // JSON of new state (never secrets)
+  reason      String?   // Reason (for rejections, suspensions)
+  ipAddress   String?   // Client IP where safely available
+  userAgent   String?   // Client user agent where safely available
+  createdAt   DateTime  @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+}

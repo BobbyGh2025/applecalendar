@@ -1,0 +1,1299 @@
+     1→/**
+     2→ * Phase 5E Stage 3 Closure: Booking Lifecycle Regression Tests
+     3→ *
+     4→ * 15 required regression tests covering the authoritative paid-booking lifecycle.
+     5→ * All tests exercise the domain services directly (no HTTP requests).
+     6→ * Uses the real database (SQLite in test environment).
+     7→ */
+     8→
+     9→import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+    10→import { db } from '@/lib/db';
+    11→import crypto from 'crypto';
+    12→
+    13→// ─── Service imports ───
+    14→import {
+    15→  confirmBookingOnPaymentSuccess,
+    16→  processWebhookEvent,
+    17→  expireEligiblePayments,
+    18→  expireSinglePayment,
+    19→  requestRefund,
+    20→  processRefundCompletion,
+    21→  processRefundFailure,
+    22→  markRefundProcessing,
+    23→  validatePaymentTransition,
+    24→  canBeRefunded,
+    25→  canBeExpired,
+    26→  isTerminalStatus,
+    27→} from '@/lib/services';
+    28→
+    29→import {
+    30→  reserveInventory,
+    31→  releaseReservation,
+    32→  confirmReservation,
+    33→  directSoldIncrement,
+    34→  restoreSoldCount,
+    35→  checkInventory,
+    36→} from '@/lib/services/inventory';
+    37→
+    38→import {
+    39→  createBookingPayment,
+    40→  generateIdempotencyKey,
+    41→} from '@/lib/services/booking-payment';
+    42→
+    43→import {
+    44→  createPendingTickets,
+    45→  activateTickets,
+    46→  cancelTickets,
+    47→  expireTickets,
+    48→} from '@/lib/services/ticket-service';
+    49→
+    50→import { providerRegistry } from '@/lib/services/payment-provider';
+    51→
+    52→import {
+    53→  InsufficientInventory,
+    54→  RefundNotEligible,
+    55→  BookingNotFound,
+    56→  DuplicateRefund,
+    57→  PaymentNotFound,
+    58→  InvalidPaymentTransition,
+    59→  PaymentDomainError,
+    60→} from '@/lib/services/payment-domain-errors';
+    61→
+    62→import { requireRole } from '@/lib/auth';
+    63→import { asMoney } from '@/lib/money';
+    64→
+    65→// Side-effect import to register providers
+    66→import '@/lib/services/providers';
+    67→
+    68→// ═══════════════════════════════════════════════════════════════════
+    69→// TEST HELPERS
+    70→// ═══════════════════════════════════════════════════════════════════
+    71→
+    72→/** Unique ID generator */
+    73→function uid(): string {
+    74→  return `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    75→}
+    76→
+    77→/** Track all created record IDs for cleanup */
+    78→const created: {
+    79→  users: string[];
+    80→  events: string[];
+    81→  ticketTypes: string[];
+    82→  bookings: string[];
+    83→  payments: string[];
+    84→  tickets: string[];
+    85→  refunds: string[];
+    86→  webhookEvents: string[];
+    87→  notifications: string[];
+    88→} = {
+    89→  users: [],
+    90→  events: [],
+    91→  ticketTypes: [],
+    92→  bookings: [],
+    93→  payments: [],
+    94→  tickets: [],
+    95→  refunds: [],
+    96→  webhookEvents: [],
+    97→  notifications: [],
+    98→};
+    99→
+   100→/** Create a user with the given role */
+   101→async function createUser(role: string = 'PUBLIC') {
+   102→  const bcrypt = await import('bcryptjs');
+   103→  const user = await db.user.create({
+   104→    data: {
+   105→      email: `user-${uid()}@test.com`,
+   106→      password: await bcrypt.hash('testpass123', 12),
+   107→      name: `Test ${role} ${uid()}`,
+   108→      role,
+   109→    },
+   110→  });
+   111→  created.users.push(user.id);
+   112→  return user;
+   113→}
+   114→
+   115→/** Create a PUBLISHED event */
+   116→async function createEvent(organizerId: string) {
+   117→  const event = await db.event.create({
+   118→    data: {
+   119→      title: `Test Event ${uid()}`,
+   120→      slug: `evt-${uid()}`,
+   121→      description: 'Test event for booking lifecycle tests',
+   122→      startDate: new Date('2025-12-01'),
+   123→      organizerId,
+   124→      status: 'PUBLISHED',
+   125→      isPaid: true,
+   126→      currency: 'GHS',
+   127→    },
+   128→  });
+   129→  created.events.push(event.id);
+   130→  return event;
+   131→}
+   132→
+   133→/** Create a ticket type */
+   134→async function createTicketType(eventId: string, price: number, quantity: number) {
+   135→  const tt = await db.ticketType.create({
+   136→    data: {
+   137→      eventId,
+   138→      name: `Ticket ${uid()}`,
+   139→      price,
+   140→      currency: 'GHS',
+   141→      quantity,
+   142→      soldCount: 0,
+   143→      reservedCount: 0,
+   144→      minPerOrder: 1,
+   145→      maxPerOrder: 10,
+   146→      isActive: true,
+   147→    },
+   148→  });
+   149→  created.ticketTypes.push(tt.id);
+   150→  return tt;
+   151→}
+   152→
+   153→/** Create a booking */
+   154→async function createBooking(userId: string, eventId: string, amount: number, status: string = 'PENDING') {
+   155→  const booking = await db.booking.create({
+   156→    data: {
+   157→      userId,
+   158→      eventId,
+   159→      totalAmount: amount,
+   160→      currency: 'GHS',
+   161→      status,
+   162→      bookingRef: `BK-${uid()}`,
+   163→    },
+   164→  });
+   165→  created.bookings.push(booking.id);
+   166→  return booking;
+   167→}
+   168→
+   169→/**
+   170→ * Create a full paid-booking lifecycle setup:
+   171→ *   - PENDING booking
+   172→ *   - Reserved inventory (reservedCount += quantity)
+   173→ *   - PENDING payment
+   174→ *   - PENDING tickets
+   175→ *
+   176→ * Returns all created entities for assertions.
+   177→ */
+   178→async function createPaidBookingWithReservation(
+   179→  user: { id: string },
+   180→  event: { id: string },
+   181→  ticketType: { id: string },
+   182→  quantity: number = 2,
+   183→) {
+   184→  const price = 5000; // GHS 50.00 in minor units
+   185→  const totalAmount = price * quantity;
+   186→  const bookingRef = `BK-${uid()}`;
+   187→
+   188→  // 1. Create PENDING booking
+   189→  const booking = await db.booking.create({
+   190→    data: {
+   191→      userId: user.id,
+   192→      eventId: event.id,
+   193→      totalAmount,
+   194→      currency: 'GHS',
+   195→      status: 'PENDING',
+   196→      bookingRef,
+   197→    },
+   198→  });
+   199→  created.bookings.push(booking.id);
+   200→
+   201→  // 2. Reserve inventory
+   202→  await reserveInventory({ ticketTypeId: ticketType.id, quantity });
+   203→
+   204→  // 3. Create PENDING payment with providerRef for webhook lookup
+   205→  const providerRef = `ps_ref_${uid()}`;
+   206→  const idempotencyKey = generateIdempotencyKey();
+   207→  const payment = await db.payment.create({
+   208→    data: {
+   209→      bookingId: booking.id,
+   210→      userId: user.id,
+   211→      amount: totalAmount,
+   212→      currency: 'GHS',
+   213→      provider: 'PAYSTACK',
+   214→      status: 'PENDING',
+   215→      idempotencyKey,
+   216→      providerRef,
+   217→      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes from now
+   218→    },
+   219→  });
+   220→  created.payments.push(payment.id);
+   221→
+   222→  // 4. Create PENDING tickets
+   223→  const ticketResult = await createPendingTickets({
+   224→    bookingId: booking.id,
+   225→    ticketTypeId: ticketType.id,
+   226→    quantity,
+   227→    bookingRef,
+   228→  });
+   229→  created.tickets.push(...ticketResult.ticketIds);
+   230→
+   231→  return { booking, payment, providerRef, idempotencyKey, ticketIds: ticketResult.ticketIds, bookingRef };
+   232→}
+   233→
+   234→/**
+   235→ * Create a free booking lifecycle setup:
+   236→ *   - CONFIRMED booking
+   237→ *   - COMPLETED FREE payment
+   238→ *   - VALID tickets
+   239→ *   - soldCount incremented
+   240→ *
+   241→ * Returns all created entities for assertions.
+   242→ */
+   243→async function createFreeBookingConfirmed(
+   244→  user: { id: string },
+   245→  event: { id: string },
+   246→  ticketType: { id: string },
+   247→  quantity: number = 2,
+   248→) {
+   249→  const bookingRef = `BK-FREE-${uid()}`;
+   250→
+   251→  // 1. Create CONFIRMED booking
+   252→  const booking = await db.booking.create({
+   253→    data: {
+   254→      userId: user.id,
+   255→      eventId: event.id,
+   256→      totalAmount: 0,
+   257→      currency: 'GHS',
+   258→      status: 'CONFIRMED',
+   259→      bookingRef,
+   260→      confirmedAt: new Date(),
+   261→    },
+   262→  });
+   263→  created.bookings.push(booking.id);
+   264→
+   265→  // 2. Direct sold increment (no reservation for free)
+   266→  await directSoldIncrement(ticketType.id, quantity);
+   267→
+   268→  // 3. Create COMPLETED FREE payment
+   269→  const payment = await db.payment.create({
+   270→    data: {
+   271→      bookingId: booking.id,
+   272→      userId: user.id,
+   273→      amount: 0,
+   274→      currency: 'GHS',
+   275→      provider: 'FREE',
+   276→      status: 'COMPLETED',
+   277→      idempotencyKey: generateIdempotencyKey(),
+   278→      completedAt: new Date(),
+   279→    },
+   280→  });
+   281→  created.payments.push(payment.id);
+   282→
+   283→  // 4. Create VALID tickets directly
+   284→  const ticketIds: string[] = [];
+   285→  for (let i = 0; i < quantity; i++) {
+   286→    const qrCode = `QR-${bookingRef}-${crypto.randomBytes(16).toString('hex').toUpperCase()}`;
+   287→    const ticket = await db.ticket.create({
+   288→      data: {
+   289→        ticketTypeId: ticketType.id,
+   290→        bookingId: booking.id,
+   291→        qrCode,
+   292→        status: 'VALID',
+   293→      },
+   294→    });
+   295→    ticketIds.push(ticket.id);
+   296→  }
+   297→  created.tickets.push(...ticketIds);
+   298→
+   299→  return { booking, payment, ticketIds, bookingRef };
+   300→}
+   301→
+   302→// ═══════════════════════════════════════════════════════════════════
+   303→// SETUP / TEARDOWN
+   304→// ═══════════════════════════════════════════════════════════════════
+   305→
+   306→beforeEach(() => {
+   307→  // Reset created records tracking before each test
+   308→  created.users = [];
+   309→  created.events = [];
+   310→  created.ticketTypes = [];
+   311→  created.bookings = [];
+   312→  created.payments = [];
+   313→  created.tickets = [];
+   314→  created.refunds = [];
+   315→  created.webhookEvents = [];
+   316→  created.notifications = [];
+   317→});
+   318→
+   319→afterEach(async () => {
+   320→  // Clean up in reverse dependency order
+   321→  // Delete refunds first (depend on payments)
+   322→  for (const id of created.refunds) {
+   323→    await db.refund.delete({ where: { id } }).catch(() => {});
+   324→  }
+   325→  // Delete webhook events (independent)
+   326→  for (const id of created.webhookEvents) {
+   327→    await db.paymentWebhookEvent.delete({ where: { id } }).catch(() => {});
+   328→  }
+   329→  // Delete notifications
+   330→  for (const id of created.notifications) {
+   331→    await db.notification.delete({ where: { id } }).catch(() => {});
+   332→  }
+   333→  // Delete tickets (depend on bookings + ticket types)
+   334→  for (const id of created.tickets) {
+   335→    await db.ticket.delete({ where: { id } }).catch(() => {});
+   336→  }
+   337→  // Delete payments (depend on bookings)
+   338→  for (const id of created.payments) {
+   339→    await db.payment.delete({ where: { id } }).catch(() => {});
+   340→  }
+   341→  // Delete bookings (depend on users + events)
+   342→  for (const id of created.bookings) {
+   343→    await db.booking.delete({ where: { id } }).catch(() => {});
+   344→  }
+   345→  // Delete ticket types (depend on events)
+   346→  for (const id of created.ticketTypes) {
+   347→    await db.ticketType.delete({ where: { id } }).catch(() => {});
+   348→  }
+   349→  // Delete events (depend on users)
+   350→  for (const id of created.events) {
+   351→    await db.event.delete({ where: { id } }).catch(() => {});
+   352→  }
+   353→  // Delete users last
+   354→  for (const id of created.users) {
+   355→    // Delete dependent records first (organizer profiles, refresh tokens, etc.)
+   356→    await db.organizerMembership.deleteMany({ where: { userId: id } }).catch(() => {});
+   357→    await db.organizerProfile.deleteMany({ where: { userId: id } }).catch(() => {});
+   358→    await db.refreshToken.deleteMany({ where: { userId: id } }).catch(() => {});
+   359→    await db.notification.deleteMany({ where: { userId: id } }).catch(() => {});
+   360→    await db.user.delete({ where: { id } }).catch(() => {});
+   361→  }
+   362→});
+   363→
+   364→// ═══════════════════════════════════════════════════════════════════
+   365→// 1. Paid booking does NOT become CONFIRMED before payment
+   366→// ═══════════════════════════════════════════════════════════════════
+   367→
+   368→it('1. Paid booking does NOT become CONFIRMED before payment', async () => {
+   369→  const org = await createUser('ORGANIZER');
+   370→  const user = await createUser('PUBLIC');
+   371→  const event = await createEvent(org.id);
+   372→  const tt = await createTicketType(event.id, 5000, 10);
+   373→
+   374→  const { booking, payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+   375→
+   376→  // Verify booking is PENDING, not CONFIRMED
+   377→  expect(booking.status).toBe('PENDING');
+   378→
+   379→  // Verify payment is PENDING, not COMPLETED
+   380→  expect(payment.status).toBe('PENDING');
+   381→});
+   382→
+   383→// ═══════════════════════════════════════════════════════════════════
+   384→// 2. Paid booking does NOT receive VALID tickets before payment
+   385→// ═══════════════════════════════════════════════════════════════════
+   386→
+   387→it('2. Paid booking does NOT receive VALID tickets before payment', async () => {
+   388→  const org = await createUser('ORGANIZER');
+   389→  const user = await createUser('PUBLIC');
+   390→  const event = await createEvent(org.id);
+   391→  const tt = await createTicketType(event.id, 5000, 10);
+   392→
+   393→  const { ticketIds } = await createPaidBookingWithReservation(user, event, tt, 2);
+   394→
+   395→  // Verify all tickets are PENDING, not VALID
+   396→  const tickets = await db.ticket.findMany({
+   397→    where: { id: { in: ticketIds } },
+   398→    select: { status: true },
+   399→  });
+   400→
+   401→  expect(tickets.length).toBe(2);
+   402→  expect(tickets.every(t => t.status === 'PENDING')).toBe(true);
+   403→});
+   404→
+   405→// ═══════════════════════════════════════════════════════════════════
+   406→// 3. Paid booking reserves inventory rather than immediately consuming sold inventory
+   407→// ═══════════════════════════════════════════════════════════════════
+   408→
+   409→it('3. Paid booking reserves inventory rather than immediately consuming sold inventory', async () => {
+   410→  const org = await createUser('ORGANIZER');
+   411→  const user = await createUser('PUBLIC');
+   412→  const event = await createEvent(org.id);
+   413→  const tt = await createTicketType(event.id, 5000, 10);
+   414→
+   415→  // Verify initial state: quantity=10, soldCount=0, reservedCount=0
+   416→  const invBefore = await checkInventory(tt.id);
+   417→  expect(invBefore.quantity).toBe(10);
+   418→  expect(invBefore.soldCount).toBe(0);
+   419→  expect(invBefore.reservedCount).toBe(0);
+   420→
+   421→  // Create paid booking for quantity=2
+   422→  await createPaidBookingWithReservation(user, event, tt, 2);
+   423→
+   424→  // Verify inventory state after reservation
+   425→  const invAfter = await checkInventory(tt.id);
+   426→  expect(invAfter.reservedCount).toBe(2); // reserved, not sold
+   427→  expect(invAfter.soldCount).toBe(0); // soldCount NOT incremented
+   428→});
+   429→
+   430→// ═══════════════════════════════════════════════════════════════════
+   431→// 4. Failed payment releases its reservation
+   432→// ═══════════════════════════════════════════════════════════════════
+   433→
+   434→it('4. Failed payment releases its reservation', async () => {
+   435→  const org = await createUser('ORGANIZER');
+   436→  const user = await createUser('PUBLIC');
+   437→  const event = await createEvent(org.id);
+   438→  const tt = await createTicketType(event.id, 5000, 10);
+   439→
+   440→  const { payment, providerRef } = await createPaidBookingWithReservation(user, event, tt, 2);
+   441→
+   442→  // Verify reservation exists
+   443→  const invBefore = await checkInventory(tt.id);
+   444→  expect(invBefore.reservedCount).toBe(2);
+   445→
+   446→  // Simulate charge.failed webhook event
+   447→  const webhookResult = await processWebhookEvent({
+   448→    event: {
+   449→      provider: 'PAYSTACK',
+   450→      eventId: `evt-fail-${uid()}`,
+   451→      eventType: 'charge.failed',
+   452→      eventReference: providerRef,
+   453→      amount: asMoney(payment.amount),
+   454→      currency: payment.currency,
+   455→      eventAt: new Date(),
+   456→      isPaymentSuccess: false,
+   457→      isPaymentFailure: true,
+   458→    },
+   459→  });
+   460→
+   461→  // Verify payment is FAILED
+   462→  const updatedPayment = await db.payment.findUnique({
+   463→    where: { id: payment.id },
+   464→    select: { status: true },
+   465→  });
+   466→  expect(updatedPayment?.status).toBe('FAILED');
+   467→
+   468→  // Verify reservation was released (reservedCount back to 0)
+   469→  const invAfter = await checkInventory(tt.id);
+   470→  expect(invAfter.reservedCount).toBe(0);
+   471→});
+   472→
+   473→// ═══════════════════════════════════════════════════════════════════
+   474→// 5. Expired payment releases its reservation
+   475→// ═══════════════════════════════════════════════════════════════════
+   476→
+   477→it('5. Expired payment releases its reservation', async () => {
+   478→  const org = await createUser('ORGANIZER');
+   479→  const user = await createUser('PUBLIC');
+   480→  const event = await createEvent(org.id);
+   481→  const tt = await createTicketType(event.id, 5000, 10);
+   482→
+   483→  const { booking, payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+   484→
+   485→  // Verify reservation exists
+   486→  const invBefore = await checkInventory(tt.id);
+   487→  expect(invBefore.reservedCount).toBe(2);
+   488→
+   489→  // Set payment.expiresAt to the past so it's eligible for expiry
+   490→  await db.payment.update({
+   491→    where: { id: payment.id },
+   492→    data: { expiresAt: new Date(Date.now() - 60 * 1000) }, // 1 minute ago
+   493→  });
+   494→
+   495→  // Expire the payment
+   496→  const expiryResult = await expireSinglePayment({ paymentId: payment.id });
+   497→
+   498→  // Verify payment was expired
+   499→  expect(expiryResult.paymentExpired).toBe(true);
+   500→
+   501→  // Verify reservation was released
+   502→  const invAfter = await checkInventory(tt.id);
+   503→  expect(invAfter.reservedCount).toBe(0);
+   504→
+   505→  // Verify payment status is EXPIRED
+   506→  const updatedPayment = await db.payment.findUnique({
+   507→    where: { id: payment.id },
+   508→    select: { status: true },
+   509→  });
+   510→  expect(updatedPayment?.status).toBe('EXPIRED');
+   511→
+   512→  // Verify booking status is CANCELLED
+   513→  const updatedBooking = await db.booking.findUnique({
+   514→    where: { id: booking.id },
+   515→    select: { status: true },
+   516→  });
+   517→  expect(updatedBooking?.status).toBe('CANCELLED');
+   518→});
+   519→
+   520→// ═══════════════════════════════════════════════════════════════════
+   521→// 6. Successful payment confirms booking exactly once
+   522→// ═══════════════════════════════════════════════════════════════════
+   523→
+   524→it('6. Successful payment confirms booking exactly once', async () => {
+   525→  const org = await createUser('ORGANIZER');
+   526→  const user = await createUser('PUBLIC');
+   527→  const event = await createEvent(org.id);
+   528→  const tt = await createTicketType(event.id, 5000, 10);
+   529→
+   530→  const { booking, payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+   531→
+   532→  // Confirm booking on payment success
+   533→  const result = await confirmBookingOnPaymentSuccess({
+   534→    paymentId: payment.id,
+   535→    providerReference: `ps_ref_${uid()}`,
+   536→  });
+   537→
+   538→  // Verify booking is CONFIRMED
+   539→  expect(result.confirmed).toBe(true);
+   540→
+   541→  const updatedBooking = await db.booking.findUnique({
+   542→    where: { id: booking.id },
+   543→    select: { status: true },
+   544→  });
+   545→  expect(updatedBooking?.status).toBe('CONFIRMED');
+   546→
+   547→  // Verify payment is COMPLETED
+   548→  const updatedPayment = await db.payment.findUnique({
+   549→    where: { id: payment.id },
+   550→    select: { status: true },
+   551→  });
+   552→  expect(updatedPayment?.status).toBe('COMPLETED');
+   553→
+   554→  // Call confirmBookingOnPaymentSuccess again — should be idempotent
+   555→  const result2 = await confirmBookingOnPaymentSuccess({
+   556→    paymentId: payment.id,
+   557→    providerReference: `ps_ref_${uid()}`,
+   558→  });
+   559→
+   560→  // Verify idempotent: confirmed === false (already confirmed)
+   561→  expect(result2.confirmed).toBe(false);
+   562→});
+   563→
+   564→// ═══════════════════════════════════════════════════════════════════
+   565→// 7. Successful payment activates tickets exactly once
+   566→// ═══════════════════════════════════════════════════════════════════
+   567→
+   568→it('7. Successful payment activates tickets exactly once', async () => {
+   569→  const org = await createUser('ORGANIZER');
+   570→  const user = await createUser('PUBLIC');
+   571→  const event = await createEvent(org.id);
+   572→  const tt = await createTicketType(event.id, 5000, 10);
+   573→
+   574→  const { booking, payment, ticketIds } = await createPaidBookingWithReservation(user, event, tt, 2);
+   575→
+   576→  // Before confirmation: all tickets are PENDING
+   577→  const ticketsBefore = await db.ticket.findMany({
+   578→    where: { id: { in: ticketIds } },
+   579→    select: { status: true },
+   580→  });
+   581→  expect(ticketsBefore.every(t => t.status === 'PENDING')).toBe(true);
+   582→
+   583→  // Confirm booking on payment success — activates tickets
+   584→  const result = await confirmBookingOnPaymentSuccess({
+   585→    paymentId: payment.id,
+   586→    providerReference: `ps_ref_${uid()}`,
+   587→  });
+   588→
+   589→  // Verify tickets are now VALID
+   590→  expect(result.ticketsActivated).toBe(2);
+   591→  const ticketsAfter = await db.ticket.findMany({
+   592→    where: { id: { in: ticketIds } },
+   593→    select: { status: true },
+   594→  });
+   595→  expect(ticketsAfter.every(t => t.status === 'VALID')).toBe(true);
+   596→
+   597→  // Call confirmBookingOnPaymentSuccess again — idempotent, no additional tickets
+   598→  const result2 = await confirmBookingOnPaymentSuccess({
+   599→    paymentId: payment.id,
+   600→    providerReference: `ps_ref_${uid()}`,
+   601→  });
+   602→
+   603→  expect(result2.ticketsActivated).toBe(0);
+   604→
+   605→  // Verify no additional tickets created
+   606→  const ticketCount = await db.ticket.count({
+   607→    where: { bookingId: booking.id },
+   608→  });
+   609→  expect(ticketCount).toBe(2); // Still exactly 2
+   610→});
+   611→
+   612→// ═══════════════════════════════════════════════════════════════════
+   613→// 8. Free booking remains immediately confirmable
+   614→// ═══════════════════════════════════════════════════════════════════
+   615→
+   616→it('8. Free booking remains immediately confirmable', async () => {
+   617→  const org = await createUser('ORGANIZER');
+   618→  const user = await createUser('PUBLIC');
+   619→  const event = await createEvent(org.id);
+   620→  // Free ticket type (price = 0)
+   621→  const tt = await createTicketType(event.id, 0, 10);
+   622→
+   623→  const { booking, payment, ticketIds } = await createFreeBookingConfirmed(user, event, tt, 2);
+   624→
+   625→  // Verify booking is immediately CONFIRMED
+   626→  expect(booking.status).toBe('CONFIRMED');
+   627→
+   628→  // Verify payment is COMPLETED with FREE provider
+   629→  expect(payment.status).toBe('COMPLETED');
+   630→  expect(payment.provider).toBe('FREE');
+   631→
+   632→  // Verify all tickets are VALID
+   633→  const tickets = await db.ticket.findMany({
+   634→    where: { id: { in: ticketIds } },
+   635→    select: { status: true },
+   636→  });
+   637→  expect(tickets.length).toBe(2);
+   638→  expect(tickets.every(t => t.status === 'VALID')).toBe(true);
+   639→});
+   640→
+   641→// ═══════════════════════════════════════════════════════════════════
+   642→// 9. Duplicate booking requests remain idempotent
+   643→// ═══════════════════════════════════════════════════════════════════
+   644→
+   645→it('9. Duplicate booking requests remain idempotent', async () => {
+   646→  const org = await createUser('ORGANIZER');
+   647→  const user = await createUser('PUBLIC');
+   648→  const event = await createEvent(org.id);
+   649→  const tt = await createTicketType(event.id, 5000, 10);
+   650→
+   651→  const booking = await createBooking(user.id, event.id, 10000);
+   652→
+   653→  // Create a payment with a specific idempotency key
+   654→  const idempotencyKey = `pay-idem-${uid()}`;
+   655→  const result1 = await createBookingPayment({
+   656→    bookingId: booking.id,
+   657→    userId: user.id,
+   658→    amount: 10000,
+   659→    currency: 'GHS',
+   660→    idempotencyKey,
+   661→  });
+   662→  created.payments.push(result1.paymentId);
+   663→
+   664→  // Call createBookingPayment again with the SAME idempotencyKey
+   665→  const result2 = await createBookingPayment({
+   666→    bookingId: booking.id,
+   667→    userId: user.id,
+   668→    amount: 10000,
+   669→    currency: 'GHS',
+   670→    idempotencyKey,
+   671→  });
+   672→
+   673→  // Verify the same payment is returned (not a new one)
+   674→  expect(result2.paymentId).toBe(result1.paymentId);
+   675→
+   676→  // Verify only one payment exists for this booking
+   677→  const paymentCount = await db.payment.count({
+   678→    where: { bookingId: booking.id },
+   679→  });
+   680→  expect(paymentCount).toBe(1);
+   681→});
+   682→
+   683→// ═══════════════════════════════════════════════════════════════════
+   684→// 10. Concurrent booking requests cannot oversell inventory
+   685→// ═══════════════════════════════════════════════════════════════════
+   686→
+   687→it('10. Concurrent booking requests cannot oversell inventory', async () => {
+   688→  const org = await createUser('ORGANIZER');
+   689→  const event = await createEvent(org.id);
+   690→  // Ticket type with quantity=1 — only 1 available
+   691→  const tt = await createTicketType(event.id, 5000, 1);
+   692→
+   693→  // First reservation for quantity=1 should succeed
+   694→  await reserveInventory({ ticketTypeId: tt.id, quantity: 1 });
+   695→
+   696→  // Verify reservedCount = 1
+   697→  const invAfterFirst = await checkInventory(tt.id);
+   698→  expect(invAfterFirst.reservedCount).toBe(1);
+   699→
+   700→  // Second reservation for quantity=1 should fail (InsufficientInventory)
+   701→  await expect(
+   702→    reserveInventory({ ticketTypeId: tt.id, quantity: 1 }),
+   703→  ).rejects.toThrow(InsufficientInventory);
+   704→
+   705→  // Verify reservedCount is still 1 (not oversold)
+   706→  const invAfterSecond = await checkInventory(tt.id);
+   707→  expect(invAfterSecond.reservedCount).toBe(1);
+   708→});
+   709→
+   710→// ═══════════════════════════════════════════════════════════════════
+   711→// 11. Existing booking endpoint cannot bypass payment
+   712→// ═══════════════════════════════════════════════════════════════════
+   713→
+   714→it('11. Existing booking endpoint cannot bypass payment', async () => {
+   715→  const org = await createUser('ORGANIZER');
+   716→  const user = await createUser('PUBLIC');
+   717→  const event = await createEvent(org.id);
+   718→  const tt = await createTicketType(event.id, 5000, 10);
+   719→
+   720→  const { booking, payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+   721→
+   722→  // Booking is PENDING, payment is PENDING — trying to confirm directly
+   723→  // should succeed because confirmBookingOnPaymentSuccess validates the
+   724→  // payment transition (PENDING → COMPLETED is legal).
+   725→  // BUT the key invariant is: there is NO alternate path to confirm
+   726→  // a paid booking without going through confirmBookingOnPaymentSuccess.
+   727→  // The only way to CONFIRM a paid booking is via this service, which
+   728→  // requires a valid paymentId and transitions the payment.
+   729→
+   730→  // Attempt to call confirmBookingOnPaymentSuccess on a non-existent payment
+   731→  // should throw PaymentNotFound — confirming that paymentId is required
+   732→  await expect(
+   733→    confirmBookingOnPaymentSuccess({ paymentId: 'non-existent-payment-id' }),
+   734→  ).rejects.toThrow(PaymentNotFound);
+   735→
+   736→  // Verify booking is still PENDING (was never confirmed)
+   737→  const unchangedBooking = await db.booking.findUnique({
+   738→    where: { id: booking.id },
+   739→    select: { status: true },
+   740→  });
+   741→  expect(unchangedBooking?.status).toBe('PENDING');
+   742→
+   743→  // Verify there is no alternate direct booking.status update path
+   744→  // The only way to CONFIRM a paid booking is through
+   745→  // confirmBookingOnPaymentSuccess which atomically transitions
+   746→  // both payment AND booking together. Any attempt to directly
+   747→  // update Booking.status to CONFIRMED would leave Payment.status
+   748→  // as PENDING — a state inconsistency. Our service prevents this
+   749→  // by performing both updates inside a transaction.
+   750→  const unchangedPayment = await db.payment.findUnique({
+   751→    where: { id: payment.id },
+   752→    select: { status: true },
+   753→  });
+   754→  expect(unchangedPayment?.status).toBe('PENDING');
+   755→});
+   756→
+   757→// ═══════════════════════════════════════════════════════════════════
+   758→// 12. Manual confirmation cannot bypass authorization
+   759→// ═══════════════════════════════════════════════════════════════════
+   760→
+   761→it('12. Manual confirmation cannot bypass authorization', () => {
+   762→  // requireRole returns a function that checks the user's role
+   763→  const checkOrganizerOrAdmin = requireRole('ORGANIZER', 'SUPER_ADMIN');
+   764→
+   765→  // PUBLIC user should be rejected
+   766→  const publicUser = { role: 'PUBLIC' };
+   767→  expect(() => checkOrganizerOrAdmin(publicUser)).toThrow();
+   768→
+   769→  // ORGANIZER should be allowed
+   770→  const organizerUser = { role: 'ORGANIZER' };
+   771→  expect(() => checkOrganizerOrAdmin(organizerUser)).not.toThrow();
+   772→
+   773→  // SUPER_ADMIN should be allowed
+   774→  const superAdminUser = { role: 'SUPER_ADMIN' };
+   775→  expect(() => checkOrganizerOrAdmin(superAdminUser)).not.toThrow();
+   776→});
+   777→
+   778→// ═══════════════════════════════════════════════════════════════════
+   779→// 13. Webhook duplicate delivery cannot double-confirm
+   780→// ═══════════════════════════════════════════════════════════════════
+   781→
+   782→it('13. Webhook duplicate delivery cannot double-confirm', async () => {
+   783→  const org = await createUser('ORGANIZER');
+   784→  const user = await createUser('PUBLIC');
+   785→  const event = await createEvent(org.id);
+   786→  const tt = await createTicketType(event.id, 5000, 10);
+   787→
+   788→  const { booking, payment, providerRef } = await createPaidBookingWithReservation(user, event, tt, 2);
+   789→
+   790→  const webhookEventId = `evt-dedup-${uid()}`;
+   791→
+   792→  // First webhook delivery (charge.success) — should confirm booking
+   793→  const result1 = await processWebhookEvent({
+   794→    event: {
+   795→      provider: 'PAYSTACK',
+   796→      eventId: webhookEventId,
+   797→      eventType: 'charge.success',
+   798→      eventReference: providerRef,
+   799→      amount: asMoney(payment.amount),
+   800→      currency: payment.currency,
+   801→      eventAt: new Date(),
+   802→      isPaymentSuccess: true,
+   803→      isPaymentFailure: false,
+   804→    },
+   805→  });
+   806→
+   807→  // Verify booking is CONFIRMED
+   808→  const confirmedBooking = await db.booking.findUnique({
+   809→    where: { id: booking.id },
+   810→    select: { status: true },
+   811→  });
+   812→  expect(confirmedBooking?.status).toBe('CONFIRMED');
+   813→
+   814→  // Record the ticket count after first confirmation
+   815→  const ticketCountAfterFirst = await db.ticket.count({
+   816→    where: { bookingId: booking.id },
+   817→  });
+   818→
+   819→  // Second webhook delivery with SAME eventId — should be idempotent
+   820→  const result2 = await processWebhookEvent({
+   821→    event: {
+   822→      provider: 'PAYSTACK',
+   823→      eventId: webhookEventId, // Same eventId
+   824→      eventType: 'charge.success',
+   825→      eventReference: providerRef,
+   826→      amount: asMoney(payment.amount),
+   827→      currency: payment.currency,
+   828→      eventAt: new Date(),
+   829→      isPaymentSuccess: true,
+   830→      isPaymentFailure: false,
+   831→    },
+   832→  });
+   833→
+   834→  // The duplicate should report processed=false (already processed)
+   835→  expect(result2.processed).toBe(false);
+   836→
+   837→  // Verify booking is still CONFIRMED (not double-confirmed)
+   838→  const stillConfirmedBooking = await db.booking.findUnique({
+   839→    where: { id: booking.id },
+   840→    select: { status: true },
+   841→  });
+   842→  expect(stillConfirmedBooking?.status).toBe('CONFIRMED');
+   843→
+   844→  // Verify tickets are still exactly the same count
+   845→  const ticketCountAfterSecond = await db.ticket.count({
+   846→    where: { bookingId: booking.id },
+   847→  });
+   848→  expect(ticketCountAfterSecond).toBe(ticketCountAfterFirst);
+   849→});
+   850→
+   851→// ═══════════════════════════════════════════════════════════════════
+   852→// 14. Webhook transient failure remains safely retryable
+   853→// ═══════════════════════════════════════════════════════════════════
+   854→
+   855→it('14. Webhook transient failure remains safely retryable', async () => {
+   856→  // Create a webhook event that will fail because the payment
+   857→  // can't be found by the providerRef (orphaned webhook)
+   858→  const unknownProviderRef = `ps_ref_unknown_${uid()}`;
+   859→  const webhookEventId = `evt-transient-${uid()}`;
+   860→
+   861→  const result = await processWebhookEvent({
+   862→    event: {
+   863→      provider: 'PAYSTACK',
+   864→      eventId: webhookEventId,
+   865→      eventType: 'charge.success',
+   866→      eventReference: unknownProviderRef,
+   867→      amount: asMoney(10000),
+   868→      currency: 'GHS',
+   869→      eventAt: new Date(),
+   870→      isPaymentSuccess: true,
+   871→      isPaymentFailure: false,
+   872→    },
+   873→  });
+   874→
+   875→  // The event should be recorded
+   876→  const webhookEvent = await db.paymentWebhookEvent.findUnique({
+   877→    where: { eventId: webhookEventId },
+   878→  });
+   879→
+   880→  expect(webhookEvent).not.toBeNull();
+   881→
+   882→  // Since the payment is not found, the event is marked as processed=true
+   883→  // (non-retriable: retrying won't make the payment appear)
+   884→  // This is the correct behavior — orphaned webhooks are permanently unprocessable
+   885→  expect(webhookEvent?.processed).toBe(true);
+   886→  expect(webhookEvent?.processingError).toBe('Payment not found for provider reference');
+   887→
+   888→  // Calling processWebhookEvent again with the SAME eventId is idempotent (dedup)
+   889→  const result2 = await processWebhookEvent({
+   890→    event: {
+   891→      provider: 'PAYSTACK',
+   892→      eventId: webhookEventId, // Same eventId
+   893→      eventType: 'charge.success',
+   894→      eventReference: unknownProviderRef,
+   895→      amount: asMoney(10000),
+   896→      currency: 'GHS',
+   897→      eventAt: new Date(),
+   898→      isPaymentSuccess: true,
+   899→      isPaymentFailure: false,
+   900→    },
+   901→  });
+   902→
+   903→  // Dedup: should report processed=false (already processed)
+   904→  expect(result2.processed).toBe(false);
+   905→});
+   906→
+   907→// ═══════════════════════════════════════════════════════════════════
+   908→// 15. Cancellation and refund states remain consistent
+   909→// ═══════════════════════════════════════════════════════════════════
+   910→
+   911→it('15. Cancellation and refund states remain consistent', async () => {
+   912→  const org = await createUser('ORGANIZER');
+   913→  const user = await createUser('PUBLIC');
+   914→  const event = await createEvent(org.id);
+   915→  const tt = await createTicketType(event.id, 5000, 10);
+   916→
+   917→  // Create a CONFIRMED paid booking
+   918→  const { booking, payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+   919→
+   920→  await confirmBookingOnPaymentSuccess({
+   921→    paymentId: payment.id,
+   922→    providerReference: `ps_ref_${uid()}`,
+   923→  });
+   924→
+   925→  // Verify booking is CONFIRMED and payment is COMPLETED
+   926→  const confirmedBooking = await db.booking.findUnique({
+   927→    where: { id: booking.id },
+   928→    select: { status: true },
+   929→  });
+   930→  expect(confirmedBooking?.status).toBe('CONFIRMED');
+   931→
+   932→  const completedPayment = await db.payment.findUnique({
+   933→    where: { id: payment.id },
+   934→    select: { status: true, amount: true },
+   935→  });
+   936→  expect(completedPayment?.status).toBe('COMPLETED');
+   937→
+   938→  // Request a refund
+   939→  const refundResult = await requestRefund({
+   940→    paymentId: payment.id,
+   941→    amount: completedPayment!.amount, // Full refund
+   942→    reason: 'Customer requested full refund',
+   943→    requestedBy: user.id,
+   944→  });
+   945→  created.refunds.push(refundResult.refundId);
+   946→
+   947→  // Verify refund status is REQUESTED
+   948→  expect(refundResult.status).toBe('REQUESTED');
+   949→
+   950→  // Verify payment status is still COMPLETED (refund request ≠ refund completion)
+   951→  const paymentAfterRefundRequest = await db.payment.findUnique({
+   952→    where: { id: payment.id },
+   953→    select: { status: true },
+   954→  });
+   955→  expect(paymentAfterRefundRequest?.status).toBe('COMPLETED');
+   956→
+   957→  // Mark refund as PROCESSING (simulating provider acceptance)
+   958→  await markRefundProcessing(refundResult.refundId);
+   959→
+   960→  // Process refund completion
+   961→  const completionResult = await processRefundCompletion({
+   962→    refundId: refundResult.refundId,
+   963→    providerRef: `rf_ref_${uid()}`,
+   964→  });
+   965→
+   966→  // Verify refund status is COMPLETED
+   967→  expect(completionResult.status).toBe('COMPLETED');
+   968→
+   969→  // Verify payment status is REFUNDED
+   970→  const paymentAfterCompletion = await db.payment.findUnique({
+   971→    where: { id: payment.id },
+   972→    select: { status: true, refundedAmount: true, amount: true },
+   973→  });
+   974→  expect(paymentAfterCompletion?.status).toBe('REFUNDED');
+   975→  expect(paymentAfterCompletion?.refundedAmount).toBe(paymentAfterCompletion?.amount);
+   976→});
+   977→
+   978→// ═══════════════════════════════════════════════════════════════════
+   979→// ADDITIONAL: Paid booking with CANCELLED booking cannot be confirmed
+   980→// ═══════════════════════════════════════════════════════════════════
+   981→
+   982→it('CANCELLED booking cannot be confirmed via confirmBookingOnPaymentSuccess', async () => {
+   983→  const org = await createUser('ORGANIZER');
+   984→  const user = await createUser('PUBLIC');
+   985→  const event = await createEvent(org.id);
+   986→  const tt = await createTicketType(event.id, 5000, 10);
+   987→
+   988→  const { booking, payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+   989→
+   990→  // Manually cancel the booking (simulating user cancellation before payment)
+   991→  await db.booking.update({
+   992→    where: { id: booking.id },
+   993→    data: { status: 'CANCELLED', cancellationReason: 'User cancelled' },
+   994→  });
+   995→
+   996→  // Attempt to confirm via confirmBookingOnPaymentSuccess should throw
+   997→  await expect(
+   998→    confirmBookingOnPaymentSuccess({
+   999→      paymentId: payment.id,
+  1000→      providerReference: `ps_ref_${uid()}`,
+  1001→    }),
+  1002→  ).rejects.toThrow();
+  1003→
+  1004→  // Verify booking is still CANCELLED
+  1005→  const stillCancelled = await db.booking.findUnique({
+  1006→    where: { id: booking.id },
+  1007→    select: { status: true },
+  1008→  });
+  1009→  expect(stillCancelled?.status).toBe('CANCELLED');
+  1010→});
+  1011→
+  1012→// ═══════════════════════════════════════════════════════════════════
+  1013→// ADDITIONAL: Paid booking with EXPIRED booking cannot be confirmed
+  1014→// ═══════════════════════════════════════════════════════════════════
+  1015→
+  1016→it('EXPIRED/CANCELLED booking cannot be confirmed via confirmBookingOnPaymentSuccess', async () => {
+  1017→  const org = await createUser('ORGANIZER');
+  1018→  const user = await createUser('PUBLIC');
+  1019→  const event = await createEvent(org.id);
+  1020→  const tt = await createTicketType(event.id, 5000, 10);
+  1021→
+  1022→  const { booking, payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+  1023→
+  1024→  // Set booking to CANCELLED (expired bookings become CANCELLED)
+  1025→  await db.booking.update({
+  1026→    where: { id: booking.id },
+  1027→    data: { status: 'CANCELLED', cancellationReason: 'Payment expired' },
+  1028→  });
+  1029→
+  1030→  // Attempt to confirm should throw
+  1031→  await expect(
+  1032→    confirmBookingOnPaymentSuccess({
+  1033→      paymentId: payment.id,
+  1034→      providerReference: `ps_ref_${uid()}`,
+  1035→    }),
+  1036→  ).rejects.toThrow();
+  1037→
+  1038→  // Verify booking is still CANCELLED
+  1039→  const stillCancelled = await db.booking.findUnique({
+  1040→    where: { id: booking.id },
+  1041→    select: { status: true },
+  1042→  });
+  1043→  expect(stillCancelled?.status).toBe('CANCELLED');
+  1044→});
+  1045→
+  1046→// ═══════════════════════════════════════════════════════════════════
+  1047→// ADDITIONAL: Cancel of PENDING booking releases reservation
+  1048→// ═══════════════════════════════════════════════════════════════════
+  1049→
+  1050→it('Cancel of PENDING booking releases reservation', async () => {
+  1051→  const org = await createUser('ORGANIZER');
+  1052→  const user = await createUser('PUBLIC');
+  1053→  const event = await createEvent(org.id);
+  1054→  const tt = await createTicketType(event.id, 5000, 10);
+  1055→
+  1056→  const { booking, ticketIds } = await createPaidBookingWithReservation(user, event, tt, 2);
+  1057→
+  1058→  // Verify reservation exists
+  1059→  const invBefore = await checkInventory(tt.id);
+  1060→  expect(invBefore.reservedCount).toBe(2);
+  1061→
+  1062→  // Cancel the booking: release reservation + cancel tickets
+  1063→  await db.booking.update({
+  1064→    where: { id: booking.id },
+  1065→    data: { status: 'CANCELLED', cancellationReason: 'User cancelled' },
+  1066→  });
+  1067→
+  1068→  await releaseReservation({ ticketTypeId: tt.id, quantity: 2 });
+  1069→  await cancelTickets({ bookingId: booking.id });
+  1070→
+  1071→  // Verify reservation released
+  1072→  const invAfter = await checkInventory(tt.id);
+  1073→  expect(invAfter.reservedCount).toBe(0);
+  1074→  expect(invAfter.available).toBe(10);
+  1075→
+  1076→  // Verify tickets are CANCELLED
+  1077→  const tickets = await db.ticket.findMany({
+  1078→    where: { id: { in: ticketIds } },
+  1079→    select: { status: true },
+  1080→  });
+  1081→  expect(tickets.every(t => t.status === 'CANCELLED')).toBe(true);
+  1082→});
+  1083→
+  1084→// ═══════════════════════════════════════════════════════════════════
+  1085→// ADDITIONAL: Cancel of CONFIRMED booking restores soldCount
+  1086→// ═══════════════════════════════════════════════════════════════════
+  1087→
+  1088→it('Cancel of CONFIRMED booking restores soldCount', async () => {
+  1089→  const org = await createUser('ORGANIZER');
+  1090→  const user = await createUser('PUBLIC');
+  1091→  const event = await createEvent(org.id);
+  1092→  const tt = await createTicketType(event.id, 5000, 10);
+  1093→
+  1094→  const { booking, payment, ticketIds } = await createPaidBookingWithReservation(user, event, tt, 2);
+  1095→
+  1096→  // Confirm the booking (payment success)
+  1097→  await confirmBookingOnPaymentSuccess({
+  1098→    paymentId: payment.id,
+  1099→    providerReference: `ps_ref_${uid()}`,
+  1100→  });
+  1101→
+  1102→  // Verify soldCount is 2 (reservation confirmed to sold)
+  1103→  const invConfirmed = await checkInventory(tt.id);
+  1104→  expect(invConfirmed.soldCount).toBe(2);
+  1105→
+  1106→  // Cancel the confirmed booking: restore soldCount
+  1107→  await db.booking.update({
+  1108→    where: { id: booking.id },
+  1109→    data: { status: 'CANCELLED', cancellationReason: 'Organizer cancelled' },
+  1110→  });
+  1111→
+  1112→  await restoreSoldCount(tt.id, 2);
+  1113→  await cancelTickets({ bookingId: booking.id });
+  1114→
+  1115→  // Verify soldCount is restored to 0
+  1116→  const invCancelled = await checkInventory(tt.id);
+  1117→  expect(invCancelled.soldCount).toBe(0);
+  1118→  expect(invCancelled.available).toBe(10);
+  1119→});
+  1120→
+  1121→// ═══════════════════════════════════════════════════════════════════
+  1122→// ADDITIONAL: Inventory invariant holds: soldCount + reservedCount <= quantity
+  1123→// ═══════════════════════════════════════════════════════════════════
+  1124→
+  1125→it('Inventory invariant holds: soldCount + reservedCount <= quantity after every operation', async () => {
+  1126→  const org = await createUser('ORGANIZER');
+  1127→  const user1 = await createUser('PUBLIC');
+  1128→  const user2 = await createUser('PUBLIC');
+  1129→  const event = await createEvent(org.id);
+  1130→  const tt = await createTicketType(event.id, 5000, 5);
+  1131→
+  1132→  // Initial: 0 + 0 = 0 <= 5 ✓
+  1133→  let inv = await checkInventory(tt.id);
+  1134→  expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+  1135→
+  1136→  // Reserve 2: 0 + 2 = 2 <= 5 ✓
+  1137→  await reserveInventory({ ticketTypeId: tt.id, quantity: 2 });
+  1138→  inv = await checkInventory(tt.id);
+  1139→  expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+  1140→
+  1141→  // Confirm 1 (reserved → sold): 1 + 1 = 2 <= 5 ✓
+  1142→  await confirmReservation({ ticketTypeId: tt.id, quantity: 1 });
+  1143→  inv = await checkInventory(tt.id);
+  1144→  expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+  1145→
+  1146→  // Release 1 reservation: 1 + 0 = 1 <= 5 ✓
+  1147→  await releaseReservation({ ticketTypeId: tt.id, quantity: 1 });
+  1148→  inv = await checkInventory(tt.id);
+  1149→  expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+  1150→
+  1151→  // Direct sold increment (free booking): 2 + 0 = 2 <= 5 ✓
+  1152→  await directSoldIncrement(tt.id, 1);
+  1153→  inv = await checkInventory(tt.id);
+  1154→  expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+  1155→
+  1156→  // Reserve 3 more: 2 + 3 = 5 <= 5 ✓
+  1157→  await reserveInventory({ ticketTypeId: tt.id, quantity: 3 });
+  1158→  inv = await checkInventory(tt.id);
+  1159→  expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+  1160→
+  1161→  // Attempting to reserve 1 more should fail (2 + 3 + 1 = 6 > 5)
+  1162→  await expect(
+  1163→    reserveInventory({ ticketTypeId: tt.id, quantity: 1 }),
+  1164→  ).rejects.toThrow(InsufficientInventory);
+  1165→
+  1166→  // Invariant still holds
+  1167→  inv = await checkInventory(tt.id);
+  1168→  expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+  1169→
+  1170→  // Restore sold count (cancellation): 1 + 3 = 4 <= 5 ✓
+  1171→  await restoreSoldCount(tt.id, 1);
+  1172→  inv = await checkInventory(tt.id);
+  1173→  expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+  1174→});
+  1175→
+  1176→// ═══════════════════════════════════════════════════════════════════
+  1177→// ADDITIONAL: Expire tickets properly transitions PENDING → EXPIRED
+  1178→// ═══════════════════════════════════════════════════════════════════
+  1179→
+  1180→it('expireTickets transitions only PENDING tickets to EXPIRED', async () => {
+  1181→  const org = await createUser('ORGANIZER');
+  1182→  const user = await createUser('PUBLIC');
+  1183→  const event = await createEvent(org.id);
+  1184→  const tt = await createTicketType(event.id, 5000, 10);
+  1185→
+  1186→  const { booking, ticketIds } = await createPaidBookingWithReservation(user, event, tt, 2);
+  1187→
+  1188→  // Tickets are PENDING
+  1189→  const ticketsBefore = await db.ticket.findMany({
+  1190→    where: { id: { in: ticketIds } },
+  1191→    select: { status: true },
+  1192→  });
+  1193→  expect(ticketsBefore.every(t => t.status === 'PENDING')).toBe(true);
+  1194→
+  1195→  // Expire tickets
+  1196→  const result = await expireTickets({ bookingId: booking.id });
+  1197→  expect(result.expired).toBe(2);
+  1198→
+  1199→  // Verify tickets are now EXPIRED
+  1200→  const ticketsAfter = await db.ticket.findMany({
+  1201→    where: { id: { in: ticketIds } },
+  1202→    select: { status: true },
+  1203→  });
+  1204→  expect(ticketsAfter.every(t => t.status === 'EXPIRED')).toBe(true);
+  1205→});
+  1206→
+  1207→// ═══════════════════════════════════════════════════════════════════
+  1208→// ADDITIONAL: Payment state machine prevents illegal transitions
+  1209→// ═══════════════════════════════════════════════════════════════════
+  1210→
+  1211→it('Payment state machine prevents illegal transitions from terminal states', () => {
+  1212→  // FAILED → COMPLETED ❌
+  1213→  expect(() => validatePaymentTransition('FAILED', 'COMPLETED')).toThrow(InvalidPaymentTransition);
+  1214→
+  1215→  // EXPIRED → COMPLETED ❌
+  1216→  expect(() => validatePaymentTransition('EXPIRED', 'COMPLETED')).toThrow(InvalidPaymentTransition);
+  1217→
+  1218→  // REFUNDED → COMPLETED ❌
+  1219→  expect(() => validatePaymentTransition('REFUNDED', 'COMPLETED')).toThrow(InvalidPaymentTransition);
+  1220→
+  1221→  // CANCELLED → COMPLETED ❌
+  1222→  expect(() => validatePaymentTransition('CANCELLED', 'COMPLETED')).toThrow(InvalidPaymentTransition);
+  1223→
+  1224→  // COMPLETED → PENDING ❌
+  1225→  expect(() => validatePaymentTransition('COMPLETED', 'PENDING')).toThrow(InvalidPaymentTransition);
+  1226→});
+  1227→
+  1228→// ═══════════════════════════════════════════════════════════════════
+  1229→// ADDITIONAL: Duplicate refund prevention
+  1230→// ═══════════════════════════════════════════════════════════════════
+  1231→
+  1232→it('Duplicate refund request for same payment is prevented', async () => {
+  1233→  const org = await createUser('ORGANIZER');
+  1234→  const user = await createUser('PUBLIC');
+  1235→  const event = await createEvent(org.id);
+  1236→  const tt = await createTicketType(event.id, 5000, 10);
+  1237→
+  1238→  const { payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+  1239→
+  1240→  // Confirm the booking first
+  1241→  await confirmBookingOnPaymentSuccess({
+  1242→    paymentId: payment.id,
+  1243→    providerReference: `ps_ref_${uid()}`,
+  1244→  });
+  1245→
+  1246→  // First refund request succeeds
+  1247→  const refund1 = await requestRefund({
+  1248→    paymentId: payment.id,
+  1249→    amount: 10000,
+  1250→    reason: 'First refund',
+  1251→    requestedBy: user.id,
+  1252→  });
+  1253→  created.refunds.push(refund1.refundId);
+  1254→
+  1255→  // Second refund request should fail (DuplicateRefund)
+  1256→  await expect(
+  1257→    requestRefund({
+  1258→      paymentId: payment.id,
+  1259→      amount: 10000,
+  1260→      reason: 'Duplicate refund attempt',
+  1261→      requestedBy: user.id,
+  1262→    }),
+  1263→  ).rejects.toThrow(DuplicateRefund);
+  1264→});
+  1265→
+  1266→// ═══════════════════════════════════════════════════════════════════
+  1267→// ADDITIONAL: Refund on non-COMPLETED payment throws RefundNotEligible
+  1268→// ═══════════════════════════════════════════════════════════════════
+  1269→
+  1270→it('Refund on PENDING payment throws RefundNotEligible', async () => {
+  1271→  const org = await createUser('ORGANIZER');
+  1272→  const user = await createUser('PUBLIC');
+  1273→  const event = await createEvent(org.id);
+  1274→  const tt = await createTicketType(event.id, 5000, 10);
+  1275→
+  1276→  const { payment } = await createPaidBookingWithReservation(user, event, tt, 2);
+  1277→
+  1278→  // Payment is PENDING — cannot request refund
+  1279→  await expect(
+  1280→    requestRefund({
+  1281→      paymentId: payment.id,
+  1282→      amount: 10000,
+  1283→      reason: 'Attempt to refund pending payment',
+  1284→      requestedBy: user.id,
+  1285→    }),
+  1286→  ).rejects.toThrow(RefundNotEligible);
+  1287→});
+  1288→
+  1289→// ═══════════════════════════════════════════════════════════════════
+  1290→// ADDITIONAL: Provider registry has all providers registered
+  1291→// ═══════════════════════════════════════════════════════════════════
+  1292→
+  1293→it('Provider registry has all providers registered', () => {
+  1294→  const registered = providerRegistry.listRegistered();
+  1295→  expect(registered).toContain('PAYSTACK');
+  1296→  expect(registered).toContain('MANUAL');
+  1297→  expect(registered).toContain('FREE');
+  1298→});
+  1299→

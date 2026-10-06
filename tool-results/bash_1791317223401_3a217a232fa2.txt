@@ -1,0 +1,799 @@
+========== User ==========
+                                    Table "public.User"
+    Column     |              Type              | Collation | Nullable |      Default      
+---------------+--------------------------------+-----------+----------+-------------------
+ id            | text                           |           | not null | 
+ email         | text                           |           | not null | 
+ password      | text                           |           | not null | 
+ name          | text                           |           | not null | 
+ avatar        | text                           |           |          | 
+ phone         | text                           |           |          | 
+ bio           | text                           |           |          | 
+ role          | text                           |           | not null | 'PUBLIC'::text
+ isActive      | boolean                        |           | not null | true
+ emailVerified | timestamp(3) without time zone |           |          | 
+ createdAt     | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt     | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "User_pkey" PRIMARY KEY, btree (id)
+    "User_email_key" UNIQUE, btree (email)
+Referenced by:
+    TABLE ""AuditLog"" CONSTRAINT "AuditLog_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"(id) ON DELETE SET NULL
+    TABLE ""Booking"" CONSTRAINT "Booking_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE RESTRICT
+    TABLE ""EmailVerificationToken"" CONSTRAINT "EmailVerificationToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""EventMedia"" CONSTRAINT "EventMedia_uploadedBy_fkey" FOREIGN KEY ("uploadedBy") REFERENCES "User"(id) ON DELETE RESTRICT
+    TABLE ""Event"" CONSTRAINT "Event_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "User"(id) ON DELETE RESTRICT
+    TABLE ""Notification"" CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""OrganizerMembership"" CONSTRAINT "OrganizerMembership_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""OrganizerProfile"" CONSTRAINT "OrganizerProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""PasswordResetToken"" CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""Payment"" CONSTRAINT "Payment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE RESTRICT
+    TABLE ""RefreshToken"" CONSTRAINT "RefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""Review"" CONSTRAINT "Review_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""StaffAssignment"" CONSTRAINT "StaffAssignment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""Subscription"" CONSTRAINT "Subscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+    TABLE ""Venue"" CONSTRAINT "Venue_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "User"(id) ON DELETE SET NULL
+
+
+========== StaffAssignment ==========
+                            Table "public.StaffAssignment"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ userId    | text                           |           | not null | 
+ eventId   | text                           |           | not null | 
+ role      | text                           |           | not null | 'CHECKIN'::text
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "StaffAssignment_pkey" PRIMARY KEY, btree (id)
+    "StaffAssignment_eventId_idx" btree ("eventId")
+    "StaffAssignment_userId_eventId_key" UNIQUE, btree ("userId", "eventId")
+    "StaffAssignment_userId_idx" btree ("userId")
+Foreign-key constraints:
+    "StaffAssignment_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    "StaffAssignment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+
+
+========== Category ==========
+                                Table "public.Category"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ name      | text                           |           | not null | 
+ slug      | text                           |           | not null | 
+ icon      | text                           |           |          | 
+ color     | text                           |           | not null | '#6366f1'::text
+ sortOrder | integer                        |           | not null | 0
+ isActive  | boolean                        |           | not null | true
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Category_pkey" PRIMARY KEY, btree (id)
+    "Category_name_key" UNIQUE, btree (name)
+    "Category_slug_key" UNIQUE, btree (slug)
+Referenced by:
+    TABLE ""Event"" CONSTRAINT "Event_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"(id) ON DELETE SET NULL
+
+
+========== Tag ==========
+                                  Table "public.Tag"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ name      | text                           |           | not null | 
+ slug      | text                           |           | not null | 
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "Tag_pkey" PRIMARY KEY, btree (id)
+    "Tag_name_key" UNIQUE, btree (name)
+    "Tag_slug_key" UNIQUE, btree (slug)
+Referenced by:
+    TABLE ""EventTag"" CONSTRAINT "EventTag_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "Tag"(id) ON DELETE CASCADE
+
+
+========== SubscriptionPlan ==========
+                                  Table "public.SubscriptionPlan"
+         Column         |              Type              | Collation | Nullable |      Default      
+------------------------+--------------------------------+-----------+----------+-------------------
+ id                     | text                           |           | not null | 
+ name                   | text                           |           | not null | 
+ slug                   | text                           |           | not null | 
+ description            | text                           |           |          | 
+ price                  | integer                        |           | not null | 0
+ interval               | text                           |           | not null | 'MONTHLY'::text
+ currency               | text                           |           | not null | 'GHS'::text
+ maxEvents              | integer                        |           | not null | 5
+ maxTicketsPerEvent     | integer                        |           | not null | 100
+ maxTicketTypesPerEvent | integer                        |           | not null | 3
+ maxStaff               | integer                        |           | not null | 1
+ maxMediaPerEvent       | integer                        |           | not null | 3
+ maxAttendeesTotal      | integer                        |           | not null | 500
+ canAdvertise           | boolean                        |           | not null | false
+ canCustomBranding      | boolean                        |           | not null | false
+ canApiAccess           | boolean                        |           | not null | false
+ analyticsLevel         | text                           |           | not null | 'BASIC'::text
+ trialDays              | integer                        |           | not null | 0
+ features               | text                           |           | not null | '[]'::text
+ isActive               | boolean                        |           | not null | true
+ sortOrder              | integer                        |           | not null | 0
+ createdAt              | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt              | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "SubscriptionPlan_pkey" PRIMARY KEY, btree (id)
+    "SubscriptionPlan_slug_key" UNIQUE, btree (slug)
+    "idx_subscription_plan_price" btree (price, "isActive")
+Check constraints:
+    "chk_subscription_plan_price_nonneg" CHECK (price >= 0)
+Referenced by:
+    TABLE ""OrganizerSubscription"" CONSTRAINT "OrganizerSubscription_planId_fkey" FOREIGN KEY ("planId") REFERENCES "SubscriptionPlan"(id) ON DELETE RESTRICT
+    TABLE ""Subscription"" CONSTRAINT "Subscription_planId_fkey" FOREIGN KEY ("planId") REFERENCES "SubscriptionPlan"(id) ON DELETE RESTRICT
+
+
+========== Subscription ==========
+                              Table "public.Subscription"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ userId    | text                           |           | not null | 
+ planId    | text                           |           | not null | 
+ status    | text                           |           | not null | 'ACTIVE'::text
+ startDate | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ endDate   | timestamp(3) without time zone |           |          | 
+ autoRenew | boolean                        |           | not null | true
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Subscription_pkey" PRIMARY KEY, btree (id)
+    "Subscription_planId_idx" btree ("planId")
+    "Subscription_userId_idx" btree ("userId")
+Foreign-key constraints:
+    "Subscription_planId_fkey" FOREIGN KEY ("planId") REFERENCES "SubscriptionPlan"(id) ON DELETE RESTRICT
+    "Subscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+
+
+========== OrganizerSubscription ==========
+                              Table "public.OrganizerSubscription"
+       Column       |              Type              | Collation | Nullable |      Default      
+--------------------+--------------------------------+-----------+----------+-------------------
+ id                 | text                           |           | not null | 
+ organizerId        | text                           |           | not null | 
+ planId             | text                           |           | not null | 
+ status             | text                           |           | not null | 'ACTIVE'::text
+ startDate          | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ endDate            | timestamp(3) without time zone |           |          | 
+ trialStart         | timestamp(3) without time zone |           |          | 
+ trialEnd           | timestamp(3) without time zone |           |          | 
+ isInTrial          | boolean                        |           | not null | false
+ autoRenew          | boolean                        |           | not null | true
+ cancelledAt        | timestamp(3) without time zone |           |          | 
+ cancelReason       | text                           |           |          | 
+ billingProvider    | text                           |           | not null | 'MANUAL'::text
+ billingProviderRef | text                           |           |          | 
+ billingCustomerId  | text                           |           |          | 
+ paymentStatus      | text                           |           | not null | 'CURRENT'::text
+ createdAt          | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt          | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "OrganizerSubscription_pkey" PRIMARY KEY, btree (id)
+    "OrganizerSubscription_organizerId_key" UNIQUE, btree ("organizerId")
+    "OrganizerSubscription_planId_idx" btree ("planId")
+    "OrganizerSubscription_status_idx" btree (status)
+Foreign-key constraints:
+    "OrganizerSubscription_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile"(id) ON DELETE CASCADE
+    "OrganizerSubscription_planId_fkey" FOREIGN KEY ("planId") REFERENCES "SubscriptionPlan"(id) ON DELETE RESTRICT
+
+
+========== Event ==========
+                                     Table "public.Event"
+      Column      |              Type              | Collation | Nullable |      Default      
+------------------+--------------------------------+-----------+----------+-------------------
+ id               | text                           |           | not null | 
+ title            | text                           |           | not null | 
+ slug             | text                           |           | not null | 
+ description      | text                           |           | not null | 
+ shortDescription | text                           |           |          | 
+ coverImage       | text                           |           |          | 
+ startDate        | timestamp(3) without time zone |           | not null | 
+ endDate          | timestamp(3) without time zone |           |          | 
+ startTime        | text                           |           |          | 
+ endTime          | text                           |           |          | 
+ timezone         | text                           |           | not null | 'UTC'::text
+ venueName        | text                           |           |          | 
+ venueAddress     | text                           |           |          | 
+ venueCity        | text                           |           |          | 
+ venueState       | text                           |           |          | 
+ venueCountry     | text                           |           | not null | 'GH'::text
+ venueLat         | double precision               |           |          | 
+ venueLng         | double precision               |           |          | 
+ isVirtual        | boolean                        |           | not null | false
+ virtualUrl       | text                           |           |          | 
+ capacity         | integer                        |           |          | 
+ status           | text                           |           | not null | 'DRAFT'::text
+ isFeatured       | boolean                        |           | not null | false
+ isPaid           | boolean                        |           | not null | false
+ currency         | text                           |           | not null | 'GHS'::text
+ organizerId      | text                           |           | not null | 
+ categoryId       | text                           |           |          | 
+ venueId          | text                           |           |          | 
+ contactEmail     | text                           |           |          | 
+ contactPhone     | text                           |           |          | 
+ ageRestriction   | text                           |           |          | 
+ visibility       | text                           |           | not null | 'PUBLIC'::text
+ rejectionReason  | text                           |           |          | 
+ moderatedBy      | text                           |           |          | 
+ moderatedAt      | timestamp(3) without time zone |           |          | 
+ isBookable       | boolean                        |           | not null | true
+ createdAt        | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt        | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Event_pkey" PRIMARY KEY, btree (id)
+    "Event_categoryId_idx" btree ("categoryId")
+    "Event_organizerId_idx" btree ("organizerId")
+    "Event_organizerId_status_idx" btree ("organizerId", status)
+    "Event_slug_key" UNIQUE, btree (slug)
+    "Event_startDate_idx" btree ("startDate")
+    "Event_status_idx" btree (status)
+    "Event_status_startDate_idx" btree (status, "startDate")
+    "Event_venueId_idx" btree ("venueId")
+Foreign-key constraints:
+    "Event_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"(id) ON DELETE SET NULL
+    "Event_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "User"(id) ON DELETE RESTRICT
+    "Event_venueId_fkey" FOREIGN KEY ("venueId") REFERENCES "Venue"(id) ON DELETE SET NULL
+Referenced by:
+    TABLE ""Advertisement"" CONSTRAINT "Advertisement_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE SET NULL
+    TABLE ""Booking"" CONSTRAINT "Booking_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE RESTRICT
+    TABLE ""EventAnalytics"" CONSTRAINT "EventAnalytics_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    TABLE ""EventMedia"" CONSTRAINT "EventMedia_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    TABLE ""EventParticipant"" CONSTRAINT "EventParticipant_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    TABLE ""EventSession"" CONSTRAINT "EventSession_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    TABLE ""EventTag"" CONSTRAINT "EventTag_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    TABLE ""Review"" CONSTRAINT "Review_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    TABLE ""StaffAssignment"" CONSTRAINT "StaffAssignment_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    TABLE ""TicketType"" CONSTRAINT "TicketType_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+
+
+========== EventTag ==========
+                                Table "public.EventTag"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ eventId   | text                           |           | not null | 
+ tagId     | text                           |           | not null | 
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "EventTag_pkey" PRIMARY KEY, btree (id)
+    "EventTag_eventId_idx" btree ("eventId")
+    "EventTag_eventId_tagId_key" UNIQUE, btree ("eventId", "tagId")
+    "EventTag_tagId_idx" btree ("tagId")
+Foreign-key constraints:
+    "EventTag_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    "EventTag_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "Tag"(id) ON DELETE CASCADE
+
+
+========== EventSession ==========
+                                Table "public.EventSession"
+    Column     |              Type              | Collation | Nullable |      Default      
+---------------+--------------------------------+-----------+----------+-------------------
+ id            | text                           |           | not null | 
+ eventId       | text                           |           | not null | 
+ title         | text                           |           | not null | 
+ description   | text                           |           |          | 
+ startTime     | text                           |           | not null | 
+ endTime       | text                           |           | not null | 
+ date          | timestamp(3) without time zone |           |          | 
+ sortOrder     | integer                        |           | not null | 0
+ venueId       | text                           |           |          | 
+ venueName     | text                           |           |          | 
+ participantId | text                           |           |          | 
+ sessionType   | text                           |           | not null | 'SESSION'::text
+ status        | text                           |           | not null | 'SCHEDULED'::text
+ createdAt     | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt     | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "EventSession_pkey" PRIMARY KEY, btree (id)
+    "EventSession_eventId_date_idx" btree ("eventId", date)
+    "EventSession_eventId_idx" btree ("eventId")
+Foreign-key constraints:
+    "EventSession_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    "EventSession_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "EventParticipant"(id) ON DELETE SET NULL
+    "EventSession_venueId_fkey" FOREIGN KEY ("venueId") REFERENCES "Venue"(id) ON DELETE SET NULL
+
+
+========== EventParticipant ==========
+                             Table "public.EventParticipant"
+    Column    |              Type              | Collation | Nullable |      Default      
+--------------+--------------------------------+-----------+----------+-------------------
+ id           | text                           |           | not null | 
+ eventId      | text                           |           | not null | 
+ name         | text                           |           | not null | 
+ bio          | text                           |           |          | 
+ image        | text                           |           |          | 
+ role         | text                           |           | not null | 'SPEAKER'::text
+ title        | text                           |           |          | 
+ organization | text                           |           |          | 
+ socialLinks  | text                           |           |          | 
+ email        | text                           |           |          | 
+ sortOrder    | integer                        |           | not null | 0
+ isFeatured   | boolean                        |           | not null | false
+ createdAt    | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt    | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "EventParticipant_pkey" PRIMARY KEY, btree (id)
+    "EventParticipant_eventId_idx" btree ("eventId")
+    "EventParticipant_eventId_name_key" UNIQUE, btree ("eventId", name)
+Foreign-key constraints:
+    "EventParticipant_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+Referenced by:
+    TABLE ""EventSession"" CONSTRAINT "EventSession_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "EventParticipant"(id) ON DELETE SET NULL
+
+
+========== EventMedia ==========
+                               Table "public.EventMedia"
+   Column   |              Type              | Collation | Nullable |      Default      
+------------+--------------------------------+-----------+----------+-------------------
+ id         | text                           |           | not null | 
+ eventId    | text                           |           | not null | 
+ url        | text                           |           | not null | 
+ type       | text                           |           | not null | 
+ category   | text                           |           | not null | 'GALLERY'::text
+ caption    | text                           |           |          | 
+ sortOrder  | integer                        |           | not null | 0
+ fileSize   | integer                        |           |          | 
+ mimeType   | text                           |           |          | 
+ uploadedBy | text                           |           | not null | 
+ createdAt  | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt  | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "EventMedia_pkey" PRIMARY KEY, btree (id)
+    "EventMedia_eventId_category_idx" btree ("eventId", category)
+    "EventMedia_eventId_idx" btree ("eventId")
+Foreign-key constraints:
+    "EventMedia_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    "EventMedia_uploadedBy_fkey" FOREIGN KEY ("uploadedBy") REFERENCES "User"(id) ON DELETE RESTRICT
+
+
+========== Venue ==========
+                                   Table "public.Venue"
+    Column     |              Type              | Collation | Nullable |      Default      
+---------------+--------------------------------+-----------+----------+-------------------
+ id            | text                           |           | not null | 
+ name          | text                           |           | not null | 
+ slug          | text                           |           | not null | 
+ description   | text                           |           |          | 
+ address       | text                           |           | not null | 
+ city          | text                           |           | not null | 
+ state         | text                           |           |          | 
+ country       | text                           |           | not null | 'GH'::text
+ postalCode    | text                           |           |          | 
+ lat           | double precision               |           |          | 
+ lng           | double precision               |           |          | 
+ googleMapsUrl | text                           |           |          | 
+ coverImage    | text                           |           |          | 
+ capacity      | integer                        |           |          | 
+ amenities     | text                           |           |          | 
+ contactName   | text                           |           |          | 
+ contactEmail  | text                           |           |          | 
+ contactPhone  | text                           |           |          | 
+ website       | text                           |           |          | 
+ organizerId   | text                           |           |          | 
+ isPublic      | boolean                        |           | not null | true
+ isActive      | boolean                        |           | not null | true
+ createdAt     | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt     | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Venue_pkey" PRIMARY KEY, btree (id)
+    "Venue_city_idx" btree (city)
+    "Venue_country_idx" btree (country)
+    "Venue_organizerId_idx" btree ("organizerId")
+    "Venue_slug_idx" btree (slug)
+    "Venue_slug_key" UNIQUE, btree (slug)
+Foreign-key constraints:
+    "Venue_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "User"(id) ON DELETE SET NULL
+Referenced by:
+    TABLE ""EventSession"" CONSTRAINT "EventSession_venueId_fkey" FOREIGN KEY ("venueId") REFERENCES "Venue"(id) ON DELETE SET NULL
+    TABLE ""Event"" CONSTRAINT "Event_venueId_fkey" FOREIGN KEY ("venueId") REFERENCES "Venue"(id) ON DELETE SET NULL
+
+
+========== TicketType ==========
+                                Table "public.TicketType"
+   Column    |              Type              | Collation | Nullable |      Default      
+-------------+--------------------------------+-----------+----------+-------------------
+ id          | text                           |           | not null | 
+ eventId     | text                           |           | not null | 
+ name        | text                           |           | not null | 
+ description | text                           |           |          | 
+ price       | integer                        |           | not null | 0
+ currency    | text                           |           | not null | 'GHS'::text
+ quantity    | integer                        |           | not null | 
+ soldCount   | integer                        |           | not null | 0
+ minPerOrder | integer                        |           | not null | 1
+ maxPerOrder | integer                        |           | not null | 10
+ saleStart   | timestamp(3) without time zone |           |          | 
+ saleEnd     | timestamp(3) without time zone |           |          | 
+ isActive    | boolean                        |           | not null | true
+ createdAt   | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt   | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "TicketType_pkey" PRIMARY KEY, btree (id)
+    "TicketType_eventId_idx" btree ("eventId")
+    "idx_ticket_type_event_price" btree ("eventId", price)
+Check constraints:
+    "chk_ticket_type_price_nonneg" CHECK (price >= 0)
+Foreign-key constraints:
+    "TicketType_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+Referenced by:
+    TABLE ""Ticket"" CONSTRAINT "Ticket_ticketTypeId_fkey" FOREIGN KEY ("ticketTypeId") REFERENCES "TicketType"(id) ON DELETE RESTRICT
+
+
+========== Ticket ==========
+                                  Table "public.Ticket"
+    Column    |              Type              | Collation | Nullable |      Default      
+--------------+--------------------------------+-----------+----------+-------------------
+ id           | text                           |           | not null | 
+ ticketTypeId | text                           |           | not null | 
+ bookingId    | text                           |           | not null | 
+ qrCode       | text                           |           | not null | 
+ status       | text                           |           | not null | 'VALID'::text
+ checkedInAt  | timestamp(3) without time zone |           |          | 
+ createdAt    | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt    | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Ticket_pkey" PRIMARY KEY, btree (id)
+    "Ticket_bookingId_idx" btree ("bookingId")
+    "Ticket_qrCode_key" UNIQUE, btree ("qrCode")
+    "Ticket_status_idx" btree (status)
+    "Ticket_ticketTypeId_idx" btree ("ticketTypeId")
+Foreign-key constraints:
+    "Ticket_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"(id) ON DELETE RESTRICT
+    "Ticket_ticketTypeId_fkey" FOREIGN KEY ("ticketTypeId") REFERENCES "TicketType"(id) ON DELETE RESTRICT
+
+
+========== Booking ==========
+                                     Table "public.Booking"
+       Column       |              Type              | Collation | Nullable |      Default      
+--------------------+--------------------------------+-----------+----------+-------------------
+ id                 | text                           |           | not null | 
+ userId             | text                           |           | not null | 
+ eventId            | text                           |           | not null | 
+ totalAmount        | integer                        |           | not null | 0
+ currency           | text                           |           | not null | 'GHS'::text
+ status             | text                           |           | not null | 'PENDING'::text
+ bookingRef         | text                           |           | not null | 
+ cancellationReason | text                           |           |          | 
+ cancelledBy        | text                           |           |          | 
+ createdAt          | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt          | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Booking_pkey" PRIMARY KEY, btree (id)
+    "Booking_bookingRef_key" UNIQUE, btree ("bookingRef")
+    "Booking_eventId_idx" btree ("eventId")
+    "Booking_eventId_status_idx" btree ("eventId", status)
+    "Booking_status_idx" btree (status)
+    "Booking_userId_idx" btree ("userId")
+    "Booking_userId_status_idx" btree ("userId", status)
+    "idx_booking_event_status_amount" btree ("eventId", status, "totalAmount")
+Check constraints:
+    "chk_booking_total_amount_nonneg" CHECK ("totalAmount" >= 0)
+Foreign-key constraints:
+    "Booking_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE RESTRICT
+    "Booking_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE RESTRICT
+Referenced by:
+    TABLE ""Payment"" CONSTRAINT "Payment_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"(id) ON DELETE RESTRICT
+    TABLE ""Ticket"" CONSTRAINT "Ticket_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"(id) ON DELETE RESTRICT
+
+
+========== Payment ==========
+                                     Table "public.Payment"
+       Column       |              Type              | Collation | Nullable |      Default      
+--------------------+--------------------------------+-----------+----------+-------------------
+ id                 | text                           |           | not null | 
+ bookingId          | text                           |           | not null | 
+ userId             | text                           |           | not null | 
+ amount             | integer                        |           | not null | 
+ currency           | text                           |           | not null | 'GHS'::text
+ method             | text                           |           | not null | 'STRIPE'::text
+ status             | text                           |           | not null | 'PENDING'::text
+ transactionId      | text                           |           |          | 
+ providerRef        | text                           |           |          | 
+ providerCustomerId | text                           |           |          | 
+ webhookEventId     | text                           |           |          | 
+ idempotencyKey     | text                           |           |          | 
+ failureReason      | text                           |           |          | 
+ refundedAmount     | integer                        |           | not null | 0
+ refundRef          | text                           |           |          | 
+ metadata           | text                           |           |          | 
+ createdAt          | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt          | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Payment_pkey" PRIMARY KEY, btree (id)
+    "Payment_bookingId_key" UNIQUE, btree ("bookingId")
+    "Payment_idempotencyKey_key" UNIQUE, btree ("idempotencyKey")
+    "Payment_status_idx" btree (status)
+    "Payment_userId_idx" btree ("userId")
+    "idx_payment_booking_status" btree ("bookingId", status)
+Check constraints:
+    "chk_payment_amount_nonneg" CHECK (amount >= 0)
+    "chk_payment_refunded_lte_amount" CHECK ("refundedAmount" <= amount)
+    "chk_payment_refunded_nonneg" CHECK ("refundedAmount" >= 0)
+Foreign-key constraints:
+    "Payment_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"(id) ON DELETE RESTRICT
+    "Payment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE RESTRICT
+
+
+========== Review ==========
+                                 Table "public.Review"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ userId    | text                           |           | not null | 
+ eventId   | text                           |           | not null | 
+ rating    | integer                        |           | not null | 
+ comment   | text                           |           |          | 
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Review_pkey" PRIMARY KEY, btree (id)
+    "Review_eventId_idx" btree ("eventId")
+    "Review_userId_eventId_key" UNIQUE, btree ("userId", "eventId")
+Foreign-key constraints:
+    "Review_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+    "Review_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+
+
+========== Notification ==========
+                              Table "public.Notification"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ userId    | text                           |           | not null | 
+ title     | text                           |           | not null | 
+ message   | text                           |           | not null | 
+ type      | text                           |           | not null | 'INFO'::text
+ isRead    | boolean                        |           | not null | false
+ link      | text                           |           |          | 
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "Notification_pkey" PRIMARY KEY, btree (id)
+    "Notification_userId_idx" btree ("userId")
+    "Notification_userId_isRead_idx" btree ("userId", "isRead")
+Foreign-key constraints:
+    "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+
+
+========== Advertisement ==========
+                                Table "public.Advertisement"
+     Column     |              Type              | Collation | Nullable |      Default      
+----------------+--------------------------------+-----------+----------+-------------------
+ id             | text                           |           | not null | 
+ title          | text                           |           | not null | 
+ imageUrl       | text                           |           |          | 
+ linkUrl        | text                           |           |          | 
+ position       | text                           |           | not null | 'SIDEBAR'::text
+ status         | text                           |           | not null | 'ACTIVE'::text
+ impressions    | integer                        |           | not null | 0
+ clicks         | integer                        |           | not null | 0
+ startDate      | timestamp(3) without time zone |           |          | 
+ endDate        | timestamp(3) without time zone |           |          | 
+ eventId        | text                           |           |          | 
+ advertiserId   | text                           |           |          | 
+ organizerId    | text                           |           |          | 
+ approvalStatus | text                           |           | not null | 'PENDING'::text
+ reviewedBy     | text                           |           |          | 
+ createdAt      | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt      | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "Advertisement_pkey" PRIMARY KEY, btree (id)
+    "Advertisement_organizerId_idx" btree ("organizerId")
+Foreign-key constraints:
+    "Advertisement_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE SET NULL
+    "Advertisement_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile"(id) ON DELETE SET NULL
+
+
+========== EventAnalytics ==========
+                             Table "public.EventAnalytics"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ eventId   | text                           |           | not null | 
+ date      | text                           |           | not null | 
+ views     | integer                        |           | not null | 0
+ clicks    | integer                        |           | not null | 0
+ bookings  | integer                        |           | not null | 0
+ revenue   | integer                        |           | not null | 0
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "EventAnalytics_pkey" PRIMARY KEY, btree (id)
+    "EventAnalytics_eventId_date_idx" btree ("eventId", date)
+    "EventAnalytics_eventId_date_key" UNIQUE, btree ("eventId", date)
+    "idx_analytics_event_revenue" btree ("eventId", revenue)
+Check constraints:
+    "chk_analytics_revenue_nonneg" CHECK (revenue >= 0)
+Foreign-key constraints:
+    "EventAnalytics_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "Event"(id) ON DELETE CASCADE
+
+
+========== SystemSetting ==========
+                             Table "public.SystemSetting"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ key       | text                           |           | not null | 
+ value     | text                           |           | not null | 
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "SystemSetting_pkey" PRIMARY KEY, btree (id)
+    "SystemSetting_key_key" UNIQUE, btree (key)
+
+
+========== OrganizerProfile ==========
+                                   Table "public.OrganizerProfile"
+      Column      |              Type              | Collation | Nullable |         Default          
+------------------+--------------------------------+-----------+----------+--------------------------
+ id               | text                           |           | not null | 
+ userId           | text                           |           | not null | 
+ organizationName | text                           |           | not null | 
+ slug             | text                           |           | not null | 
+ description      | text                           |           |          | 
+ logo             | text                           |           |          | 
+ coverImage       | text                           |           |          | 
+ website          | text                           |           |          | 
+ contactEmail     | text                           |           |          | 
+ phone            | text                           |           |          | 
+ address          | text                           |           |          | 
+ city             | text                           |           |          | 
+ state            | text                           |           |          | 
+ country          | text                           |           |          | 
+ socialLinks      | text                           |           |          | 
+ isVerified       | boolean                        |           | not null | false
+ approvalStatus   | text                           |           | not null | 'PENDING'::text
+ status           | text                           |           | not null | 'PENDING_APPROVAL'::text
+ statusReason     | text                           |           |          | 
+ statusChangedBy  | text                           |           |          | 
+ statusChangedAt  | timestamp(3) without time zone |           |          | 
+ createdAt        | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt        | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "OrganizerProfile_pkey" PRIMARY KEY, btree (id)
+    "OrganizerProfile_approvalStatus_idx" btree ("approvalStatus")
+    "OrganizerProfile_slug_idx" btree (slug)
+    "OrganizerProfile_slug_key" UNIQUE, btree (slug)
+    "OrganizerProfile_status_idx" btree (status)
+    "OrganizerProfile_userId_key" UNIQUE, btree ("userId")
+Foreign-key constraints:
+    "OrganizerProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+Referenced by:
+    TABLE ""Advertisement"" CONSTRAINT "Advertisement_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile"(id) ON DELETE SET NULL
+    TABLE ""OrganizerInvitation"" CONSTRAINT "OrganizerInvitation_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile"(id) ON DELETE CASCADE
+    TABLE ""OrganizerMembership"" CONSTRAINT "OrganizerMembership_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile"(id) ON DELETE CASCADE
+    TABLE ""OrganizerSubscription"" CONSTRAINT "OrganizerSubscription_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile"(id) ON DELETE CASCADE
+
+
+========== OrganizerMembership ==========
+                             Table "public.OrganizerMembership"
+     Column     |              Type              | Collation | Nullable |      Default      
+----------------+--------------------------------+-----------+----------+-------------------
+ id             | text                           |           | not null | 
+ organizerId    | text                           |           | not null | 
+ userId         | text                           |           | not null | 
+ role           | text                           |           | not null | 'STAFF'::text
+ permissions    | text                           |           | not null | '[]'::text
+ status         | text                           |           | not null | 'ACTIVE'::text
+ invitedByEmail | text                           |           |          | 
+ joinedAt       | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ createdAt      | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt      | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "OrganizerMembership_pkey" PRIMARY KEY, btree (id)
+    "OrganizerMembership_organizerId_idx" btree ("organizerId")
+    "OrganizerMembership_organizerId_status_idx" btree ("organizerId", status)
+    "OrganizerMembership_organizerId_userId_key" UNIQUE, btree ("organizerId", "userId")
+    "OrganizerMembership_userId_idx" btree ("userId")
+Foreign-key constraints:
+    "OrganizerMembership_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile"(id) ON DELETE CASCADE
+    "OrganizerMembership_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+
+
+========== OrganizerInvitation ==========
+                           Table "public.OrganizerInvitation"
+   Column    |              Type              | Collation | Nullable |      Default      
+-------------+--------------------------------+-----------+----------+-------------------
+ id          | text                           |           | not null | 
+ organizerId | text                           |           | not null | 
+ email       | text                           |           | not null | 
+ role        | text                           |           | not null | 'STAFF'::text
+ permissions | text                           |           | not null | '[]'::text
+ tokenHash   | text                           |           | not null | 
+ expiresAt   | timestamp(3) without time zone |           | not null | 
+ acceptedAt  | timestamp(3) without time zone |           |          | 
+ createdAt   | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "OrganizerInvitation_pkey" PRIMARY KEY, btree (id)
+    "OrganizerInvitation_organizerId_email_key" UNIQUE, btree ("organizerId", email)
+    "OrganizerInvitation_organizerId_idx" btree ("organizerId")
+    "OrganizerInvitation_tokenHash_idx" btree ("tokenHash")
+    "OrganizerInvitation_tokenHash_key" UNIQUE, btree ("tokenHash")
+Foreign-key constraints:
+    "OrganizerInvitation_organizerId_fkey" FOREIGN KEY ("organizerId") REFERENCES "OrganizerProfile"(id) ON DELETE CASCADE
+
+
+========== PasswordResetToken ==========
+                           Table "public.PasswordResetToken"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ userId    | text                           |           | not null | 
+ tokenHash | text                           |           | not null | 
+ expiresAt | timestamp(3) without time zone |           | not null | 
+ usedAt    | timestamp(3) without time zone |           |          | 
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "PasswordResetToken_pkey" PRIMARY KEY, btree (id)
+    "PasswordResetToken_tokenHash_idx" btree ("tokenHash")
+    "PasswordResetToken_tokenHash_key" UNIQUE, btree ("tokenHash")
+    "PasswordResetToken_userId_idx" btree ("userId")
+Foreign-key constraints:
+    "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+
+
+========== EmailVerificationToken ==========
+                         Table "public.EmailVerificationToken"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ userId    | text                           |           | not null | 
+ tokenHash | text                           |           | not null | 
+ expiresAt | timestamp(3) without time zone |           | not null | 
+ usedAt    | timestamp(3) without time zone |           |          | 
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "EmailVerificationToken_pkey" PRIMARY KEY, btree (id)
+    "EmailVerificationToken_tokenHash_idx" btree ("tokenHash")
+    "EmailVerificationToken_tokenHash_key" UNIQUE, btree ("tokenHash")
+    "EmailVerificationToken_userId_idx" btree ("userId")
+Foreign-key constraints:
+    "EmailVerificationToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+
+
+========== RefreshToken ==========
+                              Table "public.RefreshToken"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ userId    | text                           |           | not null | 
+ tokenHash | text                           |           | not null | 
+ expiresAt | timestamp(3) without time zone |           | not null | 
+ isRevoked | boolean                        |           | not null | false
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "RefreshToken_pkey" PRIMARY KEY, btree (id)
+    "RefreshToken_tokenHash_idx" btree ("tokenHash")
+    "RefreshToken_tokenHash_key" UNIQUE, btree ("tokenHash")
+    "RefreshToken_userId_idx" btree ("userId")
+Foreign-key constraints:
+    "RefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+
+
+========== AuditLog ==========
+                                Table "public.AuditLog"
+   Column   |              Type              | Collation | Nullable |      Default      
+------------+--------------------------------+-----------+----------+-------------------
+ id         | text                           |           | not null | 
+ actorId    | text                           |           |          | 
+ action     | text                           |           | not null | 
+ entityType | text                           |           | not null | 
+ entityId   | text                           |           | not null | 
+ oldValue   | text                           |           |          | 
+ newValue   | text                           |           |          | 
+ reason     | text                           |           |          | 
+ ipAddress  | text                           |           |          | 
+ userAgent  | text                           |           |          | 
+ createdAt  | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "AuditLog_pkey" PRIMARY KEY, btree (id)
+    "AuditLog_action_idx" btree (action)
+    "AuditLog_actorId_idx" btree ("actorId")
+    "AuditLog_createdAt_idx" btree ("createdAt")
+    "AuditLog_entityType_entityId_idx" btree ("entityType", "entityId")
+Foreign-key constraints:
+    "AuditLog_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"(id) ON DELETE SET NULL

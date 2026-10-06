@@ -91,7 +91,7 @@ function validateEnv(): EnvConfig {
     : (process.env.PAYSTACK_BASE_URL || 'https://api.paystack.co'); // Same URL, test/live determined by key prefix
 
   return {
-    DATABASE_URL: process.env.DATABASE_URL || 'file:./db/custom.db',
+    DATABASE_URL: process.env.DATABASE_URL || (nodeEnv === 'development' ? 'file:./db/custom.db' : (() => { throw new Error('[AppleCalendar] FATAL: DATABASE_URL is required. Set it in .env or environment.'); })()),
     JWT_SECRET: jwtSecret || 'dev-only-jwt-secret-change-in-production',
     NODE_ENV: nodeEnv,
     DEFAULT_CURRENCY: process.env.DEFAULT_CURRENCY || 'GHS',

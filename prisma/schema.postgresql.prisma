@@ -16,7 +16,7 @@ datasource db {
   // │ All monetary fields are INTEGER minor units (never Float).          │
   // │ Schema is fully PostgreSQL-compatible — no SQLite-specific types.   │
   // └─────────────────────────────────────────────────────────────────────┘
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

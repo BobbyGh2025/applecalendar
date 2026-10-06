@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "db:push": "echo '⚠️  db:push is DEPRECATED (Phase 5C). Use db:migrate for dev, db:migrate:deploy for prod.' && prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
+    "db:generate:postgres": "prisma generate --schema=prisma/schema.postgresql.prisma",
+    "db:generate:sqlite": "prisma generate --schema=prisma/schema.prisma",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:reset": "prisma migrate reset",

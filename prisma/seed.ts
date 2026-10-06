@@ -1097,7 +1097,7 @@ async function main() {
     }
     if (b.amount > 0) {
       await prisma.payment.create({
-        data: { bookingId: booking.id, userId: b.userId, amount: b.amount, currency: 'USD', method: 'STRIPE', status: b.status === 'CONFIRMED' ? 'COMPLETED' : 'PENDING', transactionId: `txn_${Math.random().toString(36).substring(2, 15)}` },
+        data: { bookingId: booking.id, userId: b.userId, amount: b.amount, currency: 'USD', provider: 'PAYSTACK', status: b.status === 'CONFIRMED' ? 'COMPLETED' : 'PENDING', transactionId: `txn_${Math.random().toString(36).substring(2, 15)}` },
       });
     }
   }

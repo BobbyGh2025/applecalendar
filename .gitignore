@@ -34,6 +34,7 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+.env.*.backup
 # Allow .env.example to be committed (documents required config)
 !.env.example
 

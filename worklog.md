@@ -87,3 +87,36 @@ Stage Summary:
 - Genuine sandbox verification: NOT POSSIBLE (no valid sk_test_ credentials configured)
 - Webhook retry mechanism: IMPLEMENTED (reconcileUnprocessedEvents + admin API endpoint)
 - All 8 closure sections verified
+
+---
+Task ID: 4
+Agent: migration-fix
+Task: Fix PostgreSQL migration table ordering (P3018 error)
+
+Work Log:
+- INSPECT: Read migration file at prisma/migrations/0_baseline/migration.sql (766 lines)
+- ANALYZE: Identified 29 CREATE TABLE statements and their FK dependencies
+- FOUND: Multiple table ordering issues where referencing tables were created before referenced tables:
+  - StaffAssignment (#2) references Event (#8) — Event created after StaffAssignment
+  - OrganizerSubscription (#7) references OrganizerProfile (#23) — OrganizerProfile created after
+  - Event (#8) references Venue (#13) — Venue created after Event
+  - Ticket (#15) references Booking (#16) — Booking created after Ticket
+  - Advertisement (#20) references OrganizerProfile (#23) — OrganizerProfile created after
+- TOPOLOGICAL SORT: Computed correct dependency order using DFS topological sort:
+  Level 0 (no deps): Category, User, Tag, SubscriptionPlan, SystemSetting
+  Level 1: Venue, OrganizerProfile, Subscription, PasswordResetToken, EmailVerificationToken, RefreshToken, AuditLog, Notification
+  Level 2: Event, OrganizerSubscription, OrganizerMembership, OrganizerInvitation
+  Level 3: Advertisement, StaffAssignment, Booking, EventTag, EventParticipant, EventMedia, EventAnalytics, TicketType, Review
+  Level 4: EventSession, Ticket, Payment
+- REWRITE: Rewrote migration file with 29 tables in topological order, all indexes/uniques preserved at end
+- VERIFY: Automated verification confirmed all FK references point to tables defined earlier in the file
+- COMPAT: Checked for SQLite-specific syntax — none found. All types (TEXT, BOOLEAN, INTEGER, DOUBLE PRECISION, TIMESTAMP(3)) are PostgreSQL-compatible
+- RESET: Dropped all tables from applecalendar_test database to clear prior failed migration state
+- DEPLOY: Successfully ran `prisma migrate deploy` — both 0_baseline and 1_money_constraints_postgresql migrations applied without errors
+- CONFIRM: All 29 application tables + _prisma_migrations present in PostgreSQL database
+
+Result:
+- P3018 migration error RESOLVED
+- Correct topological order: Category → User → Venue → Event → OrganizerProfile → Advertisement → AuditLog → Booking → EmailVerificationToken → EventAnalytics → EventMedia → EventParticipant → EventSession → Tag → EventTag → Notification → OrganizerInvitation → OrganizerMembership → SubscriptionPlan → OrganizerSubscription → PasswordResetToken → Payment → RefreshToken → Review → StaffAssignment → Subscription → SystemSetting → TicketType → Ticket
+- No self-referencing FKs found; no ALTER TABLE ADD CONSTRAINT needed
+- No SQLite-specific syntax issues found

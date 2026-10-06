@@ -37,6 +37,8 @@ import { providerRegistry } from '@/lib/services/payment-provider';
 import '@/lib/services/providers';
 import type { NormalizedWebhookEvent } from '@/lib/services/payment-provider';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 // ─── Helpers ───
 
@@ -567,8 +569,6 @@ describe('Stage 4 Closure: Security', () => {
     //
     // We verify this by checking that the logger.debug call in paystackRequest
     // does NOT include the headers object
-    const fs = require('fs');
-    const path = require('path');
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/lib/services/providers/paystack-http.ts'),
       'utf8'
@@ -591,8 +591,7 @@ describe('Stage 4 Closure: Security', () => {
   it('webhook signature verification uses raw body (not JSON-parsed)', () => {
     // Read the webhook route source and verify request.text() is used
     // (not request.json()) for signature verification
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/webhooks/paystack/route.ts'),
       'utf8'
@@ -607,8 +606,7 @@ describe('Stage 4 Closure: Security', () => {
   });
 
   it('webhook signature uses timing-safe comparison', () => {
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/webhooks/paystack/route.ts'),
       'utf8'
@@ -618,8 +616,7 @@ describe('Stage 4 Closure: Security', () => {
   });
 
   it('invalid webhook signatures are rejected with 401', () => {
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/webhooks/paystack/route.ts'),
       'utf8'
@@ -631,8 +628,7 @@ describe('Stage 4 Closure: Security', () => {
   });
 
   it('missing webhook signature is rejected with 401', () => {
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/webhooks/paystack/route.ts'),
       'utf8'
@@ -697,8 +693,7 @@ describe('Stage 4 Closure: Security', () => {
   it('Paystack public key is the ONLY key safe for browser bundles', () => {
     // Verify env.ts does not expose SECRET_KEY or WEBHOOK_SECRET
     // via any NEXT_PUBLIC_ mechanism
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/lib/env.ts'),
       'utf8'
@@ -713,8 +708,7 @@ describe('Stage 4 Closure: Security', () => {
   });
 
   it('verify route requires auth — cannot be called without authentication', () => {
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/payments/[id]/verify/route.ts'),
       'utf8'
@@ -725,8 +719,7 @@ describe('Stage 4 Closure: Security', () => {
   });
 
   it('callback route does NOT trust browser status — defers to verify endpoint', () => {
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/payments/callback/route.ts'),
       'utf8'
@@ -739,8 +732,7 @@ describe('Stage 4 Closure: Security', () => {
   });
 
   it('verify route performs server-side provider verification — never trusts client', () => {
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/payments/[id]/verify/route.ts'),
       'utf8'
@@ -872,8 +864,7 @@ describe('Stage 4 Closure: Paystack Outbound Request Amount Verification', () =>
 describe('Stage 4 Closure: Webhook Signature Timing-Safe', () => {
   it('timing-safe comparison prevents timing attacks on webhook signatures', () => {
     // Verify the actual implementation uses crypto.timingSafeEqual
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/webhooks/paystack/route.ts'),
       'utf8'
@@ -904,8 +895,7 @@ describe('Stage 4 Closure: Webhook Signature Timing-Safe', () => {
   it('webhook signature is computed on raw body, not parsed JSON', () => {
     // This prevents JSON canonicalization attacks where different JSON
     // representations of the same data produce different signatures
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path imported at top
     const source = fs.readFileSync(
       path.join(process.cwd(), 'src/app/api/webhooks/paystack/route.ts'),
       'utf8'

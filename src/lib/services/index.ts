@@ -137,6 +137,14 @@ export {
   type ExpirePaymentsResult,
 } from './payment-expiry';
 
+// Webhook reconciliation service
+export {
+  reconcileUnprocessedEvents,
+  type ReconcileOptions,
+  type ReconcileResult,
+  type ReconcileEventDetail,
+} from './webhook-reconciliation';
+
 // Existing services (re-exported for convenience)
 export {
   validateTransition as validateOrganizerTransition,

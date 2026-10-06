@@ -31,3 +31,32 @@ Stage Summary:
 - All Paystack API endpoints implemented: /transaction/initialize, /transaction/verify/:ref, /refund
 - Amount conversion: identity function (internal minor units = Paystack minor units) with explicit audit points
 - Security: secret key server-only, timing-safe webhook signature, payload redaction, no credentials in logs
+
+---
+Task ID: 2
+Agent: webhook-retry-impl
+Task: Implement webhook retry/reconciliation mechanism
+
+Work Log:
+- INSPECT: Read worklog + all existing payment architecture files (payment-webhook.ts, payment-provider.ts, payment-domain-errors.ts, booking-confirmation.ts, ticket-service.ts, auth.ts, rate-limit.ts, errors.ts, logger.ts, db.ts, money.ts, services/index.ts, schema.prisma, existing test patterns)
+- PLAN: Designed reconciliation service with configurable limit/maxAgeHours, payload parsing with type validation, and proper error categorization
+- IMPLEMENT: Created webhook-reconciliation.ts with reconcileUnprocessedEvents() service
+- IMPLEMENT: Created webhook-reconcile API route (POST /api/payments/webhook-reconcile) with SUPER_ADMIN auth + 2 req/min rate limit
+- IMPLEMENT: Added reconcileUnprocessedEvents exports to services barrel file (index.ts)
+- TEST: Created comprehensive test file with 13 tests across 10 categories covering all spec requirements
+- VERIFY: All 1154 tests pass (34 test files), 0 regressions
+- VERIFY: ESLint: 0 new errors (pre-existing server-keeper.js errors remain)
+
+Stage Summary:
+- Files created: 3 (webhook-reconciliation.ts, webhook-reconcile/route.ts, phase5e-webhook-retry.test.ts)
+- Files modified: 1 (services/index.ts — added reconciliation exports)
+- Test count: 13 new tests (1154 total passing)
+- Key design decisions:
+  - Reconciliation queries processed=false AND processingError IS NOT NULL (only retry events that attempted and failed)
+  - Payload parsed back to NormalizedWebhookEvent with runtime type validation (skips unparseable payloads)
+  - No schema changes needed — uses existing PaymentWebhookEvent.payload field
+  - Manual/admin-only endpoint (NOT a cron job) — triggered via POST with optional {limit, maxAgeHours} body
+  - Limit defaults to 50, maxAgeHours defaults to 24 — prevents runaway processing
+  - Reconciliation reuses processWebhookEvent() — all idempotency guarantees apply
+  - Permanent errors (amount/currency mismatch) remain processed=true and are excluded from reconciliation
+  - Rate limited at 2 req/min as a maintenance operation

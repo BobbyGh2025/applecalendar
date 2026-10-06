@@ -5,9 +5,32 @@
  * - NO auth (webhook from provider)
  * - Verifies HMAC-SHA512 signature using PAYSTACK_WEBHOOK_SECRET
  * - Rate limited: 100 req/min (high volume expected)
- * - Always returns 200 with { received: true } after signature verification
- *   to prevent provider retries for non-transient errors
- * - Logs processing errors but does not expose them
+ *
+ * ARCHITECTURE: Acknowledge-After-Receipt Pattern
+ *
+ * After signature verification, this route ALWAYS returns HTTP 200.
+ * This is an intentional design decision, not a bug:
+ *
+ * 1. The webhook event is recorded in PaymentWebhookEvent with processed=false
+ * 2. The domain service processWebhookEvent() processes it
+ * 3. On success: event marked processed=true
+ * 4. On transient failure: event stays processed=false with processingError
+ * 5. On permanent failure: event marked processed=true (non-retriable)
+ *
+ * Rationale for always-200:
+ *   - Paystack retries on non-200, but only for a limited time
+ *   - Retries of already-processed events waste resources and risk double effects
+ *   - Transient DB failures are better handled by our own reconciliation
+ *   - The processed=false filter enables a cron/reconciliation job to find
+ *     and retry failed events without depending on provider retry timing
+ *
+ * Recovery for transient failures:
+ *   - Query PaymentWebhookEvent WHERE processed=false AND processingError IS NOT NULL
+ *   - Re-inject these events through processWebhookEvent()
+ *   - Or use the payment verify endpoint for each affected payment
+ *
+ * Signature verification errors (missing/invalid) return 401 immediately
+ * (before any processing) — these are not valid webhook deliveries.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { rateLimit, RateLimitError } from '@/lib/rate-limit';
@@ -81,16 +104,24 @@ export async function POST(request: NextRequest) {
       payload = JSON.parse(rawBody);
     } catch {
       logger.warn('Paystack webhook: invalid JSON payload');
-      // Still acknowledge receipt to prevent retries
+      // Permanently malformed — acknowledge to prevent retries
       return NextResponse.json({ received: true });
     }
 
     const { event, data } = payload;
 
     // Normalize the webhook event
+    // eventId uses the provider's data.id (unique per event).
+    // If data.id is missing (malformed payload), generate a unique fallback
+    // using crypto.randomUUID() instead of Date.now() to avoid same-ms collisions.
+    const providerEventId = data.id;
+    if (!providerEventId) {
+      logger.warn('Paystack webhook: missing data.id in payload', { event });
+    }
+
     const normalized: NormalizedWebhookEvent = {
       provider: 'PAYSTACK',
-      eventId: `paystack-${data.id ?? Date.now()}`,
+      eventId: `paystack-${providerEventId ?? crypto.randomUUID()}`,
       eventType: event,
       eventReference: (data.reference as string) ?? '',
       amount: (data.amount as number) as unknown as NormalizedWebhookEvent['amount'],
@@ -113,17 +144,23 @@ export async function POST(request: NextRequest) {
         eventId: normalized.eventId,
       });
     } catch (processingError) {
-      // Log the error but still return 200 to prevent retries
-      // Non-transient errors (already processed, amount mismatch, etc.)
-      // should not trigger retries
+      // Log the error but still return 200 (acknowledge-after-receipt pattern).
+      // The PaymentWebhookEvent record has processed=false and processingError set,
+      // enabling a reconciliation job to find and retry failed events.
+      // See architecture documentation at top of this file.
+      const isDomainError = processingError instanceof Error && 'code' in processingError;
       logger.error('Paystack webhook processing error', {
         eventType: event,
         eventId: normalized.eventId,
         error: processingError instanceof Error ? processingError.message : 'Unknown error',
+        isDomainError,
+        // Domain errors (amount mismatch, invalid transition) are permanent —
+        // retrying won't help. Transient errors (DB timeout, lock contention)
+        // should be retried by the reconciliation job.
       });
     }
 
-    // Always acknowledge receipt
+    // Always acknowledge receipt (acknowledge-after-receipt pattern)
     return NextResponse.json({ received: true });
   } catch (error) {
     // Rate limit errors should still be surfaced

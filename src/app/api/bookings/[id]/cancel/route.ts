@@ -1,19 +1,36 @@
+/**
+ * PATCH /api/bookings/:id/cancel
+ *
+ * Cancel a booking (Phase 5E Stage 3 Closure):
+ *
+ * For CONFIRMED bookings (paid or free, payment completed):
+ *   - Booking → CANCELLED
+ *   - Tickets → CANCELLED
+ *   - soldCount decremented (restoreSoldCount)
+ *   - PENDING payments → CANCELLED (shouldn't exist for CONFIRMED, but defensive)
+ *   - COMPLETED payments remain COMPLETED (refund is separate action)
+ *
+ * For PENDING bookings (paid, awaiting payment):
+ *   - Booking → CANCELLED
+ *   - Tickets → CANCELLED
+ *   - reservedCount decremented (releaseReservation)
+ *   - PENDING/PROCESSING payments → CANCELLED
+ *
+ * Only the booking owner or SUPER_ADMIN may cancel.
+ * Idempotent: double-cancel is a conflict error.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { authenticate, requireRole } from '@/lib/auth';
+import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
+import { releaseReservation, restoreSoldCount } from '@/lib/services/inventory';
+import { logger } from '@/lib/logger';
 import { z } from 'zod';
 
 const cancelBookingSchema = z.object({
   reason: z.string().max(500).optional(),
 }).strict();
 
-/**
- * PATCH /api/bookings/:id/cancel
- * Cancel a confirmed booking. Transactional: booking status + ticket cancellation + soldCount restoration.
- * Only the booking owner or SUPER_ADMIN may cancel.
- * Only CONFIRMED bookings can be cancelled (not already cancelled/refunded).
- */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -44,16 +61,16 @@ export async function PATCH(
       throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to cancel this booking');
     }
 
-    // Only CONFIRMED bookings can be cancelled
-    if (booking.status !== 'CONFIRMED') {
+    // Only CONFIRMED or PENDING bookings can be cancelled
+    if (booking.status !== 'CONFIRMED' && booking.status !== 'PENDING') {
       throw new ApiError(
         400,
         'INVALID_STATUS',
-        `Cannot cancel booking with status ${booking.status}. Only confirmed bookings can be cancelled.`
+        `Cannot cancel booking with status ${booking.status}. Only confirmed or pending bookings can be cancelled.`
       );
     }
 
-    // Phase 4G: Parse optional cancellation reason
+    // Parse optional cancellation reason
     let cancellationReason: string | undefined;
     try {
       const body = await request.json();
@@ -65,21 +82,28 @@ export async function PATCH(
       // No body or invalid JSON — no reason provided, that's fine
     }
 
-    // Count valid tickets to restore
+    // Classify tickets by type for inventory operations
     const validTickets = booking.tickets.filter(t => t.status === 'VALID');
-    const ticketTypeCounts = new Map<string, number>();
+    const pendingTickets = booking.tickets.filter(t => t.status === 'PENDING');
+
+    // Build ticket type count maps for inventory operations
+    const validTicketTypeCounts = new Map<string, number>();
     for (const ticket of validTickets) {
-      const count = ticketTypeCounts.get(ticket.ticketTypeId) || 0;
-      ticketTypeCounts.set(ticket.ticketTypeId, count + 1);
+      const count = validTicketTypeCounts.get(ticket.ticketTypeId) || 0;
+      validTicketTypeCounts.set(ticket.ticketTypeId, count + 1);
+    }
+
+    const pendingTicketTypeCounts = new Map<string, number>();
+    for (const ticket of pendingTickets) {
+      const count = pendingTicketTypeCounts.get(ticket.ticketTypeId) || 0;
+      pendingTicketTypeCounts.set(ticket.ticketTypeId, count + 1);
     }
 
     // Perform cancellation transactionally
     const result = await db.$transaction(async (tx) => {
-      // Phase 4H: Use conditional update to prevent double-cancel race.
-      // Two concurrent cancel requests could both pass the pre-transaction status check.
-      // This update only succeeds if the booking is still CONFIRMED inside the transaction.
+      // Conditional update to prevent double-cancel race
       const updateResult = await tx.booking.updateMany({
-        where: { id: bookingId, status: 'CONFIRMED' },
+        where: { id: bookingId, status: { in: ['CONFIRMED', 'PENDING'] } },
         data: {
           status: 'CANCELLED',
           cancelledBy: user.id,
@@ -88,60 +112,42 @@ export async function PATCH(
       });
 
       if (updateResult.count === 0) {
-        // Another transaction already cancelled this booking
-        throw new ApiError(409, 'CONFLICT', 'Booking has already been cancelled or is no longer confirmable');
+        throw new ApiError(409, 'CONFLICT', 'Booking has already been cancelled or is no longer cancellable');
       }
 
       const updatedBooking = await tx.booking.findUnique({
         where: { id: bookingId },
       });
 
-      // Cancel all valid tickets
+      // Cancel all valid and pending tickets
       await tx.ticket.updateMany({
         where: {
           bookingId,
-          status: 'VALID',
+          status: { in: ['PENDING', 'VALID'] },
         },
         data: {
           status: 'CANCELLED',
         },
       });
 
-      // Restore soldCount for each ticket type (atomic decrement with safety guard)
-      // Phase 4G: Use updateMany with soldCount >= count guard to prevent
-      // soldCount from going below 0 due to data inconsistency.
-      for (const [ticketTypeId, count] of ticketTypeCounts) {
-        const decResult = await tx.ticketType.updateMany({
-          where: {
-            id: ticketTypeId,
-            soldCount: { gte: count }, // Safety: only decrement if enough soldCount exists
-          },
-          data: { soldCount: { decrement: count } },
-        });
-        // If the guard prevented the decrement, force soldCount to 0 (data repair)
-        if (decResult.count === 0) {
-          await tx.ticketType.update({
-            where: { id: ticketTypeId },
-            data: { soldCount: 0 },
-          });
-        }
+      // ─── CONFIRMED booking: restore soldCount ───
+      // These tickets were sold (payment completed), so we decrement soldCount
+      for (const [ticketTypeId, count] of validTicketTypeCounts) {
+        await restoreSoldCount(ticketTypeId, count, tx);
       }
 
-      // Update payment status if exists
-      // Phase 4H: Do NOT set Payment.status to REFUNDED — no actual refund is processed.
-      // Setting REFUNDED without a provider API call creates a phantom refund (false financial state).
-      // Instead:
-      //   COMPLETED → COMPLETED (money captured, refund not yet processed by provider)
-      //   PENDING   → CANCELLED (charge was never completed, now cancelled)
-      //   FAILED    → FAILED (unchanged)
-      //   REFUNDED  → REFUNDED (already refunded)
-      // When payment integration is implemented, the cancel flow should:
-      //   1. Call the provider's refund API
-      //   2. On success, set status=REFUNDED + refundedAmount + refundRef
-      //   3. On failure, leave status=COMPLETED and surface the error
+      // ─── PENDING booking: release reservedCount ───
+      // These tickets were reserved but not sold (payment not completed), so we decrement reservedCount
+      for (const [ticketTypeId, count] of pendingTicketTypeCounts) {
+        await releaseReservation({ ticketTypeId, quantity: count, tx });
+      }
+
+      // ─── Payment status updates ───
+      // COMPLETED payments remain COMPLETED (refund is a separate action)
+      // PENDING/PROCESSING payments → CANCELLED (charge was never completed)
       await tx.payment.updateMany({
-        where: { bookingId, status: 'PENDING' },
-        data: { status: 'CANCELLED' },
+        where: { bookingId, status: { in: ['PENDING', 'PROCESSING'] } },
+        data: { status: 'CANCELLED', cancelledAt: new Date() },
       });
 
       // Create notification
@@ -149,12 +155,20 @@ export async function PATCH(
         data: {
           userId: booking.userId,
           title: 'Booking Cancelled',
-          message: `Your booking ${booking.bookingRef} for "${booking.event.title}" has been cancelled. ${validTickets.length} ticket(s) released.`,
+          message: `Your booking ${booking.bookingRef} for "${booking.event.title}" has been cancelled. ${(validTickets.length + pendingTickets.length)} ticket(s) released.`,
           type: 'BOOKING',
         },
       });
 
       return updatedBooking;
+    });
+
+    logger.info('Booking cancelled', {
+      bookingId,
+      previousStatus: booking.status,
+      cancelledBy: user.id,
+      validTicketsReleased: validTickets.length,
+      pendingTicketsReleased: pendingTickets.length,
     });
 
     return NextResponse.json({

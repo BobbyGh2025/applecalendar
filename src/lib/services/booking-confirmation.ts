@@ -146,16 +146,33 @@ export async function confirmBookingOnPaymentSuccess(
 
     // If booking was already CONFIRMED (edge case), that's fine — idempotent
     if (bookingUpdate.count === 0) {
-      // Check if already confirmed
+      // Check if already confirmed (idempotent case)
       const currentBooking = await tx.booking.findUnique({
         where: { id: payment.bookingId },
         select: { status: true },
       });
-      if (currentBooking?.status !== 'CONFIRMED') {
-        logger.warn('Booking not in PENDING/CONFIRMED state during confirmation', {
+
+      if (currentBooking?.status === 'CONFIRMED') {
+        // Already confirmed — idempotent, continue to activate tickets and confirm inventory
+        logger.info('Booking already confirmed during payment success (idempotent)', {
+          bookingId: payment.bookingId,
+        });
+      } else {
+        // Booking is in CANCELLED, EXPIRED, REFUNDED, or other non-confirmable state.
+        // ABORT the transaction — we must not:
+        //   - Activate tickets on a cancelled booking
+        //   - Confirm inventory on a cancelled booking
+        //   - Create VALID tickets for an unconfirmable booking
+        // The payment remains in its pre-transaction state (PENDING/PROCESSING),
+        // and the webhook event will be recorded with processingError for reconciliation.
+        logger.error('Booking in non-confirmable state during payment confirmation — aborting', {
           bookingId: payment.bookingId,
           currentStatus: currentBooking?.status,
+          paymentId,
         });
+        throw new BookingNotFound(
+          `Booking ${payment.bookingId} is in ${currentBooking?.status ?? 'unknown'} state and cannot be confirmed`,
+        );
       }
     }
 

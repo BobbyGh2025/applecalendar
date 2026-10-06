@@ -31,12 +31,17 @@
  *
  * Signature verification errors (missing/invalid) return 401 immediately
  * (before any processing) — these are not valid webhook deliveries.
+ *
+ * SECURITY:
+ *   - Signature is verified against the RAW request body (before JSON parse)
+ *   - Timing-safe comparison prevents timing attacks
+ *   - Only after signature verification is the payload processed
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { rateLimit, RateLimitError } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/errors';
 import { processWebhookEvent } from '@/lib/services';
-import type { NormalizedWebhookEvent } from '@/lib/services/payment-provider';
+import { providerRegistry } from '@/lib/services/payment-provider';
 import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import crypto from 'crypto';
@@ -46,6 +51,8 @@ const limiter = rateLimit({ windowMs: 60_000, maxRequests: 100 });
 /**
  * Verify Paystack webhook signature.
  * Paystack uses HMAC-SHA512 of the raw request body.
+ *
+ * Uses timing-safe comparison to prevent timing attacks.
  */
 function verifyPaystackSignature(
   rawBody: string,
@@ -58,7 +65,7 @@ function verifyPaystackSignature(
       .update(rawBody)
       .digest('hex');
 
-    // Use timing-safe comparison to prevent timing attacks
+    // Timing-safe comparison to prevent timing attacks
     if (expected.length !== signature.length) return false;
     return crypto.timingSafeEqual(
       Buffer.from(expected),
@@ -75,6 +82,8 @@ export async function POST(request: NextRequest) {
     if (!rl.success) throw new RateLimitError(rl.remaining, rl.resetAt);
 
     // Read raw body as text (needed for signature verification)
+    // CRITICAL: Must read as text BEFORE any JSON parsing,
+    // because signature is computed on the raw bytes.
     const rawBody = await request.text();
 
     // Get signature from header
@@ -87,7 +96,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify signature
+    // Verify signature against raw body using secret
     const secret = env.PAYSTACK_WEBHOOK_SECRET;
     const isValid = verifyPaystackSignature(rawBody, signature, secret);
     if (!isValid) {
@@ -98,40 +107,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse the webhook payload
-    let payload: { event: string; data: Record<string, unknown> };
-    try {
-      payload = JSON.parse(rawBody);
-    } catch {
-      logger.warn('Paystack webhook: invalid JSON payload');
-      // Permanently malformed — acknowledge to prevent retries
-      return NextResponse.json({ received: true });
-    }
-
-    const { event, data } = payload;
-
-    // Normalize the webhook event
-    // eventId uses the provider's data.id (unique per event).
-    // If data.id is missing (malformed payload), generate a unique fallback
-    // using crypto.randomUUID() instead of Date.now() to avoid same-ms collisions.
-    const providerEventId = data.id;
-    if (!providerEventId) {
-      logger.warn('Paystack webhook: missing data.id in payload', { event });
-    }
-
-    const normalized: NormalizedWebhookEvent = {
+    // Signature verified — use provider adapter to normalize the payload
+    const paystackProvider = providerRegistry.require('PAYSTACK');
+    const normalizeResult = await paystackProvider.processWebhook({
+      rawPayload: rawBody,
+      signature,
       provider: 'PAYSTACK',
-      eventId: `paystack-${providerEventId ?? crypto.randomUUID()}`,
-      eventType: event,
-      eventReference: (data.reference as string) ?? '',
-      amount: (data.amount as number) as unknown as NormalizedWebhookEvent['amount'],
-      currency: (data.currency as string) ?? 'GHS',
-      eventAt: new Date(),
-      isPaymentSuccess: event === 'charge.success',
-      isPaymentFailure: event === 'charge.failed',
-    };
+    });
 
-    // Process the event via domain service
+    if (!normalizeResult.success) {
+      // Malformed payload — acknowledge to prevent retries (permanent error)
+      logger.warn('Paystack webhook: normalization failed', {
+        errorCode: normalizeResult.errorCode,
+        errorMessage: normalizeResult.errorMessage,
+      });
+      return NextResponse.json({ received: true, warning: normalizeResult.errorMessage });
+    }
+
+    const normalized = normalizeResult.event;
+
+    // Process the normalized event via domain service
     try {
       await processWebhookEvent({
         event: normalized,
@@ -140,23 +135,22 @@ export async function POST(request: NextRequest) {
       });
 
       logger.info('Paystack webhook processed', {
-        eventType: event,
+        eventType: normalized.eventType,
         eventId: normalized.eventId,
+        eventReference: normalized.eventReference,
+        isPaymentSuccess: normalized.isPaymentSuccess,
+        isPaymentFailure: normalized.isPaymentFailure,
       });
     } catch (processingError) {
       // Log the error but still return 200 (acknowledge-after-receipt pattern).
       // The PaymentWebhookEvent record has processed=false and processingError set,
       // enabling a reconciliation job to find and retry failed events.
-      // See architecture documentation at top of this file.
       const isDomainError = processingError instanceof Error && 'code' in processingError;
       logger.error('Paystack webhook processing error', {
-        eventType: event,
+        eventType: normalized.eventType,
         eventId: normalized.eventId,
         error: processingError instanceof Error ? processingError.message : 'Unknown error',
         isDomainError,
-        // Domain errors (amount mismatch, invalid transition) are permanent —
-        // retrying won't help. Transient errors (DB timeout, lock contention)
-        // should be retried by the reconciliation job.
       });
     }
 

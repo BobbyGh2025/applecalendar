@@ -5,17 +5,17 @@
  * - Auth required (booking owner or SUPER_ADMIN)
  * - Rate limited: 10 req/min
  * - Creates a Payment record via createBookingPayment()
- * - For PAYSTACK provider, attempts provider initialization (returns 501 if pending)
+ * - For PAYSTACK provider, calls Paystack /transaction/initialize
+ *   and returns the authorization URL for browser redirect
+ * - For FREE provider, payment is immediately COMPLETED
+ * - For MANUAL provider, payment is PENDING awaiting organizer action
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticate, requireRole } from '@/lib/auth';
+import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { rateLimit, RateLimitError } from '@/lib/rate-limit';
 import { initializePaymentSchema } from '@/lib/validations/payments';
-import {
-  createBookingPayment,
-  ProviderIntegrationPending,
-} from '@/lib/services';
+import { createBookingPayment } from '@/lib/services';
 import { providerRegistry } from '@/lib/services/payment-provider';
 import { db } from '@/lib/db';
 import { asMoney } from '@/lib/money';
@@ -79,56 +79,87 @@ export async function POST(request: NextRequest) {
       provider,
     });
 
-    // If provider is PAYSTACK, attempt provider-side initialization
+    // If provider requires initialization, attempt provider-side initialization
     let authorizationUrl: string | null = result.authorizationUrl;
+    let providerRef: string | null = null;
 
     if (result.provider === 'PAYSTACK' && result.requiresPaymentAction) {
-      try {
-        const paystackProvider = providerRegistry.require('PAYSTACK');
-        const initResult = await paystackProvider.initializePayment({
-          paymentId: result.paymentId,
-          amount: asMoney(booking.totalAmount),
-          currency: booking.currency,
-          customer: {
-            userId: booking.userId,
-            email: user.email,
-            name: user.name,
+      const paystackProvider = providerRegistry.require('PAYSTACK');
+      const initResult = await paystackProvider.initializePayment({
+        paymentId: result.paymentId,
+        amount: asMoney(booking.totalAmount),
+        currency: booking.currency,
+        customer: {
+          userId: booking.userId,
+          email: user.email,
+          name: user.name,
+        },
+        callbackUrl,
+        idempotencyKey: result.idempotencyKey,
+      });
+
+      if (initResult.success) {
+        authorizationUrl = initResult.authorizationUrl;
+        providerRef = initResult.providerReference;
+
+        // Update the payment with provider reference and authorization URL
+        await db.payment.update({
+          where: { id: result.paymentId },
+          data: {
+            providerRef: initResult.providerReference,
+            metadata: JSON.stringify({
+              authorizationUrl: initResult.authorizationUrl,
+              accessCode: initResult.accessCode,
+            }),
           },
-          callbackUrl,
-          idempotencyKey: result.idempotencyKey,
+        });
+      } else {
+        // Provider initialization failed — return error to client
+        // Payment record exists in PENDING state; can be retried
+        logger.warn('Paystack initialization failed', {
+          paymentId: result.paymentId,
+          bookingId,
+          errorCode: initResult.errorCode,
+          errorMessage: initResult.errorMessage,
+          retryable: initResult.retryable,
         });
 
-        if (initResult.success) {
-          authorizationUrl = initResult.authorizationUrl;
+        return NextResponse.json({
+          success: false,
+          error: {
+            code: initResult.errorCode,
+            message: initResult.errorMessage,
+          },
+          payment: {
+            id: result.paymentId,
+            status: result.status,
+            provider: result.provider,
+            requiresPaymentAction: result.requiresPaymentAction,
+            retryable: initResult.retryable,
+          },
+        }, { status: 422 });
+      }
+    } else if (result.provider === 'MANUAL' && result.requiresPaymentAction) {
+      // Manual provider — no authorization URL, organizer confirms manually
+      const manualProvider = providerRegistry.require('MANUAL');
+      const initResult = await manualProvider.initializePayment({
+        paymentId: result.paymentId,
+        amount: asMoney(booking.totalAmount),
+        currency: booking.currency,
+        customer: {
+          userId: booking.userId,
+          email: user.email,
+          name: user.name,
+        },
+        idempotencyKey: result.idempotencyKey,
+      });
 
-          // Update the payment with provider reference
-          await db.payment.update({
-            where: { id: result.paymentId },
-            data: { providerRef: initResult.providerReference },
-          });
-        }
-      } catch (error) {
-        if (error instanceof ProviderIntegrationPending) {
-          // Provider integration not yet implemented — return 501
-          return NextResponse.json(
-            {
-              success: false,
-              error: {
-                code: 'PROVIDER_INTEGRATION_PENDING',
-                message: error.message,
-                details: error.details,
-              },
-              payment: {
-                id: result.paymentId,
-                status: result.status,
-                provider: result.provider,
-                requiresPaymentAction: result.requiresPaymentAction,
-              },
-            },
-            { status: 501 }
-          );
-        }
-        throw error;
+      if (initResult.success) {
+        providerRef = initResult.providerReference;
+        await db.payment.update({
+          where: { id: result.paymentId },
+          data: { providerRef: initResult.providerReference },
+        });
       }
     }
 
@@ -152,6 +183,7 @@ export async function POST(request: NextRequest) {
       bookingId,
       provider: result.provider,
       userId: user.id,
+      providerRef: providerRef ?? 'none',
     });
 
     return NextResponse.json({

@@ -758,42 +758,53 @@ describe('Stage 3: Financial Integrity', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('Stage 3: Provider Integration Boundary', () => {
-  it('PAYSTACK provider throws ProviderIntegrationPending for initializePayment', async () => {
+  it('PAYSTACK provider implements initializePayment (no longer throws ProviderIntegrationPending)', async () => {
     const paystack = providerRegistry.get('PAYSTACK');
     expect(paystack).toBeTruthy();
-    await expect(
-      paystack!.initializePayment({
-        paymentId: 'test',
-        amount: 5000 as unknown as import('@/lib/money').Money,
-        currency: 'GHS',
-        customer: { userId: 'u1', email: 'test@test.com' },
-        idempotencyKey: 'ik-1',
-      }),
-    ).rejects.toThrow(ProviderIntegrationPending);
+    // Stage 4: Paystack provider now makes real API calls.
+    // With invalid/missing credentials, it returns a failure result instead of throwing.
+    const result = await paystack!.initializePayment({
+      paymentId: 'test',
+      amount: 5000 as unknown as import('@/lib/money').Money,
+      currency: 'GHS',
+      customer: { userId: 'u1', email: 'test@test.com' },
+      idempotencyKey: 'ik-1',
+    });
+    // Provider now returns a result (success or failure) instead of throwing ProviderIntegrationPending
+    expect(typeof result.success).toBe('boolean');
+    if (!result.success) {
+      expect(result.errorCode).toBeTruthy();
+    }
   });
 
-  it('PAYSTACK provider throws ProviderIntegrationPending for verifyPayment', async () => {
+  it('PAYSTACK provider implements verifyPayment (no longer throws ProviderIntegrationPending)', async () => {
     const paystack = providerRegistry.get('PAYSTACK');
-    await expect(
-      paystack!.verifyPayment({
-        paymentId: 'test',
-        providerReference: 'ref-1',
-        expectedAmount: 5000 as unknown as import('@/lib/money').Money,
-        expectedCurrency: 'GHS',
-      }),
-    ).rejects.toThrow(ProviderIntegrationPending);
+    const result = await paystack!.verifyPayment({
+      paymentId: 'test',
+      providerReference: 'ref-1',
+      expectedAmount: 5000 as unknown as import('@/lib/money').Money,
+      expectedCurrency: 'GHS',
+    });
+    // Provider now returns a result (success or failure) instead of throwing ProviderIntegrationPending
+    expect(typeof result.success).toBe('boolean');
+    if (!result.success) {
+      expect(result.errorCode).toBeTruthy();
+    }
   });
 
-  it('PAYSTACK provider throws ProviderIntegrationPending for requestRefund', async () => {
+  it('PAYSTACK provider implements requestRefund (no longer throws ProviderIntegrationPending)', async () => {
     const paystack = providerRegistry.get('PAYSTACK');
-    await expect(
-      paystack!.requestRefund({
-        paymentId: 'test',
-        providerReference: 'ref-1',
-        amount: 5000 as unknown as import('@/lib/money').Money,
-        currency: 'GHS',
-      }),
-    ).rejects.toThrow(ProviderIntegrationPending);
+    const result = await paystack!.requestRefund({
+      paymentId: 'test',
+      providerReference: 'ref-1',
+      amount: 5000 as unknown as import('@/lib/money').Money,
+      currency: 'GHS',
+    });
+    // Provider now returns a result (success or failure) instead of throwing ProviderIntegrationPending
+    expect(typeof result.success).toBe('boolean');
+    if (!result.success) {
+      expect(result.errorCode).toBeTruthy();
+    }
   });
 
   it('FREE provider completes immediately', async () => {

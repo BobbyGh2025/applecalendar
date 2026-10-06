@@ -6,17 +6,14 @@
  * - Auth required (booking owner or SUPER_ADMIN for GET; booking owner or SUPER_ADMIN for POST)
  * - POST is rate limited: 3 req/min
  * - Refund request validates payment is COMPLETED
- * - For PAYSTACK provider, attempts provider refund (returns 501 if pending)
+ * - For PAYSTACK provider, initiates refund with Paystack API
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { rateLimit, RateLimitError } from '@/lib/rate-limit';
 import { requestRefundSchema } from '@/lib/validations/payments';
-import {
-  requestRefund,
-  ProviderIntegrationPending,
-} from '@/lib/services';
+import { requestRefund } from '@/lib/services';
 import { providerRegistry } from '@/lib/services/payment-provider';
 import { db } from '@/lib/db';
 import { asMoney } from '@/lib/money';
@@ -139,56 +136,36 @@ export async function POST(
       requestedBy: user.id,
     });
 
-    // For PAYSTACK provider, attempt provider-side refund
+    // For PAYSTACK provider, initiate refund with Paystack
     if (payment.provider === 'PAYSTACK') {
-      try {
-        const paystackProvider = providerRegistry.require('PAYSTACK');
-        const providerRefundResult = await paystackProvider.requestRefund({
-          paymentId,
-          providerReference: payment.providerRef ?? '',
-          amount: asMoney(amount),
-          currency: payment.currency,
-          reason,
+      const paystackProvider = providerRegistry.require('PAYSTACK');
+      const providerRefundResult = await paystackProvider.requestRefund({
+        paymentId,
+        providerReference: payment.providerRef ?? '',
+        amount: asMoney(amount),
+        currency: payment.currency,
+        reason,
+      });
+
+      if (providerRefundResult.success) {
+        // Update refund with provider reference and mark as PROCESSING
+        await db.refund.update({
+          where: { id: refundResult.refundId },
+          data: {
+            providerRef: providerRefundResult.refundReference,
+            status: 'PROCESSING',
+          },
         });
-
-        if (providerRefundResult.success) {
-          // Update refund with provider reference
-          await db.refund.update({
-            where: { id: refundResult.refundId },
-            data: {
-              providerRef: providerRefundResult.refundReference,
-              status: 'PROCESSING',
-            },
-          });
-        }
-      } catch (error) {
-        if (error instanceof ProviderIntegrationPending) {
-          // Return the refund with 501 status
-          const refund = await db.refund.findUnique({
-            where: { id: refundResult.refundId },
-            select: {
-              id: true,
-              amount: true,
-              status: true,
-              paymentId: true,
-              createdAt: true,
-            },
-          });
-
-          return NextResponse.json(
-            {
-              success: false,
-              error: {
-                code: 'PROVIDER_INTEGRATION_PENDING',
-                message: error.message,
-                details: error.details,
-              },
-              refund,
-            },
-            { status: 501 }
-          );
-        }
-        throw error;
+      } else {
+        // Provider refund failed — log and leave refund in REQUESTED state
+        // The refund can be retried or processed manually
+        logger.warn('Paystack refund initiation failed', {
+          refundId: refundResult.refundId,
+          paymentId,
+          errorCode: providerRefundResult.errorCode,
+          errorMessage: providerRefundResult.errorMessage,
+          retryable: providerRefundResult.retryable,
+        });
       }
     }
 
@@ -200,6 +177,7 @@ export async function POST(
         amount: true,
         reason: true,
         status: true,
+        providerRef: true,
         paymentId: true,
         createdAt: true,
       },

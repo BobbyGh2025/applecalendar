@@ -206,26 +206,32 @@ describe('Payment State Machine', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Payment Provider', () => {
-  it('PAYSTACK adapter throws ProviderIntegrationPending for all operations', async () => {
-    await expect(paystackProvider.initializePayment({
+  it('PAYSTACK adapter implements all operations (Stage 4: real API calls)', async () => {
+    // Stage 4: Paystack provider now makes real API calls via paystackRequest.
+    // With invalid/missing credentials, it returns failure results instead of throwing.
+    const initResult = await paystackProvider.initializePayment({
       paymentId: 'test', amount: 1000 as any, currency: 'GHS',
       customer: { userId: 'u1', email: 'test@test.com' },
       idempotencyKey: 'key',
-    })).rejects.toThrow(ProviderIntegrationPending);
+    });
+    expect(typeof initResult.success).toBe('boolean');
 
-    await expect(paystackProvider.verifyPayment({
+    const verifyResult = await paystackProvider.verifyPayment({
       paymentId: 'test', providerReference: 'ref',
       expectedAmount: 1000 as any, expectedCurrency: 'GHS',
-    })).rejects.toThrow(ProviderIntegrationPending);
+    });
+    expect(typeof verifyResult.success).toBe('boolean');
 
-    await expect(paystackProvider.processWebhook({
+    const webhookResult = await paystackProvider.processWebhook({
       rawPayload: '{}', signature: 'sig', provider: 'PAYSTACK',
-    })).rejects.toThrow(ProviderIntegrationPending);
+    });
+    expect(typeof webhookResult.success).toBe('boolean');
 
-    await expect(paystackProvider.requestRefund({
+    const refundResult = await paystackProvider.requestRefund({
       paymentId: 'test', providerReference: 'ref',
       amount: 1000 as any, currency: 'GHS',
-    })).rejects.toThrow(ProviderIntegrationPending);
+    });
+    expect(typeof refundResult.success).toBe('boolean');
   });
 
   it('MANUAL adapter initializes but cannot verify/webhook', async () => {

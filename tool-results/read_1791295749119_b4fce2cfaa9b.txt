@@ -166,8 +166,8 @@
    166→    });
    167→
    168→    it('getAllowedTransitions returns correct sets', () => {
-   169→      expect(getAllowedTransitions('PENDING')).toEqual(expect.arrayContaining(['PROCESSING', 'COMPLETED', 'CANCELLED', 'EXPIRED']));
-   170→      expect(getAllowedTransitions('PENDING')).toHaveLength(4);
+   169→      expect(getAllowedTransitions('PENDING')).toEqual(expect.arrayContaining(['PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED']));
+   170→      expect(getAllowedTransitions('PENDING')).toHaveLength(5);
    171→      expect(getAllowedTransitions('PROCESSING')).toEqual(expect.arrayContaining(['COMPLETED', 'FAILED', 'EXPIRED']));
    172→      expect(getAllowedTransitions('PROCESSING')).toHaveLength(3);
    173→      expect(getAllowedTransitions('COMPLETED')).toEqual(['REFUNDED']);

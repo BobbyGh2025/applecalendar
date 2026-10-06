@@ -1,0 +1,918 @@
+     1→/**
+     2→ * Phase 5E Stage 3: Payment API Route Tests
+     3→ *
+     4→ * Covers: validation schemas, auth enforcement, ownership checks,
+     5→ * webhook signature verification, domain service integration,
+     6→ * refund authorization, manual confirmation, webhook processing,
+     7→ * payment expiry, financial integrity, provider boundary.
+     8→ *
+     9→ * Tests domain services and validation logic that the routes call.
+    10→ * No real HTTP requests or Paystack calls.
+    11→ */
+    12→
+    13→import { describe, it, expect } from 'vitest';
+    14→import { db } from '@/lib/db';
+    15→import {
+    16→  createBookingPayment,
+    17→  requestRefund,
+    18→  markRefundProcessing,
+    19→  processRefundCompletion,
+    20→  processRefundFailure,
+    21→  confirmBookingOnPaymentSuccess,
+    22→  processWebhookEvent,
+    23→  expireEligiblePayments,
+    24→  validatePaymentTransition,
+    25→  canBeRefunded,
+    26→  canBeExpired,
+    27→  isTerminalStatus,
+    28→  ProviderIntegrationPending,
+    29→  RefundNotEligible,
+    30→  RefundAmountExceedsPayment,
+    31→  DuplicateRefund,
+    32→  RefundNotFound,
+    33→  PaymentNotFound,
+    34→  WebhookAmountMismatch,
+    35→  WebhookCurrencyMismatch,
+    36→  InvalidPaymentTransition,
+    37→} from '@/lib/services';
+    38→import { reserveInventory, releaseReservation, confirmReservation } from '@/lib/services/inventory';
+    39→import { generateIdempotencyKey } from '@/lib/services/booking-payment';
+    40→import { providerRegistry } from '@/lib/services/payment-provider';
+    41→import '@/lib/services/providers'; // Ensure providers are registered (side-effect import)
+    42→import { requireRole } from '@/lib/auth';
+    43→import {
+    44→  initializePaymentSchema,
+    45→  verifyPaymentSchema,
+    46→  requestRefundSchema,
+    47→  confirmManualPaymentSchema,
+    48→  paymentQuerySchema,
+    49→  processRefundSchema,
+    50→} from '@/lib/validations/payments';
+    51→import type { NormalizedWebhookEvent } from '@/lib/services/payment-provider';
+    52→import crypto from 'crypto';
+    53→
+    54→// ─── Helpers ───
+    55→
+    56→const uid = () => `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    57→
+    58→async function createUser(role: string = 'PUBLIC') {
+    59→  const s = uid();
+    60→  return db.user.create({
+    61→    data: { email: `p5e3-${role}-${s}@example.com`, password: 'hash', name: `Test ${role}`, role },
+    62→  });
+    63→}
+    64→
+    65→async function createEvent(organizerId: string) {
+    66→  const s = uid();
+    67→  return db.event.create({
+    68→    data: {
+    69→      title: 'Payment Route Test',
+    70→      slug: `p5e3-evt-${s}`,
+    71→      description: 'Test',
+    72→      startDate: new Date('2025-12-01'),
+    73→      organizerId,
+    74→      status: 'PUBLISHED',
+    75→      isBookable: true,
+    76→    },
+    77→  });
+    78→}
+    79→
+    80→async function createTicketType(eventId: string, price: number = 5000, quantity: number = 100) {
+    81→  return db.ticketType.create({
+    82→    data: { eventId, name: 'Test Ticket', price, currency: 'GHS', quantity },
+    83→  });
+    84→}
+    85→
+    86→async function createBooking(userId: string, eventId: string, amount: number = 5000) {
+    87→  const s = uid();
+    88→  return db.booking.create({
+    89→    data: { userId, eventId, totalAmount: amount, currency: 'GHS', status: 'PENDING', bookingRef: `P5E3-${s}` },
+    90→  });
+    91→}
+    92→
+    93→async function completedPaymentFixture(amount: number = 5000) {
+    94→  const s = uid();
+    95→  const user = await createUser('PUBLIC');
+    96→  const organizer = await createUser('ORGANIZER');
+    97→  const event = await createEvent(organizer.id);
+    98→  const tt = await createTicketType(event.id, amount, 10);
+    99→  await reserveInventory({ ticketTypeId: tt.id, quantity: 1 });
+   100→  const booking = await createBooking(user.id, event.id, amount);
+   101→  const qr = `QR-P5E3-${s}-${crypto.randomBytes(8).toString('hex')}`;
+   102→  await db.ticket.create({ data: { ticketTypeId: tt.id, bookingId: booking.id, qrCode: qr, status: 'PENDING' } });
+   103→  const payment = await db.payment.create({
+   104→    data: { bookingId: booking.id, userId: user.id, amount, currency: 'GHS', provider: 'PAYSTACK', status: 'PENDING', idempotencyKey: generateIdempotencyKey() },
+   105→  });
+   106→  await confirmBookingOnPaymentSuccess({ paymentId: payment.id, providerReference: `ref-${s}` });
+   107→  const cp = await db.payment.findUniqueOrThrow({ where: { id: payment.id } });
+   108→  return { user, organizer, event, tt, booking, payment: cp };
+   109→}
+   110→
+   111→async function pendingPaymentFixture(amount: number = 5000) {
+   112→  const s = uid();
+   113→  const user = await createUser('PUBLIC');
+   114→  const organizer = await createUser('ORGANIZER');
+   115→  const event = await createEvent(organizer.id);
+   116→  const tt = await createTicketType(event.id, amount, 10);
+   117→  await reserveInventory({ ticketTypeId: tt.id, quantity: 1 });
+   118→  const booking = await createBooking(user.id, event.id, amount);
+   119→  const qr = `QR-P5E3-${s}-${crypto.randomBytes(8).toString('hex')}`;
+   120→  await db.ticket.create({ data: { ticketTypeId: tt.id, bookingId: booking.id, qrCode: qr, status: 'PENDING' } });
+   121→  const providerRef = `pwref-${s}`;
+   122→  const payment = await db.payment.create({
+   123→    data: { bookingId: booking.id, userId: user.id, amount, currency: 'GHS', provider: 'PAYSTACK', status: 'PENDING', providerRef, idempotencyKey: generateIdempotencyKey() },
+   124→  });
+   125→  return { user, organizer, event, tt, booking, payment, providerRef };
+   126→}
+   127→
+   128→async function cleanup(ids: { eventId: string; userIds: string[] }) {
+   129→  await db.event.delete({ where: { id: ids.eventId } }).catch(() => {});
+   130→  for (const u of ids.userIds) await db.user.delete({ where: { id: u } }).catch(() => {});
+   131→}
+   132→
+   133→function makeWebhookEvent(overrides: Partial<NormalizedWebhookEvent> & { eventId: string; eventReference: string }): NormalizedWebhookEvent {
+   134→  return {
+   135→    provider: 'PAYSTACK',
+   136→    eventType: 'charge.success',
+   137→    amount: 5000 as unknown as import('@/lib/money').Money,
+   138→    currency: 'GHS',
+   139→    eventAt: new Date(),
+   140→    isPaymentSuccess: true,
+   141→    isPaymentFailure: false,
+   142→    ...overrides,
+   143→  };
+   144→}
+   145→
+   146→function computePaystackSignature(rawBody: string, secret: string): string {
+   147→  return crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+   148→}
+   149→
+   150→// ═══════════════════════════════════════════════════════════════════════════
+   151→// 1. Validation Schemas
+   152→// ═══════════════════════════════════════════════════════════════════════════
+   153→
+   154→describe('Stage 3: Validation Schemas', () => {
+   155→  it('initializePaymentSchema: valid input', () => {
+   156→    const r = initializePaymentSchema.safeParse({ bookingId: 'abc', provider: 'PAYSTACK', callbackUrl: 'https://example.com/cb' });
+   157→    expect(r.success).toBe(true);
+   158→  });
+   159→
+   160→  it('initializePaymentSchema: provider is optional, defaults excluded', () => {
+   161→    const r = initializePaymentSchema.safeParse({ bookingId: 'abc' });
+   162→    expect(r.success).toBe(true);
+   163→    if (r.success) expect(r.data.provider).toBeUndefined();
+   164→  });
+   165→
+   166→  it('initializePaymentSchema: invalid provider rejected', () => {
+   167→    const r = initializePaymentSchema.safeParse({ bookingId: 'abc', provider: 'STRIPE' });
+   168→    expect(r.success).toBe(false);
+   169→  });
+   170→
+   171→  it('initializePaymentSchema: invalid callbackUrl rejected', () => {
+   172→    const r = initializePaymentSchema.safeParse({ bookingId: 'abc', callbackUrl: 'not-a-url' });
+   173→    expect(r.success).toBe(false);
+   174→  });
+   175→
+   176→  it('initializePaymentSchema: empty bookingId rejected', () => {
+   177→    const r = initializePaymentSchema.safeParse({ bookingId: '' });
+   178→    expect(r.success).toBe(false);
+   179→  });
+   180→
+   181→  it('verifyPaymentSchema: valid', () => {
+   182→    const r = verifyPaymentSchema.safeParse({ providerReference: 'ref-123' });
+   183→    expect(r.success).toBe(true);
+   184→  });
+   185→
+   186→  it('verifyPaymentSchema: empty providerReference rejected', () => {
+   187→    const r = verifyPaymentSchema.safeParse({ providerReference: '' });
+   188→    expect(r.success).toBe(false);
+   189→  });
+   190→
+   191→  it('requestRefundSchema: valid', () => {
+   192→    const r = requestRefundSchema.safeParse({ amount: 5000, reason: 'Customer request' });
+   193→    expect(r.success).toBe(true);
+   194→  });
+   195→
+   196→  it('requestRefundSchema: reason optional, max 500 chars', () => {
+   197→    const r1 = requestRefundSchema.safeParse({ amount: 100 });
+   198→    expect(r1.success).toBe(true);
+   199→    const r2 = requestRefundSchema.safeParse({ amount: 100, reason: 'x'.repeat(501) });
+   200→    expect(r2.success).toBe(false);
+   201→  });
+   202→
+   203→  it('requestRefundSchema: negative/zero amount rejected', () => {
+   204→    expect(requestRefundSchema.safeParse({ amount: 0 }).success).toBe(false);
+   205→    expect(requestRefundSchema.safeParse({ amount: -1 }).success).toBe(false);
+   206→  });
+   207→
+   208→  it('requestRefundSchema: non-integer amount rejected', () => {
+   209→    expect(requestRefundSchema.safeParse({ amount: 1.5 }).success).toBe(false);
+   210→  });
+   211→
+   212→  it('confirmManualPaymentSchema: all optional', () => {
+   213→    const r = confirmManualPaymentSchema.safeParse({});
+   214→    expect(r.success).toBe(true);
+   215→  });
+   216→
+   217→  it('paymentQuerySchema: defaults', () => {
+   218→    const r = paymentQuerySchema.safeParse({});
+   219→    expect(r.success).toBe(true);
+   220→    if (r.success) {
+   221→      expect(r.data.page).toBe(1);
+   222→      expect(r.data.limit).toBe(20);
+   223→    }
+   224→  });
+   225→
+   226→  it('paymentQuerySchema: invalid status rejected', () => {
+   227→    const r = paymentQuerySchema.safeParse({ status: 'UNKNOWN' });
+   228→    expect(r.success).toBe(false);
+   229→  });
+   230→
+   231→  it('paymentQuerySchema: STRIPE allowed in provider filter (legacy)', () => {
+   232→    const r = paymentQuerySchema.safeParse({ provider: 'STRIPE' });
+   233→    expect(r.success).toBe(true);
+   234→  });
+   235→
+   236→  it('processRefundSchema: optional providerRef', () => {
+   237→    expect(processRefundSchema.safeParse({}).success).toBe(true);
+   238→    expect(processRefundSchema.safeParse({ providerRef: 'ref-1' }).success).toBe(true);
+   239→  });
+   240→});
+   241→
+   242→// ═══════════════════════════════════════════════════════════════════════════
+   243→// 2. Authorization Enforcement
+   244→// ═══════════════════════════════════════════════════════════════════════════
+   245→
+   246→describe('Stage 3: Authorization', () => {
+   247→  it('requireRole blocks PUBLIC from ORGANIZER/SUPER_ADMIN endpoints', () => {
+   248→    expect(() => requireRole('ORGANIZER', 'SUPER_ADMIN')({ id: 'x', email: 'x@x', role: 'PUBLIC' } as any)).toThrow();
+   249→  });
+   250→
+   251→  it('requireRole allows ORGANIZER', () => {
+   252→    expect(() => requireRole('ORGANIZER', 'SUPER_ADMIN')({ id: 'x', email: 'x@x', role: 'ORGANIZER' } as any)).not.toThrow();
+   253→  });
+   254→
+   255→  it('requireRole allows SUPER_ADMIN', () => {
+   256→    expect(() => requireRole('ORGANIZER', 'SUPER_ADMIN')({ id: 'x', email: 'x@x', role: 'SUPER_ADMIN' } as any)).not.toThrow();
+   257→  });
+   258→
+   259→  it('requireRole SUPER_ADMIN only blocks ORGANIZER', () => {
+   260→    expect(() => requireRole('SUPER_ADMIN')({ id: 'x', email: 'x@x', role: 'ORGANIZER' } as any)).toThrow();
+   261→    expect(() => requireRole('SUPER_ADMIN')({ id: 'x', email: 'x@x', role: 'SUPER_ADMIN' } as any)).not.toThrow();
+   262→  });
+   263→
+   264→  it('ownership check: booking owner can access, non-owner cannot', async () => {
+   265→    const fixture = await completedPaymentFixture();
+   266→    try {
+   267→      const booking = await db.booking.findUniqueOrThrow({ where: { id: fixture.booking.id }, select: { userId: true } });
+   268→      // Owner check passes
+   269→      expect(booking.userId === fixture.user.id || fixture.user.role === 'SUPER_ADMIN').toBe(true);
+   270→      // Different user check fails
+   271→      const otherId = 'non-owner-id';
+   272→      expect(booking.userId === otherId).toBe(false);
+   273→    } finally {
+   274→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   275→    }
+   276→  });
+   277→});
+   278→
+   279→// ═══════════════════════════════════════════════════════════════════════════
+   280→// 3. Webhook Signature Verification
+   281→// ═══════════════════════════════════════════════════════════════════════════
+   282→
+   283→describe('Stage 3: Webhook Signature Verification', () => {
+   284→  it('valid signature is deterministic', () => {
+   285→    const body = JSON.stringify({ event: 'charge.success', data: { id: 123, reference: 'ref-1', amount: 5000, currency: 'GHS' } });
+   286→    const secret = 'test-webhook-secret';
+   287→    const sig1 = computePaystackSignature(body, secret);
+   288→    const sig2 = computePaystackSignature(body, secret);
+   289→    expect(sig1).toBe(sig2);
+   290→  });
+   291→
+   292→  it('wrong secret produces different signature', () => {
+   293→    const body = JSON.stringify({ event: 'charge.success', data: { id: 123 } });
+   294→    const sig1 = computePaystackSignature(body, 'correct-secret');
+   295→    const sig2 = computePaystackSignature(body, 'wrong-secret');
+   296→    expect(sig1).not.toBe(sig2);
+   297→  });
+   298→
+   299→  it('tampered body produces different signature', () => {
+   300→    const secret = 'test-webhook-secret';
+   301→    const body1 = JSON.stringify({ event: 'charge.success', data: { amount: 5000 } });
+   302→    const body2 = JSON.stringify({ event: 'charge.success', data: { amount: 9999 } });
+   303→    expect(computePaystackSignature(body1, secret)).not.toBe(computePaystackSignature(body2, secret));
+   304→  });
+   305→
+   306→  it('timing-safe comparison: different-length signatures handled safely', () => {
+   307→    const buf1 = Buffer.from('abc123');
+   308→    const buf2 = Buffer.from('abc12345');
+   309→    // Direct timingSafeEqual with different lengths should throw
+   310→    expect(() => crypto.timingSafeEqual(buf1, buf2)).toThrow();
+   311→    // Route code should check length first (as it does)
+   312→    expect(buf1.length !== buf2.length).toBe(true);
+   313→  });
+   314→
+   315→  it('HMAC-SHA512 produces 128 hex characters', () => {
+   316→    const body = 'test';
+   317→    const secret = 'secret';
+   318→    const sig = computePaystackSignature(body, secret);
+   319→    expect(sig.length).toBe(128); // SHA-512 = 64 bytes = 128 hex chars
+   320→  });
+   321→});
+   322→
+   323→// ═══════════════════════════════════════════════════════════════════════════
+   324→// 4. Payment Initialization (Domain Service Integration)
+   325→// ═══════════════════════════════════════════════════════════════════════════
+   326→
+   327→describe('Stage 3: Payment Initialization', () => {
+   328→  it('createBookingPayment creates Payment record with correct fields', async () => {
+   329→    const s = uid();
+   330→    const user = await createUser();
+   331→    const organizer = await createUser('ORGANIZER');
+   332→    const event = await createEvent(organizer.id);
+   333→    const tt = await createTicketType(event.id, 5000, 10);
+   334→    await reserveInventory({ ticketTypeId: tt.id, quantity: 1 });
+   335→    const booking = await createBooking(user.id, event.id, 5000);
+   336→    try {
+   337→      const result = await createBookingPayment({
+   338→        bookingId: booking.id,
+   339→        userId: user.id,
+   340→        amount: 5000,
+   341→        currency: 'GHS',
+   342→      });
+   343→
+   344→      expect(result.paymentId).toBeTruthy();
+   345→      expect(result.provider).toBe('PAYSTACK');
+   346→      expect(result.status).toBe('PENDING');
+   347→
+   348→      const payment = await db.payment.findUniqueOrThrow({ where: { id: result.paymentId } });
+   349→      expect(payment.amount).toBe(5000);
+   350→      expect(payment.status).toBe('PENDING');
+   351→      expect(payment.idempotencyKey).toBeTruthy();
+   352→    } finally {
+   353→      await cleanup({ eventId: event.id, userIds: [user.id, organizer.id] });
+   354→    }
+   355→  });
+   356→
+   357→  it('createBookingPayment for zero amount uses FREE provider', async () => {
+   358→    const s = uid();
+   359→    const user = await createUser();
+   360→    const organizer = await createUser('ORGANIZER');
+   361→    const event = await createEvent(organizer.id);
+   362→    const tt = await createTicketType(event.id, 0, 10);
+   363→    const booking = await createBooking(user.id, event.id, 0);
+   364→    try {
+   365→      const result = await createBookingPayment({
+   366→        bookingId: booking.id,
+   367→        userId: user.id,
+   368→        amount: 0,
+   369→        currency: 'GHS',
+   370→      });
+   371→
+   372→      expect(result.provider).toBe('FREE');
+   373→    } finally {
+   374→      await cleanup({ eventId: event.id, userIds: [user.id, organizer.id] });
+   375→    }
+   376→  });
+   377→
+   378→  it('idempotent: duplicate createBookingPayment returns same payment', async () => {
+   379→    const s = uid();
+   380→    const user = await createUser();
+   381→    const organizer = await createUser('ORGANIZER');
+   382→    const event = await createEvent(organizer.id);
+   383→    const tt = await createTicketType(event.id, 5000, 10);
+   384→    await reserveInventory({ ticketTypeId: tt.id, quantity: 1 });
+   385→    const booking = await createBooking(user.id, event.id, 5000);
+   386→    try {
+   387→      const result1 = await createBookingPayment({ bookingId: booking.id, userId: user.id, amount: 5000, currency: 'GHS' });
+   388→      // Second call should be idempotent (same booking → same payment)
+   389→      const result2 = await createBookingPayment({ bookingId: booking.id, userId: user.id, amount: 5000, currency: 'GHS' });
+   390→      expect(result2.paymentId).toBe(result1.paymentId);
+   391→    } finally {
+   392→      await cleanup({ eventId: event.id, userIds: [user.id, organizer.id] });
+   393→    }
+   394→  });
+   395→});
+   396→
+   397→// ═══════════════════════════════════════════════════════════════════════════
+   398→// 5. Manual Payment Confirmation
+   399→// ═══════════════════════════════════════════════════════════════════════════
+   400→
+   401→describe('Stage 3: Manual Payment Confirmation', () => {
+   402→  it('MANUAL provider payment can be confirmed via confirmBookingOnPaymentSuccess', async () => {
+   403→    const s = uid();
+   404→    const user = await createUser();
+   405→    const organizer = await createUser('ORGANIZER');
+   406→    const event = await createEvent(organizer.id);
+   407→    const tt = await createTicketType(event.id, 5000, 10);
+   408→    await reserveInventory({ ticketTypeId: tt.id, quantity: 1 });
+   409→    const booking = await createBooking(user.id, event.id, 5000);
+   410→    const qr = `QR-MAN-${s}-${crypto.randomBytes(8).toString('hex')}`;
+   411→    await db.ticket.create({ data: { ticketTypeId: tt.id, bookingId: booking.id, qrCode: qr, status: 'PENDING' } });
+   412→    const payment = await db.payment.create({
+   413→      data: { bookingId: booking.id, userId: user.id, amount: 5000, currency: 'GHS', provider: 'MANUAL', status: 'PENDING', idempotencyKey: generateIdempotencyKey() },
+   414→    });
+   415→
+   416→    try {
+   417→      const result = await confirmBookingOnPaymentSuccess({ paymentId: payment.id, providerReference: 'manual-ref-1' });
+   418→      expect(result.confirmed).toBe(true);
+   419→
+   420→      const updatedPayment = await db.payment.findUniqueOrThrow({ where: { id: payment.id } });
+   421→      expect(updatedPayment.status).toBe('COMPLETED');
+   422→
+   423→      const updatedBooking = await db.booking.findUniqueOrThrow({ where: { id: booking.id } });
+   424→      expect(updatedBooking.status).toBe('CONFIRMED');
+   425→    } finally {
+   426→      await cleanup({ eventId: event.id, userIds: [user.id, organizer.id] });
+   427→    }
+   428→  });
+   429→
+   430→  it('PAYSTACK provider payment cannot be manually confirmed (route-level check)', async () => {
+   431→    // The route checks payment.provider !== 'MANUAL' and returns 400.
+   432→    // Here we verify the domain service would succeed anyway,
+   433→    // confirming the route-level guard is needed.
+   434→    const fixture = await pendingPaymentFixture();
+   435→    try {
+   436→      // Domain service doesn't care about provider — it just confirms
+   437→      const result = await confirmBookingOnPaymentSuccess({ paymentId: fixture.payment.id });
+   438→      expect(result.confirmed).toBe(true);
+   439→      // This confirms the route MUST check provider === 'MANUAL' to prevent
+   440→      // bypassing Paystack verification
+   441→    } finally {
+   442→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   443→    }
+   444→  });
+   445→
+   446→  it('cannot confirm a COMPLETED payment again (idempotent)', async () => {
+   447→    const fixture = await completedPaymentFixture();
+   448→    try {
+   449→      const result = await confirmBookingOnPaymentSuccess({ paymentId: fixture.payment.id });
+   450→      expect(result.confirmed).toBe(false); // Already confirmed
+   451→    } finally {
+   452→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   453→    }
+   454→  });
+   455→});
+   456→
+   457→// ═══════════════════════════════════════════════════════════════════════════
+   458→// 6. Refund Authorization & Lifecycle
+   459→// ═══════════════════════════════════════════════════════════════════════════
+   460→
+   461→describe('Stage 3: Refund Authorization & Lifecycle', () => {
+   462→  it('only COMPLETED payments can be refunded', async () => {
+   463→    const fixture = await pendingPaymentFixture();
+   464→    try {
+   465→      await expect(
+   466→        requestRefund({ paymentId: fixture.payment.id, amount: 5000, requestedBy: fixture.user.id }),
+   467→      ).rejects.toThrow(RefundNotEligible);
+   468→    } finally {
+   469→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   470→    }
+   471→  });
+   472→
+   473→  it('booking owner can request refund for COMPLETED payment', async () => {
+   474→    const fixture = await completedPaymentFixture();
+   475→    try {
+   476→      const result = await requestRefund({
+   477→        paymentId: fixture.payment.id,
+   478→        amount: 5000,
+   479→        reason: 'Full refund',
+   480→        requestedBy: fixture.user.id,
+   481→      });
+   482→      expect(result.status).toBe('REQUESTED');
+   483→      expect(result.amount).toBe(5000);
+   484→    } finally {
+   485→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   486→    }
+   487→  });
+   488→
+   489→  it('refund amount cannot exceed payment amount', async () => {
+   490→    const fixture = await completedPaymentFixture(3000);
+   491→    try {
+   492→      await expect(
+   493→        requestRefund({ paymentId: fixture.payment.id, amount: 5000, requestedBy: fixture.user.id }),
+   494→      ).rejects.toThrow(/exceed/i);
+   495→    } finally {
+   496→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   497→    }
+   498→  });
+   499→
+   500→  it('duplicate refund request is blocked', async () => {
+   501→    const fixture = await completedPaymentFixture();
+   502→    try {
+   503→      await requestRefund({ paymentId: fixture.payment.id, amount: 5000, requestedBy: fixture.user.id });
+   504→      await expect(
+   505→        requestRefund({ paymentId: fixture.payment.id, amount: 5000, requestedBy: fixture.user.id }),
+   506→      ).rejects.toThrow(DuplicateRefund);
+   507→    } finally {
+   508→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   509→    }
+   510→  });
+   511→
+   512→  it('full refund lifecycle: REQUESTED → PROCESSING → COMPLETED', async () => {
+   513→    const fixture = await completedPaymentFixture();
+   514→    try {
+   515→      const refund = await requestRefund({ paymentId: fixture.payment.id, amount: 5000, requestedBy: fixture.user.id });
+   516→      expect(refund.status).toBe('REQUESTED');
+   517→
+   518→      await markRefundProcessing(refund.refundId);
+   519→      const r1 = await db.refund.findUniqueOrThrow({ where: { id: refund.refundId } });
+   520→      expect(r1.status).toBe('PROCESSING');
+   521→
+   522→      const completion = await processRefundCompletion({ refundId: refund.refundId, providerRef: 'refund-ref-1' });
+   523→      expect(completion.status).toBe('COMPLETED');
+   524→
+   525→      const payment = await db.payment.findUniqueOrThrow({ where: { id: fixture.payment.id } });
+   526→      expect(payment.refundedAmount).toBe(5000);
+   527→      expect(payment.status).toBe('REFUNDED');
+   528→    } finally {
+   529→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   530→    }
+   531→  });
+   532→
+   533→  it('refund not found throws RefundNotFound', async () => {
+   534→    await expect(processRefundCompletion({ refundId: 'nonexistent' })).rejects.toThrow(RefundNotFound);
+   535→  });
+   536→});
+   537→
+   538→// ═══════════════════════════════════════════════════════════════════════════
+   539→// 7. Webhook Processing
+   540→// ═══════════════════════════════════════════════════════════════════════════
+   541→
+   542→describe('Stage 3: Webhook Processing', () => {
+   543→  it('success webhook confirms booking', async () => {
+   544→    const fixture = await pendingPaymentFixture();
+   545→    try {
+   546→      const event = makeWebhookEvent({
+   547→        eventId: `evt-wk-suc-${uid()}`,
+   548→        eventReference: fixture.providerRef,
+   549→      });
+   550→
+   551→      const result = await processWebhookEvent({ event });
+   552→      expect(result.processed).toBe(true);
+   553→
+   554→      const payment = await db.payment.findUniqueOrThrow({ where: { id: fixture.payment.id } });
+   555→      expect(payment.status).toBe('COMPLETED');
+   556→    } finally {
+   557→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   558→    }
+   559→  });
+   560→
+   561→  it('failure webhook transitions payment to FAILED', async () => {
+   562→    const fixture = await pendingPaymentFixture();
+   563→    try {
+   564→      const event: NormalizedWebhookEvent = {
+   565→        provider: 'PAYSTACK',
+   566→        eventId: `evt-wk-fail-${uid()}`,
+   567→        eventType: 'charge.failed',
+   568→        eventReference: fixture.providerRef,
+   569→        amount: 5000 as unknown as import('@/lib/money').Money,
+   570→        currency: 'GHS',
+   571→        eventAt: new Date(),
+   572→        isPaymentSuccess: false,
+   573→        isPaymentFailure: true,
+   574→      };
+   575→
+   576→      const result = await processWebhookEvent({ event });
+   577→      expect(result.processed).toBe(true);
+   578→
+   579→      const payment = await db.payment.findUniqueOrThrow({ where: { id: fixture.payment.id } });
+   580→      expect(payment.status).toBe('FAILED');
+   581→    } finally {
+   582→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   583→    }
+   584→  });
+   585→
+   586→  it('duplicate eventId is deduplicated', async () => {
+   587→    const fixture = await pendingPaymentFixture();
+   588→    try {
+   589→      const event = makeWebhookEvent({
+   590→        eventId: `evt-wk-dedup-${uid()}`,
+   591→        eventReference: fixture.providerRef,
+   592→      });
+   593→
+   594→      const r1 = await processWebhookEvent({ event });
+   595→      expect(r1.processed).toBe(true);
+   596→
+   597→      const r2 = await processWebhookEvent({ event });
+   598→      expect(r2.processed).toBe(false);
+   599→      expect(r2.outcome).toContain('already processed');
+   600→    } finally {
+   601→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   602→    }
+   603→  });
+   604→
+   605→  it('amount mismatch is caught and event marked as permanent error', async () => {
+   606→    const fixture = await pendingPaymentFixture();
+   607→    try {
+   608→      const event = makeWebhookEvent({
+   609→        eventId: `evt-wk-ammis-${uid()}`,
+   610→        eventReference: fixture.providerRef,
+   611→        amount: 9999 as unknown as import('@/lib/money').Money,
+   612→      });
+   613→
+   614→      await expect(processWebhookEvent({ event })).rejects.toThrow(WebhookAmountMismatch);
+   615→
+   616→      const we = await db.paymentWebhookEvent.findUnique({ where: { eventId: event.eventId } });
+   617→      expect(we?.processed).toBe(true); // Permanent — non-retriable
+   618→    } finally {
+   619→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   620→    }
+   621→  });
+   622→
+   623→  it('currency mismatch is caught', async () => {
+   624→    const fixture = await pendingPaymentFixture();
+   625→    try {
+   626→      const event = makeWebhookEvent({
+   627→        eventId: `evt-wk-curmis-${uid()}`,
+   628→        eventReference: fixture.providerRef,
+   629→        currency: 'USD',
+   630→      });
+   631→
+   632→      await expect(processWebhookEvent({ event })).rejects.toThrow(WebhookCurrencyMismatch);
+   633→    } finally {
+   634→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   635→    }
+   636→  });
+   637→
+   638→  it('payment not found is marked as permanent (non-retriable)', async () => {
+   639→    const event = makeWebhookEvent({
+   640→      eventId: `evt-wk-nofind-${uid()}`,
+   641→      eventReference: 'nonexistent-ref',
+   642→    });
+   643→
+   644→    const result = await processWebhookEvent({ event });
+   645→    expect(result.processed).toBe(true);
+   646→    expect(result.outcome).toContain('Payment not found');
+   647→  });
+   648→});
+   649→
+   650→// ═══════════════════════════════════════════════════════════════════════════
+   651→// 8. Payment Expiry
+   652→// ═══════════════════════════════════════════════════════════════════════════
+   653→
+   654→describe('Stage 3: Payment Expiry', () => {
+   655→  it('canBeExpired returns true for PENDING and PROCESSING', () => {
+   656→    expect(canBeExpired('PENDING')).toBe(true);
+   657→    expect(canBeExpired('PROCESSING')).toBe(true);
+   658→  });
+   659→
+   660→  it('canBeExpired returns false for terminal states', () => {
+   661→    expect(canBeExpired('COMPLETED')).toBe(false);
+   662→    expect(canBeExpired('FAILED')).toBe(false);
+   663→    expect(canBeExpired('CANCELLED')).toBe(false);
+   664→    expect(canBeExpired('EXPIRED')).toBe(false);
+   665→    expect(canBeExpired('REFUNDED')).toBe(false);
+   666→  });
+   667→
+   668→  it('expireEligiblePayments runs without error', async () => {
+   669→    // No expired payments in test DB — just verify it doesn't throw
+   670→    const result = await expireEligiblePayments();
+   671→    expect(result).toBeTruthy();
+   672→    expect(typeof result.expired).toBe('number');
+   673→    expect(Array.isArray(result.errors)).toBe(true);
+   674→  });
+   675→});
+   676→
+   677→// ═══════════════════════════════════════════════════════════════════════════
+   678→// 9. Financial Integrity Preservation
+   679→// ═══════════════════════════════════════════════════════════════════════════
+   680→
+   681→describe('Stage 3: Financial Integrity', () => {
+   682→  it('duplicate webhook deliveries do not double-confirm booking', async () => {
+   683→    const fixture = await pendingPaymentFixture();
+   684→    try {
+   685→      const event = makeWebhookEvent({
+   686→        eventId: `evt-fi-dedup-${uid()}`,
+   687→        eventReference: fixture.providerRef,
+   688→      });
+   689→
+   690→      await processWebhookEvent({ event });
+   691→      // Payment now COMPLETED
+   692→      const p1 = await db.payment.findUniqueOrThrow({ where: { id: fixture.payment.id } });
+   693→      expect(p1.status).toBe('COMPLETED');
+   694→
+   695→      // Process again — should be idempotent
+   696→      await processWebhookEvent({ event });
+   697→
+   698→      const p2 = await db.payment.findUniqueOrThrow({ where: { id: fixture.payment.id } });
+   699→      expect(p2.status).toBe('COMPLETED');
+   700→      expect(p2.refundedAmount).toBe(0); // No duplicate effects
+   701→    } finally {
+   702→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   703→    }
+   704→  });
+   705→
+   706→  it('concurrent refunds cannot over-refund', async () => {
+   707→    const fixture = await completedPaymentFixture(5000);
+   708→    try {
+   709→      // Request first refund
+   710→      const r1 = await requestRefund({ paymentId: fixture.payment.id, amount: 5000, requestedBy: fixture.user.id });
+   711→
+   712→      // Second refund should be blocked (duplicate)
+   713→      await expect(
+   714→        requestRefund({ paymentId: fixture.payment.id, amount: 5000, requestedBy: fixture.user.id }),
+   715→      ).rejects.toThrow(DuplicateRefund);
+   716→
+   717→      // Complete the first refund
+   718→      await markRefundProcessing(r1.refundId);
+   719→      await processRefundCompletion({ refundId: r1.refundId });
+   720→
+   721→      const payment = await db.payment.findUniqueOrThrow({ where: { id: fixture.payment.id } });
+   722→      expect(payment.refundedAmount).toBe(5000); // Not 10000
+   723→    } finally {
+   724→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   725→    }
+   726→  });
+   727→
+   728→  it('inventory invariant holds after payment success', async () => {
+   729→    const fixture = await pendingPaymentFixture();
+   730→    try {
+   731→      const ttBefore = await db.ticketType.findUniqueOrThrow({ where: { id: fixture.tt.id } });
+   732→
+   733→      const event = makeWebhookEvent({
+   734→        eventId: `evt-fi-inv-${uid()}`,
+   735→        eventReference: fixture.providerRef,
+   736→      });
+   737→      await processWebhookEvent({ event });
+   738→
+   739→      const ttAfter = await db.ticketType.findUniqueOrThrow({ where: { id: fixture.tt.id } });
+   740→      // soldCount + reservedCount <= quantity
+   741→      expect(ttAfter.soldCount + ttAfter.reservedCount).toBeLessThanOrEqual(ttAfter.quantity);
+   742→    } finally {
+   743→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   744→    }
+   745→  });
+   746→
+   747→  it('payment state machine prevents illegal transitions from routes', () => {
+   748→    // Routes must never allow these transitions
+   749→    expect(() => validatePaymentTransition('COMPLETED', 'PENDING')).toThrow();
+   750→    expect(() => validatePaymentTransition('FAILED', 'COMPLETED')).toThrow();
+   751→    expect(() => validatePaymentTransition('REFUNDED', 'COMPLETED')).toThrow();
+   752→    expect(() => validatePaymentTransition('CANCELLED', 'COMPLETED')).toThrow();
+   753→  });
+   754→});
+   755→
+   756→// ═══════════════════════════════════════════════════════════════════════════
+   757→// 10. Provider Integration Boundary
+   758→// ═══════════════════════════════════════════════════════════════════════════
+   759→
+   760→describe('Stage 3: Provider Integration Boundary', () => {
+   761→  it('PAYSTACK provider throws ProviderIntegrationPending for initializePayment', async () => {
+   762→    const paystack = providerRegistry.get('PAYSTACK');
+   763→    expect(paystack).toBeTruthy();
+   764→    await expect(
+   765→      paystack!.initializePayment({
+   766→        paymentId: 'test',
+   767→        amount: 5000 as unknown as import('@/lib/money').Money,
+   768→        currency: 'GHS',
+   769→        customer: { userId: 'u1', email: 'test@test.com' },
+   770→        idempotencyKey: 'ik-1',
+   771→      }),
+   772→    ).rejects.toThrow(ProviderIntegrationPending);
+   773→  });
+   774→
+   775→  it('PAYSTACK provider throws ProviderIntegrationPending for verifyPayment', async () => {
+   776→    const paystack = providerRegistry.get('PAYSTACK');
+   777→    await expect(
+   778→      paystack!.verifyPayment({
+   779→        paymentId: 'test',
+   780→        providerReference: 'ref-1',
+   781→        expectedAmount: 5000 as unknown as import('@/lib/money').Money,
+   782→        expectedCurrency: 'GHS',
+   783→      }),
+   784→    ).rejects.toThrow(ProviderIntegrationPending);
+   785→  });
+   786→
+   787→  it('PAYSTACK provider throws ProviderIntegrationPending for requestRefund', async () => {
+   788→    const paystack = providerRegistry.get('PAYSTACK');
+   789→    await expect(
+   790→      paystack!.requestRefund({
+   791→        paymentId: 'test',
+   792→        providerReference: 'ref-1',
+   793→        amount: 5000 as unknown as import('@/lib/money').Money,
+   794→        currency: 'GHS',
+   795→      }),
+   796→    ).rejects.toThrow(ProviderIntegrationPending);
+   797→  });
+   798→
+   799→  it('FREE provider completes immediately', async () => {
+   800→    const free = providerRegistry.get('FREE');
+   801→    expect(free).toBeTruthy();
+   802→    const result = await free!.initializePayment({
+   803→      paymentId: 'test',
+   804→      amount: 0 as unknown as import('@/lib/money').Money,
+   805→      currency: 'GHS',
+   806→      customer: { userId: 'u1', email: 'test@test.com' },
+   807→      idempotencyKey: 'ik-2',
+   808→    });
+   809→    expect(result.success).toBe(true);
+   810→  });
+   811→
+   812→  it('MANUAL provider is registered', () => {
+   813→    const manual = providerRegistry.get('MANUAL');
+   814→    expect(manual).toBeTruthy();
+   815→  });
+   816→
+   817→  it('ProviderIntegrationPending has code and statusCode for error handler', () => {
+   818→    const error = new ProviderIntegrationPending('PAYSTACK', 'initializePayment');
+   819→    expect(error.code).toBe('PROVIDER_INTEGRATION_PENDING');
+   820→    expect(error.statusCode).toBe(501);
+   821→  });
+   822→});
+   823→
+   824→// ═══════════════════════════════════════════════════════════════════════════
+   825→// 11. Route Response Contracts
+   826→// ═══════════════════════════════════════════════════════════════════════════
+   827→
+   828→describe('Stage 3: Route Response Contracts', () => {
+   829→  it('payment object contains required fields for GET /api/payments/:id', async () => {
+   830→    const fixture = await completedPaymentFixture();
+   831→    try {
+   832→      const payment = await db.payment.findUniqueOrThrow({
+   833→        where: { id: fixture.payment.id },
+   834→        select: {
+   835→          id: true, amount: true, currency: true, provider: true, status: true,
+   836→          providerRef: true, refundedAmount: true, expiresAt: true,
+   837→          completedAt: true, failedAt: true, cancelledAt: true,
+   838→          createdAt: true, updatedAt: true,
+   839→        },
+   840→      });
+   841→      // All these fields should be present in the API response
+   842→      expect(payment.id).toBeTruthy();
+   843→      expect(payment.amount).toBe(5000);
+   844→      expect(payment.currency).toBe('GHS');
+   845→      expect(payment.provider).toBe('PAYSTACK');
+   846→      expect(payment.status).toBe('COMPLETED');
+   847→      expect(payment.refundedAmount).toBe(0);
+   848→      expect(payment.completedAt).toBeTruthy();
+   849→    } finally {
+   850→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   851→    }
+   852→  });
+   853→
+   854→  it('refund object contains required fields', async () => {
+   855→    const fixture = await completedPaymentFixture();
+   856→    try {
+   857→      const refund = await requestRefund({ paymentId: fixture.payment.id, amount: 5000, requestedBy: fixture.user.id });
+   858→      const refundRecord = await db.refund.findUniqueOrThrow({
+   859→        where: { id: refund.refundId },
+   860→        select: { id: true, amount: true, reason: true, status: true, paymentId: true, createdAt: true },
+   861→      });
+   862→      expect(refundRecord.id).toBeTruthy();
+   863→      expect(refundRecord.amount).toBe(5000);
+   864→      expect(refundRecord.status).toBe('REQUESTED');
+   865→      expect(refundRecord.paymentId).toBe(fixture.payment.id);
+   866→    } finally {
+   867→      await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });
+   868→    }
+   869→  });
+   870→});
+   871→
+   872→// ═══════════════════════════════════════════════════════════════════════════
+   873→// 12. Payment State Machine (Route-Level)
+   874→// ═══════════════════════════════════════════════════════════════════════════
+   875→
+   876→describe('Stage 3: Payment State Machine for Routes', () => {
+   877→  it('PENDING → COMPLETED (webhook success) is legal', () => {
+   878→    expect(() => validatePaymentTransition('PENDING', 'COMPLETED')).not.toThrow();
+   879→  });
+   880→
+   881→  it('PENDING → FAILED (webhook failure) is legal', () => {
+   882→    expect(() => validatePaymentTransition('PENDING', 'FAILED')).not.toThrow();
+   883→  });
+   884→
+   885→  it('PENDING → PROCESSING (provider init) is legal', () => {
+   886→    expect(() => validatePaymentTransition('PENDING', 'PROCESSING')).not.toThrow();
+   887→  });
+   888→
+   889→  it('PROCESSING → COMPLETED (provider confirm) is legal', () => {
+   890→    expect(() => validatePaymentTransition('PROCESSING', 'COMPLETED')).not.toThrow();
+   891→  });
+   892→
+   893→  it('PROCESSING → FAILED (provider reject) is legal', () => {
+   894→    expect(() => validatePaymentTransition('PROCESSING', 'FAILED')).not.toThrow();
+   895→  });
+   896→
+   897→  it('COMPLETED → REFUNDED (full refund) is legal', () => {
+   898→    expect(() => validatePaymentTransition('COMPLETED', 'REFUNDED')).not.toThrow();
+   899→  });
+   900→
+   901→  it('canBeRefunded only for COMPLETED', () => {
+   902→    expect(canBeRefunded('COMPLETED')).toBe(true);
+   903→    expect(canBeRefunded('PENDING')).toBe(false);
+   904→    expect(canBeRefunded('PROCESSING')).toBe(false);
+   905→    expect(canBeRefunded('FAILED')).toBe(false);
+   906→  });
+   907→
+   908→  it('isTerminalStatus for all terminal states', () => {
+   909→    expect(isTerminalStatus('FAILED')).toBe(true);
+   910→    expect(isTerminalStatus('CANCELLED')).toBe(true);
+   911→    expect(isTerminalStatus('EXPIRED')).toBe(true);
+   912→    expect(isTerminalStatus('REFUNDED')).toBe(true);
+   913→    expect(isTerminalStatus('PENDING')).toBe(false);
+   914→    expect(isTerminalStatus('PROCESSING')).toBe(false);
+   915→    expect(isTerminalStatus('COMPLETED')).toBe(false);
+   916→  });
+   917→});
+   918→

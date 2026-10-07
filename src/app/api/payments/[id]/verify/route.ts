@@ -6,19 +6,28 @@
  * - Rate limited: 5 req/min
  * - Calls provider's verifyPayment (server-to-provider)
  * - On success, calls confirmBookingOnPaymentSuccess()
+ * - On definitive failure (Phase 5G), transitions Payment → FAILED
+ *   and releases reserved inventory atomically
  * - NEVER trusts client-submitted status
  *
  * CRITICAL: This is the ONLY path (along with webhooks) that can
  * transition Payment → COMPLETED. The browser callback URL is NOT
  * the trust boundary — it merely triggers this verification.
+ *
+ * Phase 5G Hardening: When Paystack reports a payment as definitively
+ * failed (not just pending), we now atomically transition Payment → FAILED
+ * and release the reserved inventory. Previously, the route only logged
+ * this condition without taking action, leaving inventory reserved until
+ * the webhook or expiry sweep handled it.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { rateLimit, RateLimitError } from '@/lib/rate-limit';
 import { verifyPaymentSchema } from '@/lib/validations/payments';
-import { confirmBookingOnPaymentSuccess } from '@/lib/services';
+import { confirmBookingOnPaymentSuccess, validatePaymentTransition } from '@/lib/services';
 import { providerRegistry } from '@/lib/services/payment-provider';
+import { releaseReservation } from '@/lib/services/inventory';
 import { db } from '@/lib/db';
 import { asMoney } from '@/lib/money';
 import { logger } from '@/lib/logger';
@@ -143,16 +152,64 @@ export async function POST(
     });
 
     // If payment is confirmed failed (not just pending), handle the failure
+    // Phase 5G Hardening: Actually transition Payment → FAILED and release inventory.
+    // Previously this only logged but left the payment in PENDING/PROCESSING with
+    // inventory reserved, relying solely on webhook or expiry sweep.
     if (!verifyResult.isPending) {
-      // Payment is definitively failed — update payment status and release inventory
-      // This is done through the domain services, not directly
-      logger.info('Payment definitively failed — releasing reservation', {
-        paymentId,
-        providerReference,
+      try {
+        // Validate transition through state machine
+        const transition = validatePaymentTransition(payment.status, 'FAILED');
+
+        // Atomically: Payment → FAILED + release inventory
+        await db.$transaction(async (tx) => {
+          // 1. Transition Payment → FAILED
+          await tx.payment.update({
+            where: { id: paymentId },
+            data: {
+              status: 'FAILED',
+              failedAt: transition.timestampFields.failedAt ?? new Date(),
+            },
+          });
+
+          // 2. Release reserved inventory for each ticket type
+          const booking = await tx.booking.findUnique({
+            where: { id: payment.booking!.id },
+            include: { tickets: { select: { ticketTypeId: true } } },
+          });
+
+          if (booking) {
+            const ticketTypeCounts = new Map<string, number>();
+            for (const ticket of booking.tickets) {
+              const count = ticketTypeCounts.get(ticket.ticketTypeId) ?? 0;
+              ticketTypeCounts.set(ticket.ticketTypeId, count + 1);
+            }
+            for (const [ticketTypeId, quantity] of ticketTypeCounts) {
+              await releaseReservation({ ticketTypeId, quantity, tx });
+            }
+          }
+        });
+
+        logger.info('Payment definitively failed via verify — inventory released', {
+          paymentId,
+          providerReference,
+        });
+      } catch (failureError) {
+        // If transition fails (e.g., payment already COMPLETED by concurrent webhook),
+        // that's fine — the payment is in a terminal state.
+        logger.warn('Failed to transition payment to FAILED on verify (may be concurrent update)', {
+          paymentId,
+          error: failureError instanceof Error ? failureError.message : 'Unknown',
+        });
+      }
+
+      // Reload payment for accurate response
+      const updatedPayment = await db.payment.findUnique({
+        where: { id: paymentId },
+        select: { id: true, status: true, provider: true, providerRef: true, failedAt: true },
       });
 
       return NextResponse.json({
-        payment: {
+        payment: updatedPayment ?? {
           id: payment.id,
           status: payment.status,
           provider: payment.provider,

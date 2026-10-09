@@ -294,7 +294,7 @@ async function main() {
   for (const plan of plans) {
     await prisma.subscriptionPlan.upsert({
       where: { slug: plan.slug },
-      update: {},
+      update: plan, // Idempotent: update all fields on re-seed
       create: plan,
     });
   }

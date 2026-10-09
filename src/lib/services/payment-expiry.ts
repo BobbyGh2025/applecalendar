@@ -145,11 +145,21 @@ export async function expireSinglePayment(
   let ticketsExpired = 0;
 
   await db.$transaction(async (tx) => {
-    // 4a. Transition Payment → EXPIRED
-    await tx.payment.update({
-      where: { id: paymentId },
+    // 4a. Transition Payment → EXPIRED — status guard prevents TOCTOU
+    const paymentUpdate = await tx.payment.updateMany({
+      where: { id: paymentId, status: payment.status },
       data: { status: 'EXPIRED' },
     });
+
+    if (paymentUpdate.count === 0) {
+      // Lost race: another process already transitioned this payment.
+      // Do not release inventory or cancel booking — the winning process is responsible.
+      logger.info('Payment status changed by concurrent process — expiry is idempotent', {
+        paymentId,
+        expectedStatus: payment.status,
+      });
+      return;
+    }
 
     // 4b. Transition Booking → CANCELLED (if PENDING)
     if (payment.booking && payment.booking.status === 'PENDING') {

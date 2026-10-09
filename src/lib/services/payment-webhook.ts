@@ -27,7 +27,7 @@
  */
 
 import { db } from '@/lib/db';
-import { validatePaymentTransition } from './payment-state-machine';
+import { validatePaymentTransition, isTerminalStatus, type PaymentStatus } from './payment-state-machine';
 import { confirmBookingOnPaymentSuccess } from './booking-confirmation';
 import { releaseReservation } from './inventory';
 import {
@@ -35,7 +35,6 @@ import {
   WebhookAmountMismatch,
   WebhookCurrencyMismatch,
   PaymentNotFound,
-  PaymentDomainError,
 } from './payment-domain-errors';
 import type { NormalizedWebhookEvent } from './payment-provider';
 import { logger } from '@/lib/logger';
@@ -196,18 +195,46 @@ export async function processWebhookEvent(
         : 'Payment already completed (idempotent)';
     } else if (event.isPaymentFailure) {
       // Payment failure → transition payment to FAILED + release inventory
+
+      // If payment is already in a terminal state (COMPLETED, FAILED, EXPIRED, etc.),
+      // this failure event is stale — mark as processed to prevent infinite retry.
+      if (isTerminalStatus(payment.status as PaymentStatus)) {
+        logger.info('Failure webhook for terminal payment — event is stale', {
+          paymentId: payment.id,
+          currentStatus: payment.status,
+          eventId: event.eventId,
+        });
+        await markEventProcessed(webhookEventId, true, `Payment already in terminal state ${payment.status} — failure event ignored`);
+        return {
+          webhookEventId,
+          processed: true,
+          paymentId: payment.id,
+          outcome: `Payment already in terminal state ${payment.status} — failure event ignored`,
+        };
+      }
+
       // Must be transactional: if inventory release fails, payment should not be FAILED
       const transition = validatePaymentTransition(payment.status, 'FAILED');
 
       await db.$transaction(async (tx) => {
-        // 1. Transition Payment → FAILED
-        await tx.payment.update({
-          where: { id: payment.id },
+        // 1. Transition Payment → FAILED — status guard prevents TOCTOU
+        const paymentUpdate = await tx.payment.updateMany({
+          where: { id: payment.id, status: payment.status },
           data: {
             status: 'FAILED',
             failedAt: transition.timestampFields.failedAt ?? new Date(),
           },
         });
+
+        if (paymentUpdate.count === 0) {
+          // Lost race: another process already transitioned this payment.
+          // Do not release inventory — the winning process is responsible.
+          logger.info('Payment status changed by concurrent process — failure webhook is idempotent', {
+            paymentId: payment.id,
+            expectedStatus: payment.status,
+          });
+          return;
+        }
 
         // 2. Release reserved inventory for each ticket type
         const booking = await tx.booking.findUnique({

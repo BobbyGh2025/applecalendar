@@ -125,15 +125,25 @@ export async function confirmBookingOnPaymentSuccess(
 
   // 4-7. Atomic transaction for financial state
   const result = await db.$transaction(async (tx) => {
-    // 4. Update Payment status (with provider reference)
-    await tx.payment.update({
-      where: { id: paymentId },
+    // 4. Update Payment status (with provider reference) — status guard prevents TOCTOU
+    const paymentUpdate = await tx.payment.updateMany({
+      where: { id: paymentId, status: payment.status },
       data: {
         status: 'COMPLETED',
         completedAt: transition.timestampFields.completedAt ?? new Date(),
         ...(providerReference && { providerRef: providerReference }),
       },
     });
+
+    if (paymentUpdate.count === 0) {
+      // Lost race: another process already transitioned this payment.
+      // Safe to treat as idempotent — the other process completed the confirmation.
+      logger.info('Payment status changed by concurrent process — confirmation is idempotent', {
+        paymentId,
+        expectedStatus: payment.status,
+      });
+      return { ticketsActivated: 0, inventoryConfirmed: [] };
+    }
 
     // 5. Update Booking status (conditional — only if PENDING)
     const bookingUpdate = await tx.booking.updateMany({

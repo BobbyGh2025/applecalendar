@@ -160,16 +160,26 @@ export async function POST(
         // Validate transition through state machine
         const transition = validatePaymentTransition(payment.status, 'FAILED');
 
-        // Atomically: Payment → FAILED + release inventory
+        // Atomically: Payment → FAILED + release inventory — status guard prevents TOCTOU
         await db.$transaction(async (tx) => {
-          // 1. Transition Payment → FAILED
-          await tx.payment.update({
-            where: { id: paymentId },
+          // 1. Transition Payment → FAILED (conditional on current status)
+          const paymentUpdate = await tx.payment.updateMany({
+            where: { id: paymentId, status: payment.status },
             data: {
               status: 'FAILED',
               failedAt: transition.timestampFields.failedAt ?? new Date(),
             },
           });
+
+          if (paymentUpdate.count === 0) {
+            // Lost race: another process already transitioned this payment.
+            // Do not release inventory — the winning process is responsible.
+            logger.info('Payment status changed by concurrent process — verify failure is idempotent', {
+              paymentId,
+              expectedStatus: payment.status,
+            });
+            return;
+          }
 
           // 2. Release reserved inventory for each ticket type
           const booking = await tx.booking.findUnique({

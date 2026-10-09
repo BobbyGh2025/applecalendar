@@ -1,6 +1,6 @@
 # Paystack Sandbox Setup Guide
 
-Phase 5G requires valid Paystack TEST credentials to perform genuine sandbox acceptance testing. This guide explains how to obtain, configure, and verify them securely.
+Phase 5G requires valid Paystack TEST credentials to perform genuine sandbox acceptance testing. This guide provides safe, exact steps for end-to-end verification.
 
 ## 1. Obtain Credentials from Paystack
 
@@ -72,6 +72,20 @@ https://your-domain.com/api/webhooks/paystack
 
 Set the same webhook secret in both Paystack and your server environment. The implementation reads it from `env.PAYSTACK_WEBHOOK_SECRET`.
 
+### Exposing a local webhook endpoint for testing
+
+For local development, Paystack cannot deliver webhooks to `localhost`. Use one of these approaches:
+
+1. **ngrok** (recommended for testing): Run `ngrok http 3000`, then use the ngrok URL as the webhook URL in Paystack's dashboard:
+   ```
+   https://abc123.ngrok.io/api/webhooks/paystack
+   ```
+   ngrok forwards requests to your local server. Stop ngrok when done testing.
+
+2. **Manual verification only**: Skip webhook testing and rely on the `POST /api/payments/:id/verify` endpoint, which calls Paystack's verify API directly. This does not test webhook delivery, but does test payment confirmation.
+
+3. **Paystack test card webhooks**: When using Paystack's test cards (see Section 5), Paystack may send webhook events if a webhook URL is configured. Without a publicly accessible URL, these events will be lost — this is acceptable for local testing; the verify endpoint provides the same confirmation path.
+
 ## 4. Verify Credentials Without Exposing Values
 
 Run the built-in connectivity check:
@@ -105,35 +119,99 @@ Expected output when configured correctly:
 RESULT: CONNECTED — Paystack sandbox API is reachable and authenticated
 ```
 
-## 5. Resume Phase 5G Acceptance
+## 5. Test Successful and Failed Transactions
 
-Once the connectivity check passes all 4 steps, run the full Phase 5G sandbox acceptance test suite:
+### Test cards (Paystack sandbox)
+
+| Card number | Result | PIN | OTP |
+|---|---|---|---|
+| `50606666666666666` (Verve) | Success | `1234` | `123456` |
+| `4084084084084081` (Visa) | Success | — | `123456` |
+| `50606666666666666` | Failed (insufficient) | `1234` | — |
+
+Full list: https://paystack.com/docs/test-cards
+
+### Step-by-step: Successful payment
+
+1. Initialize a payment via the app (book a ticket, proceed to checkout).
+2. The app calls `POST /api/payments/initialize` → returns Paystack authorization URL.
+3. Visit the authorization URL in a browser.
+4. Enter a test card (e.g., Visa `4084084084084081`), submit.
+5. Paystack redirects to the callback URL.
+6. The app calls `POST /api/payments/:id/verify` → server verifies with Paystack.
+7. On success: Payment→COMPLETED, Booking→CONFIRMED, Tickets→VALID, Inventory confirmed.
+
+**Verify stored states:**
+```sql
+SELECT id, status, "completedAt" FROM "Payment" WHERE id = '<paymentId>';
+SELECT id, status, "confirmedAt" FROM "Booking" WHERE id = '<bookingId>';
+SELECT id, status FROM "Ticket" WHERE "bookingId" = '<bookingId>';
+SELECT id, "soldCount", "reservedCount", quantity FROM "TicketType" WHERE id = '<ticketTypeId>';
+-- Verify: soldCount increased, reservedCount decreased, soldCount + reservedCount <= quantity
+```
+
+### Step-by-step: Failed payment
+
+1. Initialize a payment via the app.
+2. Visit the authorization URL, enter a card that will fail.
+3. Paystack redirects with a failed. reference.
+4. Verify endpoint transitions Payment→FAILED, releases inventory.
+
+**Verify stored states:**
+```sql
+SELECT id, status, "failedAt" FROM "Payment" WHERE id = '<paymentId>';
+SELECT id, "soldCount", "reservedCount" FROM "TicketType" WHERE id = '<ticketTypeId>';
+-- Verify: reservedCount decreased (released), soldCount unchanged
+```
+
+### Step-by-step: Webhook delivery (requires ngrok or public URL)
+
+1. Configure webhook URL in Paystack dashboard pointing to your server.
+2. Complete a successful test payment.
+3. Paystack sends `charge.success` webhook to `POST /api/webhooks/paystack`.
+4. Webhook handler verifies HMAC-SHA512 signature, deduplicates, confirms booking.
+5. Check `PaymentWebhookEvent` table for the processed event.
+
+**Verify webhook event:**
+```sql
+SELECT id, "eventId", "eventType", processed, "processingError"
+FROM "PaymentWebhookEvent"
+WHERE "eventReference" = '<reference>';
+-- processed = true, processingError IS NULL for successful processing
+```
+
+## 6. Resume Phase 5G Acceptance
+
+Once the connectivity check passes, run the full Phase 5G test suite:
 
 ```bash
 npx vitest run src/__tests__/phase5g-sandbox-acceptance.test.ts
 ```
 
-This will exercise the following scenarios against the real Paystack sandbox:
+This exercises the following scenarios:
 
-| Step | Scenario | Notes |
-|---|---|---|
-| 2 | Credential validation | Already verified by connectivity check |
-| 3 | Initialize test transaction | Creates a real Paystack test transaction |
-| 4 | Successful payment + booking confirmation | Domain invariants (always verified) |
-| 5 | Webhook processing | Signature, dedup, amount mismatch |
-| 6 | Verify vs. webhook race | Domain logic |
-| 7 | Failed payment flow | Domain logic |
-| 8 | Payment expiry | Domain logic |
-| 9 | Refund flow | Domain logic |
-| 10 | Security audit | No secrets leaked |
+| Step | Scenario | Type | Notes |
+|---|---|---|---|
+| 2 | Credential validation | Provider | Verified by connectivity check |
+| 3 | Initialize test transaction | Provider | Creates real Paystack test transaction |
+| 4 | Successful payment + booking confirmation | Domain | Invariants verified via test DB |
+| 5 | Webhook processing | Domain | Signature, dedup, amount mismatch |
+| 6 | Verify vs. webhook race | Domain | Concurrent safety with status guards |
+| 7 | Failed payment flow | Domain | FAILED transition + inventory release |
+| 8 | Payment expiry | Domain | EXPIRED transition + inventory release |
+| 9 | Refund flow | Domain | Refund lifecycle with over-refund guard |
+| 10 | Security audit | Domain | No secrets leaked in bundles/logs/Git |
 
 **Steps 4–10 use domain logic (SQLite test DB) and always pass.** Steps 2–3 require real Paystack credentials.
 
-### Unsupported scenario
+### Unsupported scenarios
 
-Refund against the Paystack provider is **not supported** in sandbox — Paystack does not expose a refund API for test transactions. Refund domain logic is verified locally.
+| Scenario | Reason |
+|---|---|
+| Refund via Paystack sandbox API | Paystack does not expose a refund API for test transactions. Refund domain logic is verified locally. |
+| Real webhook delivery to localhost | Paystack requires a publicly accessible URL. Use ngrok for local testing. |
 
-## 6. Production Checklist
+## 7. Production Checklist
 
 Before deploying to production with **live** keys:
 

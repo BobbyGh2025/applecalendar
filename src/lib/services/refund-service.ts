@@ -272,9 +272,9 @@ export async function processRefundCompletion(
 
     // 3. If full refund (refundedAmount >= amount), transition Payment → REFUNDED
     if (updatedPayment && updatedPayment.refundedAmount >= refund.payment.amount && updatedPayment.status === 'COMPLETED') {
-      const transition = validatePaymentTransition('COMPLETED', 'REFUNDED');
-      await tx.payment.update({
-        where: { id: refund.paymentId },
+      // Status guard prevents TOCTOU: only update if still COMPLETED
+      await tx.payment.updateMany({
+        where: { id: refund.paymentId, status: 'COMPLETED' },
         data: {
           status: 'REFUNDED',
         },

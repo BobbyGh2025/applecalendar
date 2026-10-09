@@ -63,3 +63,7 @@ server.log
 # Tool artifacts
 tool-results/
 *.deb
+
+# Database files (dev/runtime)
+db/custom.db
+db/test.db

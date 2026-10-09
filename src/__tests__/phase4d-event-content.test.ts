@@ -327,6 +327,9 @@ describe('Phase 4D — Event Content Authorization', () => {
     });
 
     it('should enforce unique name per event', async () => {
+      // Ensure clean state: remove any leftover participant from previous runs
+      await prisma.eventParticipant.deleteMany({ where: { eventId: eventId1, name: 'Unique Name Test' } });
+
       // Create a participant with a specific name
       const uniqueP = await prisma.eventParticipant.create({
         data: { eventId: eventId1, name: 'Unique Name Test', role: 'SPEAKER' },

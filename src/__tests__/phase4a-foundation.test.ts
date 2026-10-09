@@ -514,6 +514,9 @@ describe('Schema Integrity - New Models', () => {
       },
     });
 
+    // Ensure clean state: remove any leftover subscription from previous runs
+    await prisma.organizerSubscription.deleteMany({ where: { organizerId: testProfile.id } });
+
     const orgSub = await prisma.organizerSubscription.create({
       data: {
         organizerId: testProfile.id,

@@ -50,85 +50,73 @@ Stage Summary:
 - Subscription billing NOT started
 
 ---
-Task ID: 5G-final-closure
+Task ID: 5G-cleanup
 Agent: main
-Task: Phase 5G — Final Acceptance Closure (user instruction to record BLOCKED and preserve state)
+Task: Phase 5G Blocked-State Cleanup & Test Isolation Repair
 
 Work Log:
-- A. Credential gate (re-verified):
-  - Checked process.env, .env, .env.local, dev server /proc/PID/environ
-  - PAYSTACK_SECRET_KEY: ABSENT
-  - PAYSTACK_PUBLIC_KEY: ABSENT
-  - PAYSTACK_WEBHOOK_SECRET: ABSENT
-  - .env.example contains placeholder documentation only (no real keys)
-  - Webhook signing: HMAC-SHA512 with x-paystack-signature header, raw body, crypto.timingSafeEqual() — matches Paystack docs
-  - CREDENTIAL GATE: FAILED → real-provider tests cannot run
+- Step 1: Inspect repository
+  - Branch: main, starting commit: 757a005
+  - Working tree: clean
+  - db/custom.db in .gitignore (not tracked)
+  - Two pre-existing Phase 4 test isolation failures confirmed
 
-- B. Correct test reporting (fresh run):
-  - Total: 1,258 tests | 1,252 PASSED | 6 FAILED | 0 SKIPPED
-  - Breakdown:
-    - Phase 5G hardening (phase5g-payment-hardening.test.ts): 23/23 PASS
-    - Phase 5G sandbox acceptance (phase5g-sandbox-acceptance.test.ts): 26/30 PASS, 4 FAIL
-    - Pre-existing Phase 4 failures: 2 FAIL (test isolation, NOT Phase 5G)
-    - All other test files: PASS
-  - FAILED tests identified:
-    1. phase4a-foundation.test.ts > "OrganizerSubscription belongs to OrganizerProfile (not User)" — P2002 unique constraint (PRE-EXISTING, test isolation)
-    2. phase4d-event-content.test.ts > "should enforce unique name per event" — P2002 unique constraint (PRE-EXISTING, test isolation)
-    3. phase5g-sandbox-acceptance.test.ts > "2a: credentials are present and non-placeholder" — BLOCKED (credential absent)
-    4. phase5g-sandbox-acceptance.test.ts > "2b: secret key has sk_test_ prefix (sandbox mode)" — BLOCKED (credential absent)
-    5. phase5g-sandbox-acceptance.test.ts > "2c: authenticated API call succeeds (GET /transaction)" — BLOCKED (HTTP 401)
-    6. phase5g-sandbox-acceptance.test.ts > "2d: can initialize a test transaction" — BLOCKED (HTTP 401)
-  - Classification: 2 pre-existing Phase 4 isolation failures + 4 credential-blocked Phase 5G failures
+- Step 2: Fix test-isolation failures
+  - Root cause 1: phase4a OrganizerSubscription test uses upsert for user/profile (stable identity) + bare create for subscription. Previous runs leave behind subscription → P2002 on organizerId @unique
+  - Root cause 2: phase4d EventParticipant "unique name per event" test uses bare create with fixed name. Previous runs leave behind participant → P2002 on @@unique([eventId, name])
+  - Fix 1: Add `deleteMany({ where: { organizerId: testProfile.id } })` before `organizerSubscription.create()`
+  - Fix 2: Add `deleteMany({ where: { eventId: eventId1, name: 'Unique Name Test' } })` before `eventParticipant.create()`
+  - Both fixes ensure clean state regardless of previous run leftovers
+  - No assertions weakened, no production code changed
+  - Independent test results: 23/23 phase4a PASS, 64/64 phase4d PASS
+  - Repeated-run results: 87/87 PASS × 3 consecutive runs
 
-- C. Genuine sandbox acceptance:
-  - BLOCKED — credentials unavailable
-  - 10 required scenarios NOT tested against real Paystack:
-    1. Initialize transaction — NOT TESTED (requires credentials)
-    2. Successful payment — NOT TESTED (requires credentials)
-    3. Booking confirmation — NOT TESTED (requires real webhook)
-    4. Ticket activation — NOT TESTED (requires real webhook)
-    5. Inventory confirmation — NOT TESTED (requires real webhook)
-    6. Webhook signature verification — NOT TESTED against real Paystack (domain logic verified)
-    7. Webhook dedup — NOT TESTED against real Paystack (domain logic verified)
-    8. Failed payment flow — NOT TESTED (requires credentials)
-    9. Payment expiry race — NOT TESTED (requires credentials)
-    10. Refund flow — NOT TESTED (Paystack doesn't expose sandbox refund API)
-  - Domain logic (Steps 4-9) verified through SQLite test DB: 26/26 PASS
-  - Scenario 10 (refund) is unsupported: Paystack sandbox doesn't expose a refund API
+- Step 3: PostgreSQL production readiness
+  - schema.postgresql.prisma: provider = "postgresql" ✅
+  - requiredInProduction enforces credentials ✅
+  - db/custom.db NOT tracked in Git ✅
+  - .env and .env.local gitignored ✅
+  - No DB credentials hardcoded (only comment) ✅
+  - No SQLite fallback in production ✅
 
-- D. PostgreSQL regression & production build:
-  - Phase 5G hardening: 23/23 PASS (commit bfd2710, unchanged)
-  - Phase 5F baseline: 1,205 pass / 0 fail (SQLite)
-  - Phase 5G adds: 53 new tests (23 hardening + 30 sandbox acceptance)
-  - New failures accounted for: 4 credential-blocked (sandbox acceptance Step 2)
-  - Pre-existing failures: 2 Phase 4 test isolation (unchanged since before Phase 5G)
-  - Production build checks:
-    - env.ts requires Paystack credentials in production (requiredInProduction array) — PASS
-    - No PAYSTACK_SECRET_KEY/PUBLIC_KEY in client bundle (.next/static/) — PASS
-    - Server bundle references process.env.PAYSTACK_SECRET_KEY (correct, server-only) — PASS
-    - No sk_test_/sk_live_ values committed in Git — PASS
-    - db.ts uses PrismaClient with DATABASE_URL (PostgreSQL in production) — PASS
-    - No SQLite fallback in production code paths — PASS
+- Step 4: Secure Paystack sandbox setup guide
+  - Created docs/paystack-sandbox-setup.md with:
+    - How to obtain TEST credentials from Paystack dashboard
+    - Three configuration methods (env vars, .env.local, hosting platform)
+    - Webhook signing details (HMAC-SHA512, x-paystack-signature, timingSafeEqual)
+    - Verification without exposing values (paystack-connectivity-check.ts)
+    - Resume instructions for Phase 5G
+    - Production checklist
+  - Updated .env.example with guide reference and HMAC-SHA512 note
 
-- E. Git & final decision:
-  - Removed db/custom.db from git tracking (was tracked, now in .gitignore)
-  - Added db/custom.db and db/test.db to .gitignore
-  - Commit: 01f16db "Phase 5G BLOCKED: untrack db/custom.db, add to .gitignore"
-  - Branch: main
+- Step 5: Did not fake sandbox acceptance
+  - No credentials invented
+  - No placeholder credentials treated as valid
+  - No genuine transaction claimed
+  - Local domain tests reported separately from real-provider tests
+
+- Step 6: Regression testing
+  - Full suite: 1,258 tests | 1,254 PASSED | 4 FAILED | 0 SKIPPED
+  - 4 failures: all credential-blocked (phase5g-sandbox-acceptance Step 2)
+  - Phase 5G hardening: 23/23 PASS
+  - Phase 4 isolation failures: FIXED (0 remaining)
+  - Lint on changed files: clean (pre-existing server-keeper.js errors unrelated)
+
+- Step 7: Git verification
+  - No secrets in diff ✅
+  - No local databases in diff ✅
+  - No generated artifacts in diff ✅
+  - No unrelated changes ✅
+  - Commit: 4b269b2
+  - Push: SUCCESS → origin/main
   - Working tree: CLEAN
-  - Push: SUCCESS → origin/main (01f16db)
-  - db/custom.db: UNTRACKED (left in working directory, not committed)
-  - No secrets in any commit, log, or chat output
-  - Subscription billing NOT started
 
 Stage Summary:
-- PHASE 5G VERDICT: BLOCKED
-- Hardening (23 tests): ACCEPTED (commit bfd2710)
-- Sandbox acceptance: BLOCKED on missing Paystack TEST credentials
-- Blocker: PAYSTACK_SECRET_KEY, PAYSTACK_PUBLIC_KEY, PAYSTACK_WEBHOOK_SECRET not available in any environment
-- Resume point: When credentials become available, run connectivity check (Step 2), then real transaction scenarios (Steps 3-9)
-- Unsupported scenario: Refund (Paystack sandbox doesn't expose refund API)
-- Pre-existing failures tracked separately: 2 Phase 4 test isolation issues
-- No secrets exposed anywhere
-- db/custom.db uncommitted as instructed
+- Test-isolation failures: FIXED (2/2)
+- Full suite: 1,254 pass / 4 fail (credential-blocked only)
+- Phase 5G hardening: 23/23 PASS
+- Phase 5G sandbox acceptance: BLOCKED on credentials
+- Secure setup guide: docs/paystack-sandbox-setup.md
+- No secrets committed
+- db/custom.db untracked
 - Subscription billing NOT started

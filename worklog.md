@@ -120,3 +120,76 @@ Stage Summary:
 - No secrets committed
 - db/custom.db untracked
 - Subscription billing NOT started
+
+---
+Task ID: 5G-final-acceptance
+Agent: main
+Task: Phase 5G Final Acceptance and Payment Verification
+
+Work Log:
+- Step 1: Inspect
+  - Branch: main, starting commit: 4b269b2
+  - Latest commit on branch: 8569f78 (only worklog change)
+  - Working tree: only file-permission mode changes and .zscripts/dev.pid
+  - db/custom.db: NOT tracked ✅
+  - PostgreSQL schema: provider = "postgresql" ✅
+  - Read: docs/paystack-sandbox-setup.md, .env.example, paystack.ts, paystack-http.ts, webhook route
+  - Implementation verified: HMAC-SHA512 webhook signing, timingSafeEqual, Authorization header never logged, minor-unit amounts, idempotent retry
+
+- Step 2: Credential gate
+  - Checked: process.env, .env, .env.local, .env.production, /proc/PID/environ
+  - PAYSTACK_SECRET_KEY: UNSET
+  - PAYSTACK_PUBLIC_KEY: UNSET
+  - PAYSTACK_WEBHOOK_SECRET: UNSET
+  - DECISION: STOP live acceptance, proceed with offline regression only
+
+- Step 3: Genuine sandbox tests
+  - SKIPPED: No credentials available
+  - No genuine Paystack transactions were executed
+  - 10 required scenarios NOT tested against real provider:
+    1. Payment initialization — NOT TESTED
+    2. Booking/payment state transitions — NOT TESTED (provider)
+    3. Inventory reservation/confirmation — NOT TESTED (provider)
+    4. Ticket issuance — NOT TESTED (provider)
+    5. Failed/expired payments — NOT TESTED (provider)
+    6. Webhook signature/delivery — NOT TESTED (real webhook)
+    7. Duplicate webhook/verify race — NOT TESTED (provider)
+    8. Amount/currency mismatch — NOT TESTED (provider)
+    9. Refund — NOT TESTED (Paystack sandbox doesn't expose refund API)
+    10. Idempotency/recovery — NOT TESTED (provider)
+  - Domain logic (Steps 4-9 of sandbox-acceptance.test.ts): 26/26 PASS (local SQLite)
+
+- Step 4: Regression and production checks
+  - Initial run: 1,246 pass / 12 fail
+  - New failures investigated:
+    - phase4e-venues.test.ts (4): Ghana seed venues missing from DB — database state drift
+    - phase5c-money-foundation.test.ts (2): SubscriptionPlan prices in wrong units (299 vs 29900)
+    - phase5c-verification.test.ts (2): Same root cause — plan prices not in minor units
+  - Root cause: Seed uses upsert with update: {} — doesn't correct stale data on re-seed
+  - Fix: Changed subscription plan upsert to update: plan (idempotent re-seed)
+  - After fix + re-seed: 1,254 pass / 4 fail
+  - Remaining 4 failures: credential-blocked Phase 5G sandbox acceptance tests (expected)
+  - Phase 5G hardening: 23/23 PASS ✅
+  - Lint: Clean on changed files ✅
+  - No secrets in client bundle ✅
+  - No secrets in Git history (only placeholders in test files) ✅
+  - PostgreSQL production config verified ✅
+  - db/custom.db not tracked ✅
+  - .env and .env.local gitignored ✅
+
+- Step 5: Git and acceptance decision
+  - Commit: b1fe30a "fix: idempotent seed — update subscription plan prices on re-seed"
+  - Push: SUCCESS → origin/main
+  - Working tree: Only file-permission modes and .zscripts/dev.pid (not committed)
+  - Subscription billing: NOT started
+
+Stage Summary:
+- PHASE 5G VERDICT: BLOCKED
+- Blocker: Valid Paystack TEST credentials not available in any environment
+- Outstanding: PAYSTACK_SECRET_KEY, PAYSTACK_PUBLIC_KEY, PAYSTACK_WEBHOOK_SECRET
+- Full suite: 1,254 pass / 4 fail (credential-blocked only)
+- Domain logic: Verified (26/26 sandbox acceptance domain tests pass)
+- Hardening: Verified (23/23 hardening tests pass)
+- Seed fix: Subscription plans now idempotent on re-seed
+- No genuine provider transactions claimed
+- Subscription billing NOT started

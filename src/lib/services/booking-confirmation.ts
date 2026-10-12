@@ -31,7 +31,7 @@
 
 import { db } from '@/lib/db';
 import { validatePaymentTransition, type PaymentTransitionResult } from './payment-state-machine';
-import { PaymentNotFound, BookingNotFound, PaymentAlreadyConfirmed } from './payment-domain-errors';
+import { PaymentNotFound, BookingNotFound, PaymentAlreadyConfirmed, PaymentDomainError } from './payment-domain-errors';
 import { confirmReservation, releaseReservation } from './inventory';
 import { activateTickets } from './ticket-service';
 import { logger } from '@/lib/logger';
@@ -136,13 +136,33 @@ export async function confirmBookingOnPaymentSuccess(
     });
 
     if (paymentUpdate.count === 0) {
-      // Lost race: another process already transitioned this payment.
-      // Safe to treat as idempotent — the other process completed the confirmation.
-      logger.info('Payment status changed by concurrent process — confirmation is idempotent', {
-        paymentId,
-        expectedStatus: payment.status,
+      // A concurrent request won the status transition. Treat this as an
+      // idempotent duplicate only if that request actually completed both
+      // the payment and booking. A FAILED/EXPIRED/CANCELLED winner must not
+      // be reported as a successful confirmation.
+      const currentState = await tx.payment.findUnique({
+        where: { id: paymentId },
+        select: {
+          status: true,
+          booking: { select: { status: true } },
+        },
       });
-      return { ticketsActivated: 0, inventoryConfirmed: [] };
+
+      if (currentState?.status === 'COMPLETED' && currentState.booking?.status === 'CONFIRMED') {
+        logger.info('Concurrent payment confirmation already completed — idempotent', { paymentId });
+        return { ticketsActivated: 0, inventoryConfirmed: [], alreadyConfirmed: true };
+      }
+
+      throw new PaymentDomainError(
+        'PAYMENT_STATE_CONFLICT',
+        'Payment state changed during confirmation; reconciliation is required',
+        409,
+        {
+          paymentId,
+          currentPaymentStatus: currentState?.status ?? 'MISSING',
+          currentBookingStatus: currentState?.booking?.status ?? 'MISSING',
+        },
+      );
     }
 
     // 5. Update Booking status (conditional — only if PENDING)
@@ -208,8 +228,21 @@ export async function confirmBookingOnPaymentSuccess(
     return {
       ticketsActivated: ticketResult.activated,
       inventoryConfirmed,
+      alreadyConfirmed: false,
     };
   });
+
+  // A concurrent request may have completed the payment while this request
+  // was running. Return a duplicate-success result without repeating side effects.
+  if (result.alreadyConfirmed) {
+    return {
+      paymentId,
+      bookingId: payment.bookingId,
+      confirmed: false,
+      ticketsActivated: 0,
+      inventoryConfirmed: [],
+    };
+  }
 
   // 8. Create notification AFTER financial transaction commits
   try {

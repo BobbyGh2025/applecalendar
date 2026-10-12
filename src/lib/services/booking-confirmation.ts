@@ -31,7 +31,7 @@
 
 import { db } from '@/lib/db';
 import { validatePaymentTransition, type PaymentTransitionResult } from './payment-state-machine';
-import { PaymentNotFound, BookingNotFound, PaymentAlreadyConfirmed, PaymentDomainError } from './payment-domain-errors';
+import { PaymentNotFound, BookingNotFound, PaymentDomainError } from './payment-domain-errors';
 import { confirmReservation, releaseReservation } from './inventory';
 import { activateTickets } from './ticket-service';
 import { logger } from '@/lib/logger';

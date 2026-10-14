@@ -36,6 +36,8 @@ export {
   WebhookAmountMismatch,
   WebhookCurrencyMismatch,
   PaymentNotExpirable,
+  ConfirmationRaceConflict,
+  ConfirmationPreconditionFailed,
 } from './payment-domain-errors';
 
 // Provider abstraction

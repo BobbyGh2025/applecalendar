@@ -108,13 +108,13 @@ function makeNormalizedEvent(overrides: Partial<NormalizedWebhookEvent> & { even
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Webhook Retry: Transient failure persistence', () => {
-  it('transient failure sets processed=false and processingError', async () => {
+  it('race conflict on CANCELLED booking is non-retriable (processed=true)', async () => {
     // Create test data
     const user = await createTestUser('trans1');
     const org = await createTestOrg('trans1');
     const event = await createTestEvent(org.id, 'trans1');
 
-    // Create booking in CANCELLED state — this will cause confirmBookingOnPaymentSuccess to fail
+    // Create booking in CANCELLED state — success webhook is a permanent conflict
     const booking = await prisma.booking.create({
       data: {
         userId: user.id,
@@ -123,7 +123,7 @@ describe('Webhook Retry: Transient failure persistence', () => {
         currency: 'GHS',
         status: 'CANCELLED',
         bookingRef: `RECON-TRANS1-${Date.now()}`,
-        cancellationReason: 'Test transient failure',
+        cancellationReason: 'Test race conflict',
       },
     });
     createdBookingIds.push(booking.id);
@@ -148,16 +148,17 @@ describe('Webhook Retry: Transient failure persistence', () => {
     // Create a normalized webhook event for this payment
     const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
 
-    // Call processWebhookEvent — should fail because booking is CANCELLED
-    await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow();
+    // Call processWebhookEvent — returns non-retriable result (race conflict)
+    const result = await processWebhookEvent({ event: normalizedEvent });
+    expect(result.processed).toBe(true);
 
-    // Verify the webhook event was recorded with processed=false and processingError
+    // Verify the webhook event was recorded with processed=true and processingError
     const webhookEvent = await prisma.paymentWebhookEvent.findUnique({
       where: { eventId: normalizedEvent.eventId },
     });
 
     expect(webhookEvent).not.toBeNull();
-    expect(webhookEvent!.processed).toBe(false);
+    expect(webhookEvent!.processed).toBe(true); // Non-retriable — race conflict
     expect(webhookEvent!.processingError).not.toBeNull();
     expect(webhookEvent!.processingError).not.toBe('');
   });
@@ -168,7 +169,7 @@ describe('Webhook Retry: Transient failure persistence', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Webhook Retry: Event retryability', () => {
-  it('failed event can be found by reconciliation query', async () => {
+  it('race conflict event is marked processed=true (non-retriable)', async () => {
     // Create test data
     const user = await createTestUser('retry1');
     const org = await createTestOrg('retry1');
@@ -182,7 +183,7 @@ describe('Webhook Retry: Event retryability', () => {
         currency: 'GHS',
         status: 'CANCELLED',
         bookingRef: `RECON-RETRY1-${Date.now()}`,
-        cancellationReason: 'Test retryability',
+        cancellationReason: 'Test race conflict',
       },
     });
     createdBookingIds.push(booking.id);
@@ -205,21 +206,17 @@ describe('Webhook Retry: Event retryability', () => {
 
     const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
 
-    // Process the event — will fail
-    await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow();
+    // Process the event — returns non-retriable result (race conflict)
+    const result = await processWebhookEvent({ event: normalizedEvent });
+    expect(result.processed).toBe(true);
 
-    // Query using the same logic as reconciliation
-    const retryableEvents = await prisma.paymentWebhookEvent.findMany({
-      where: {
-        processed: false,
-        processingError: { not: null },
-      },
+    // The event is NOT retryable because the race conflict is permanent
+    const webhookEvent = await prisma.paymentWebhookEvent.findUnique({
+      where: { eventId: normalizedEvent.eventId },
     });
-
-    const found = retryableEvents.find(e => e.eventId === normalizedEvent.eventId);
-    expect(found).not.toBeUndefined();
-    expect(found!.processed).toBe(false);
-    expect(found!.processingError).not.toBeNull();
+    expect(webhookEvent).not.toBeNull();
+    expect(webhookEvent!.processed).toBe(true); // Non-retriable
+    expect(webhookEvent!.processingError).not.toBeNull();
   });
 });
 
@@ -228,7 +225,7 @@ describe('Webhook Retry: Event retryability', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Webhook Retry: Retry discovers events', () => {
-  it('reconciliation finds and attempts unprocessed events', async () => {
+  it('reconciliation skips non-retriable race conflict events', async () => {
     // Create test data
     const user = await createTestUser('disc1');
     const org = await createTestOrg('disc1');
@@ -242,7 +239,7 @@ describe('Webhook Retry: Retry discovers events', () => {
         currency: 'GHS',
         status: 'CANCELLED',
         bookingRef: `RECON-DISC1-${Date.now()}`,
-        cancellationReason: 'Test discovery',
+        cancellationReason: 'Test race conflict',
       },
     });
     createdBookingIds.push(booking.id);
@@ -265,20 +262,15 @@ describe('Webhook Retry: Retry discovers events', () => {
 
     const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
 
-    // Process the event — will fail
-    await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow();
+    // Process the event — returns non-retriable result (race conflict)
+    const result = await processWebhookEvent({ event: normalizedEvent });
+    expect(result.processed).toBe(true);
 
-    // Run reconciliation
-    const result = await reconcileUnprocessedEvents({ limit: 100, maxAgeHours: 24 });
-
-    // The event should be discovered and retried
-    // (It will still fail because booking is still CANCELLED, but it was found)
-    expect(result.found).toBeGreaterThanOrEqual(1);
-    expect(result.retried).toBeGreaterThanOrEqual(1);
-
-    // The specific event should be in the details
-    const detail = result.details.find(d => d.eventId === normalizedEvent.eventId);
-    expect(detail).not.toBeUndefined();
+    // The event is marked processed=true so reconciliation won't find it
+    const webhookEvent = await prisma.paymentWebhookEvent.findUnique({
+      where: { eventId: normalizedEvent.eventId },
+    });
+    expect(webhookEvent!.processed).toBe(true); // Non-retriable — not found by reconciliation
   });
 });
 
@@ -287,8 +279,10 @@ describe('Webhook Retry: Retry discovers events', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Webhook Retry: Successful retry after fixing root cause', () => {
-  it('retry succeeds after fixing the booking state', async () => {
-    // Create test data
+  it('race conflict event is already processed — no retry needed', async () => {
+    // When a race conflict occurs (CANCELLED booking + PROCESSING payment),
+    // the event is marked processed=true (non-retriable). Reconciliation
+    // correctly skips it because retrying won't change the outcome.
     const user = await createTestUser('succ1');
     const org = await createTestOrg('succ1');
     const event = await createTestEvent(org.id, 'succ1');
@@ -310,7 +304,7 @@ describe('Webhook Retry: Successful retry after fixing root cause', () => {
     });
     createdTicketTypeIds.push(ticketType.id);
 
-    // Create booking in CANCELLED state initially (will cause failure)
+    // Create booking in CANCELLED state — permanent conflict
     const booking = await prisma.booking.create({
       data: {
         userId: user.id,
@@ -319,7 +313,7 @@ describe('Webhook Retry: Successful retry after fixing root cause', () => {
         currency: 'GHS',
         status: 'CANCELLED',
         bookingRef: `RECON-SUCC1-${Date.now()}`,
-        cancellationReason: 'Will be fixed for retry',
+        cancellationReason: 'Permanent conflict',
       },
     });
     createdBookingIds.push(booking.id);
@@ -342,32 +336,20 @@ describe('Webhook Retry: Successful retry after fixing root cause', () => {
 
     const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
 
-    // Process the event — will fail because booking is CANCELLED
-    await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow();
+    // Process the event — non-retriable race conflict
+    const result = await processWebhookEvent({ event: normalizedEvent });
+    expect(result.processed).toBe(true);
 
-    // Verify it failed
-    const failedEvent = await prisma.paymentWebhookEvent.findUnique({
+    // Verify it is processed
+    const processedEvent = await prisma.paymentWebhookEvent.findUnique({
       where: { eventId: normalizedEvent.eventId },
     });
-    expect(failedEvent!.processed).toBe(false);
+    expect(processedEvent!.processed).toBe(true);
 
-    // Fix the booking: set it back to PENDING
-    await prisma.booking.update({
-      where: { id: booking.id },
-      data: {
-        status: 'PENDING',
-        cancellationReason: null,
-      },
-    });
-
-    // Run reconciliation
-    const result = await reconcileUnprocessedEvents({ limit: 100, maxAgeHours: 24 });
-
-    // The specific event should have been retried
-    const detail = result.details.find(d => d.eventId === normalizedEvent.eventId);
-    expect(detail).not.toBeUndefined();
-    expect(detail!.outcome).toBe('succeeded');
-    expect(result.succeeded).toBeGreaterThanOrEqual(1);
+    // Reconciliation will not find this event (it's already processed)
+    const reconResult = await reconcileUnprocessedEvents({ limit: 100, maxAgeHours: 24 });
+    const detail = reconResult.details.find(d => d.eventId === normalizedEvent.eventId);
+    expect(detail).toBeUndefined(); // Not found — already processed
   });
 });
 
@@ -376,8 +358,10 @@ describe('Webhook Retry: Successful retry after fixing root cause', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Webhook Retry: Successful retry marks processed=true', () => {
-  it('after successful retry, event is marked processed=true in DB', async () => {
-    // Create test data
+  it('race conflict event is already processed=true (non-retriable)', async () => {
+    // When a race conflict occurs (CANCELLED booking + PROCESSING payment),
+    // the event is immediately marked processed=true with a processingError.
+    // No retry is needed — the conflict is permanent.
     const user = await createTestUser('mark1');
     const org = await createTestOrg('mark1');
     const event = await createTestEvent(org.id, 'mark1');
@@ -406,7 +390,7 @@ describe('Webhook Retry: Successful retry marks processed=true', () => {
         currency: 'GHS',
         status: 'CANCELLED',
         bookingRef: `RECON-MARK1-${Date.now()}`,
-        cancellationReason: 'Will be fixed',
+        cancellationReason: 'Permanent conflict',
       },
     });
     createdBookingIds.push(booking.id);
@@ -429,24 +413,17 @@ describe('Webhook Retry: Successful retry marks processed=true', () => {
 
     const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
 
-    // Process — will fail
-    await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow();
+    // Process — returns non-retriable result immediately
+    const result = await processWebhookEvent({ event: normalizedEvent });
+    expect(result.processed).toBe(true);
 
-    // Fix the booking
-    await prisma.booking.update({
-      where: { id: booking.id },
-      data: { status: 'PENDING', cancellationReason: null },
-    });
-
-    // Retry via reconciliation
-    await reconcileUnprocessedEvents({ limit: 100, maxAgeHours: 24 });
-
-    // Verify the event is now processed=true
+    // Verify the event is processed=true immediately (no retry needed)
     const processedEvent = await prisma.paymentWebhookEvent.findUnique({
       where: { eventId: normalizedEvent.eventId },
     });
     expect(processedEvent!.processed).toBe(true);
     expect(processedEvent!.processedAt).not.toBeNull();
+    expect(processedEvent!.processingError).toBeTruthy();
   });
 });
 

@@ -29,6 +29,9 @@ import {
   WebhookAmountMismatch,
 } from '@/lib/services/payment-domain-errors';
 import type { NormalizedWebhookEvent } from '@/lib/services/payment-provider';
+import {
+  setTestOnBeforeConditionalUpdate,
+} from '@/lib/services/booking-confirmation';
 
 const prisma = new PrismaClient();
 
@@ -821,5 +824,268 @@ describe('Webhook Retry: Cleanup', () => {
 
   it('placeholder to ensure afterAll runs', () => {
     expect(true).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// TRANSIENT RETRYABILITY TESTS (RESTORED)
+//
+// The non-retriable terminal-state tests above correctly verify that
+// ConfirmationPreconditionFailed and ConfirmationRaceConflict are
+// marked processed=true (non-retriable). These tests below verify
+// the RETRIABLE path: when a genuine transient error occurs (e.g.,
+// temporary database connectivity issue), the event must remain
+// processed=false so it can be retried by reconciliation.
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Webhook Retry: Transient (retriable) failure persistence', () => {
+  it('transient error from confirmation leaves event unprocessed (processed=false)', async () => {
+    // Simulate a transient error by using the test seam to throw a generic Error
+    // (not ConfirmationRaceConflict or ConfirmationPreconditionFailed).
+    // This exercises the retriable-error catch path in processWebhookEvent.
+    const user = await createTestUser('trans-rt1');
+    const org = await createTestOrg('trans-rt1');
+    const event = await createTestEvent(org.id, 'trans-rt1');
+
+    const booking = await prisma.booking.create({
+      data: {
+        userId: user.id,
+        eventId: event.id,
+        totalAmount: 10000,
+        currency: 'GHS',
+        status: 'PENDING',
+        bookingRef: `RECON-TRANS-RT1-${Date.now()}`,
+      },
+    });
+    createdBookingIds.push(booking.id);
+
+    const providerRef = `recon-trans-rt1-ref-${Date.now()}`;
+    const payment = await prisma.payment.create({
+      data: {
+        bookingId: booking.id,
+        userId: user.id,
+        amount: 10000,
+        currency: 'GHS',
+        provider: 'PAYSTACK',
+        status: 'PROCESSING',
+        idempotencyKey: `recon-trans-rt1-${Date.now()}`,
+        providerRef,
+        processedAt: new Date(),
+      },
+    });
+    createdPaymentIds.push(payment.id);
+
+    // Set up test seam to throw a transient error
+    setTestOnBeforeConditionalUpdate(async () => {
+      throw new Error('Simulated transient database connectivity error');
+    });
+
+    const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
+
+    try {
+      // processWebhookEvent should throw (retriable error is re-thrown)
+      await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow(
+        'Simulated transient database connectivity error',
+      );
+
+      // Verify the webhook event was recorded with processed=false (retriable)
+      const webhookEvent = await prisma.paymentWebhookEvent.findUnique({
+        where: { eventId: normalizedEvent.eventId },
+      });
+
+      expect(webhookEvent).not.toBeNull();
+      expect(webhookEvent!.processed).toBe(false); // Retriable — not yet processed
+      expect(webhookEvent!.processingError).toContain('transient database connectivity');
+    } finally {
+      // Always reset the seam
+      setTestOnBeforeConditionalUpdate(undefined);
+    }
+  });
+
+  it('retriable event can be found by reconciliation query', async () => {
+    const user = await createTestUser('trans-rt2');
+    const org = await createTestOrg('trans-rt2');
+    const event = await createTestEvent(org.id, 'trans-rt2');
+
+    const booking = await prisma.booking.create({
+      data: {
+        userId: user.id,
+        eventId: event.id,
+        totalAmount: 10000,
+        currency: 'GHS',
+        status: 'PENDING',
+        bookingRef: `RECON-TRANS-RT2-${Date.now()}`,
+      },
+    });
+    createdBookingIds.push(booking.id);
+
+    const providerRef = `recon-trans-rt2-ref-${Date.now()}`;
+    const payment = await prisma.payment.create({
+      data: {
+        bookingId: booking.id,
+        userId: user.id,
+        amount: 10000,
+        currency: 'GHS',
+        provider: 'PAYSTACK',
+        status: 'PROCESSING',
+        idempotencyKey: `recon-trans-rt2-${Date.now()}`,
+        providerRef,
+        processedAt: new Date(),
+      },
+    });
+    createdPaymentIds.push(payment.id);
+
+    // Simulate transient error
+    setTestOnBeforeConditionalUpdate(async () => {
+      throw new Error('Simulated transient error for retry test');
+    });
+
+    const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
+
+    try {
+      await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow();
+
+      // The event should be found by the reconciliation query for unprocessed events
+      const retryableEvents = await prisma.paymentWebhookEvent.findMany({
+        where: {
+          processed: false,
+          processingError: { not: null },
+        },
+      });
+
+      const found = retryableEvents.find(e => e.eventId === normalizedEvent.eventId);
+      expect(found).not.toBeUndefined();
+      expect(found!.processed).toBe(false);
+      expect(found!.processingError).not.toBeNull();
+    } finally {
+      setTestOnBeforeConditionalUpdate(undefined);
+    }
+  });
+
+  it('reconciliation finds and attempts unprocessed transient-failure events', async () => {
+    const user = await createTestUser('trans-rt3');
+    const org = await createTestOrg('trans-rt3');
+    const event = await createTestEvent(org.id, 'trans-rt3');
+
+    const booking = await prisma.booking.create({
+      data: {
+        userId: user.id,
+        eventId: event.id,
+        totalAmount: 10000,
+        currency: 'GHS',
+        status: 'PENDING',
+        bookingRef: `RECON-TRANS-RT3-${Date.now()}`,
+      },
+    });
+    createdBookingIds.push(booking.id);
+
+    const providerRef = `recon-trans-rt3-ref-${Date.now()}`;
+    const payment = await prisma.payment.create({
+      data: {
+        bookingId: booking.id,
+        userId: user.id,
+        amount: 10000,
+        currency: 'GHS',
+        provider: 'PAYSTACK',
+        status: 'PROCESSING',
+        idempotencyKey: `recon-trans-rt3-${Date.now()}`,
+        providerRef,
+        processedAt: new Date(),
+      },
+    });
+    createdPaymentIds.push(payment.id);
+
+    // Simulate transient error for first attempt
+    setTestOnBeforeConditionalUpdate(async () => {
+      throw new Error('Simulated transient error for reconciliation test');
+    });
+
+    const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
+
+    try {
+      await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow();
+
+      // Now remove the transient error — retry should succeed
+      setTestOnBeforeConditionalUpdate(undefined);
+
+      // Run reconciliation
+      const result = await reconcileUnprocessedEvents({ limit: 100, maxAgeHours: 24 });
+
+      // The event should be discovered and retried
+      expect(result.found).toBeGreaterThanOrEqual(1);
+      expect(result.retried).toBeGreaterThanOrEqual(1);
+
+      // The specific event should be in the details
+      const detail = result.details.find(d => d.eventId === normalizedEvent.eventId);
+      expect(detail).not.toBeUndefined();
+    } finally {
+      setTestOnBeforeConditionalUpdate(undefined);
+    }
+  });
+
+  it('successful retry after transient failure marks event processed=true', async () => {
+    const user = await createTestUser('trans-rt4');
+    const org = await createTestOrg('trans-rt4');
+    const event = await createTestEvent(org.id, 'trans-rt4');
+
+    const booking = await prisma.booking.create({
+      data: {
+        userId: user.id,
+        eventId: event.id,
+        totalAmount: 10000,
+        currency: 'GHS',
+        status: 'PENDING',
+        bookingRef: `RECON-TRANS-RT4-${Date.now()}`,
+      },
+    });
+    createdBookingIds.push(booking.id);
+
+    const providerRef = `recon-trans-rt4-ref-${Date.now()}`;
+    const payment = await prisma.payment.create({
+      data: {
+        bookingId: booking.id,
+        userId: user.id,
+        amount: 10000,
+        currency: 'GHS',
+        provider: 'PAYSTACK',
+        status: 'PROCESSING',
+        idempotencyKey: `recon-trans-rt4-${Date.now()}`,
+        providerRef,
+        processedAt: new Date(),
+      },
+    });
+    createdPaymentIds.push(payment.id);
+
+    // First attempt: transient error
+    setTestOnBeforeConditionalUpdate(async () => {
+      throw new Error('Simulated transient error — first attempt');
+    });
+
+    const normalizedEvent = makeNormalizedEvent({ eventReference: providerRef });
+
+    try {
+      await expect(processWebhookEvent({ event: normalizedEvent })).rejects.toThrow();
+
+      // Verify it failed
+      const failedEvent = await prisma.paymentWebhookEvent.findUnique({
+        where: { eventId: normalizedEvent.eventId },
+      });
+      expect(failedEvent!.processed).toBe(false);
+
+      // Second attempt: no error — confirmation succeeds
+      setTestOnBeforeConditionalUpdate(undefined);
+      const retryResult = await processWebhookEvent({ event: normalizedEvent });
+
+      // Retry should succeed
+      expect(retryResult.processed).toBe(true);
+
+      // Verify the event is now processed=true
+      const processedEvent = await prisma.paymentWebhookEvent.findUnique({
+        where: { eventId: normalizedEvent.eventId },
+      });
+      expect(processedEvent!.processed).toBe(true);
+    } finally {
+      setTestOnBeforeConditionalUpdate(undefined);
+    }
   });
 });

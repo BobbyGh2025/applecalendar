@@ -10,9 +10,18 @@
  * Covers:
  *   1. Schema compatibility (migrations applied correctly)
  *   2. Isolation level support (READ COMMITTED, REPEATABLE READ, SERIALIZABLE)
+ *      — verified WITHIN actual transactions, not just SET commands
  *   3. Concurrent payment confirmation with real row-level locking
+ *      — GENUINE database concurrency tests (Promise.all with real PG transactions)
  *   4. updateMany count=0 race under genuine PostgreSQL concurrency
  *   5. Payment state machine enforcement under concurrent transitions
+ *
+ * Distinction from test-seam races:
+ *   - Test seam races (phase5g-confirmation-race-guard.test.ts 10c/10d):
+ *     Simulate the TOCTOU gap by injecting a callback. Code-path coverage
+ *     only — not real concurrency.
+ *   - These PostgreSQL tests: Fire real concurrent operations via Promise.all
+ *     against a live PostgreSQL server with genuine row-level locking.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -294,13 +303,26 @@ describePg('2. PostgreSQL isolation levels', () => {
     expect(settingValue).toBe('read committed');
   });
 
-  it('2b. SERIALIZABLE isolation level is available', async () => {
-    // Try setting SERIALIZABLE — should not throw
-    await db.$executeRaw`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`;
+  it('2b. SERIALIZABLE isolation level is available and verifiable within a transaction', async () => {
+    // Actually BEGIN a transaction with SERIALIZABLE isolation and verify it
+    await db.$transaction(async (tx) => {
+      const result = await tx.$queryRawUnsafe<Record<string,string>[]>("SHOW transaction_isolation");
+      const isolationLevel = result[0]?.['transaction_isolation'] ?? '';
+      expect(isolationLevel).toBe('serializable');
+    }, {
+      isolationLevel: 'Serializable' as any,
+    });
   });
 
-  it('2c. REPEATABLE READ isolation level is available', async () => {
-    await db.$executeRaw`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`;
+  it('2c. REPEATABLE READ isolation level is available and verifiable within a transaction', async () => {
+    // Actually BEGIN a transaction with REPEATABLE READ isolation and verify it
+    await db.$transaction(async (tx) => {
+      const result = await tx.$queryRawUnsafe<Record<string,string>[]>("SHOW transaction_isolation");
+      const isolationLevel = result[0]?.['transaction_isolation'] ?? '';
+      expect(isolationLevel).toBe('repeatable read');
+    }, {
+      isolationLevel: 'RepeatableRead' as any,
+    });
   });
 });
 

@@ -69,6 +69,18 @@ export interface ConfirmBookingResult {
   inventoryConfirmed: string[];
 }
 
+// ─── Test seam ───
+// Narrowly scoped to the TOCTOU race window between the payment status read
+// (step 1) and the conditional updateMany (step 5). In production, this is undefined
+// (no-op). In tests, it allows simulating a concurrent modification that occurs
+// during that gap, causing updateMany to return count=0.
+let _testOnBeforeConditionalUpdate: (() => Promise<void>) | undefined;
+
+/** @internal Test seam for simulating concurrent race — do NOT use in production code */
+export function setTestOnBeforeConditionalUpdate(fn: (() => Promise<void>) | undefined) {
+  _testOnBeforeConditionalUpdate = fn;
+}
+
 // ─── Terminal states that are NOT COMPLETED ───
 
 const TERMINAL_NON_COMPLETED = new Set(['FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED']);
@@ -155,6 +167,14 @@ export async function confirmBookingOnPaymentSuccess(
 
   // 4. Validate the payment transition
   const transition = validatePaymentTransition(payment.status, 'COMPLETED');
+
+  // Test seam: simulate concurrent modification during the TOCTOU gap
+  // between reading payment.status (step 1) and the conditional updateMany (step 5).
+  // This is the exact window where a real concurrent process could change the
+  // payment state, causing updateMany to return count=0.
+  if (_testOnBeforeConditionalUpdate) {
+    await _testOnBeforeConditionalUpdate();
+  }
 
   // 5-8. Atomic transaction for financial state
   const result = await db.$transaction(async (tx) => {

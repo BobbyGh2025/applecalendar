@@ -14,11 +14,21 @@
  *   6. Webhook reconciliation handles recoverable conflicts without infinite retries
  *   7. Typed conflict error properties
  *   8. Payment becomes CANCELLED before confirmation
- *   9. Concurrent confirmation race (Promise.all)
+ *   9. Concurrent confirmation race (Promise.all) — asserts final payment/booking states,
+ *      ticket activation, inventory counts, and notification counts
  *  10. ConfirmationRaceConflict code path verification
+ *      10c: Genuine updateMany count=0 race via test seam (SIMULATED — not real DB concurrency)
+ *      10d: Genuine updateMany count=0 duplicate-success race via test seam (SIMULATED)
  *
  * Uses the real database (SQLite in test environment) and actual domain services.
  * NO mocked Prisma. NO mocked fetch.
+ *
+ * Test seam: setTestOnBeforeConditionalUpdate fires in the TOCTOU gap between
+ * reading payment.status and the conditional updateMany. This allows simulating
+ * a concurrent modification that causes updateMany to return count=0, exercising
+ * the ConfirmationRaceConflict and idempotent paths that are unreachable in
+ * sequential SQLite tests. True concurrent interleaving requires PostgreSQL
+ * with interactive transactions and row-level locking.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -32,6 +42,10 @@ import {
   validatePaymentTransition,
   isTerminalStatus,
 } from '@/lib/services';
+
+import {
+  setTestOnBeforeConditionalUpdate,
+} from '@/lib/services/booking-confirmation';
 
 import {
   reserveInventory,
@@ -226,6 +240,9 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  // Reset test seam to prevent leakage between tests
+  setTestOnBeforeConditionalUpdate(undefined);
+
   // Clean up in reverse dependency order
   for (const id of created.refunds) {
     await db.refund.delete({ where: { id } }).catch(() => {});
@@ -1321,7 +1338,10 @@ describe('9. Concurrent confirmation race', () => {
     const user = await createUser('PUBLIC');
     const event = await createEvent(org.id);
     const tt = await createTicketType(event.id, 5000, 10);
-    const { payment, providerRef } = await createPaidBookingWithReservation(user, event, tt, 2);
+    const { payment, providerRef, booking } = await createPaidBookingWithReservation(user, event, tt, 2);
+
+    // Record pre-state
+    const invBefore = await checkInventory(tt.id);
 
     // Fire success and failure webhooks concurrently
     const successEventId = `evt-conc-success-${uid()}`;
@@ -1364,9 +1384,42 @@ describe('9. Concurrent confirmation race', () => {
     const paymentFinal = await db.payment.findUnique({ where: { id: payment.id }, select: { status: true } });
     expect(['COMPLETED', 'FAILED'].includes(paymentFinal!.status)).toBe(true);
 
+    // Final booking state is consistent with payment
+    const bookingFinal = await db.booking.findUnique({ where: { id: booking.id }, select: { status: true } });
+    if (paymentFinal?.status === 'COMPLETED') {
+      expect(bookingFinal?.status).toBe('CONFIRMED');
+    } else {
+      expect(['CANCELLED', 'PENDING'].includes(bookingFinal!.status)).toBe(true);
+    }
+
+    // Ticket activation is consistent with payment state
+    const validTickets = await db.ticket.count({
+      where: { bookingId: booking.id, status: 'VALID' },
+    });
+    if (paymentFinal?.status === 'COMPLETED') {
+      expect(validTickets).toBe(2);
+    } else {
+      expect(validTickets).toBe(0);
+    }
+
     // Inventory invariant holds
     const inv = await checkInventory(tt.id);
     expect(inv.soldCount + inv.reservedCount).toBeLessThanOrEqual(inv.quantity);
+
+    // soldCount increased only if COMPLETED
+    if (paymentFinal?.status === 'COMPLETED') {
+      expect(inv.soldCount).toBe(invBefore.soldCount + 2);
+    } else {
+      expect(inv.soldCount).toBe(invBefore.soldCount);
+    }
+
+    // Notification count is consistent (at most 1 for success, 0 for failure)
+    const notifications = await db.notification.count({
+      where: { userId: user.id, type: 'PAYMENT' },
+    });
+    if (paymentFinal?.status === 'COMPLETED') {
+      expect(notifications).toBeLessThanOrEqual(1);
+    }
   });
 });
 
@@ -1409,61 +1462,153 @@ describe('10. ConfirmationRaceConflict code path', () => {
     });
   });
 
-  it('10c. Simulate updateMany count=0 race — payment transitioned to FAILED during confirmation', async () => {
-    // This test simulates the race condition where:
-    //   1. confirmBookingOnPaymentSuccess reads payment.status = PROCESSING
-    //   2. A concurrent process transitions payment to FAILED
-    //   3. confirmBookingOnPaymentSuccess's updateMany returns count=0
-    //   4. Re-read finds FAILED → throws ConfirmationRaceConflict
+  it('10c. Genuine updateMany count=0 race — concurrent process transitions payment to FAILED during TOCTOU gap', async () => {
+    // This test genuinely exercises the updateMany count=0 → ConfirmationRaceConflict path.
     //
-    // In sequential SQLite tests, we can't create this window between read and updateMany.
-    // Instead, we test the equivalent path by:
-    //   - Setting payment to PROCESSING (passes terminal check)
-    //   - Then immediately to FAILED (simulating concurrent modification)
-    //   - Then calling confirm — it reads FAILED → ConfirmationPreconditionFailed
+    // Mechanism: A narrowly-scoped test seam fires between the payment status read
+    // (step 1) and the conditional updateMany (step 5). The seam uses db (outside
+    // the transaction) to transition the payment to FAILED and the booking to CANCELLED,
+    // simulating a concurrent process that won the race.
     //
-    // The ConfirmationRaceConflict from updateMany count=0 requires genuine
-    // PostgreSQL concurrency (interactive transactions + row-level locking).
-    // That path is verified by code review:
-    //   - updateMany WHERE includes status guard
-    //   - count=0 → re-read state → typed error or idempotent
-    //   - PostgreSQL READ COMMITTED: re-read sees committed state after lock release
+    // Result:
+    //   - confirmBookingOnPaymentSuccess read payment.status = PROCESSING (passes terminal check)
+    //   - Seam fires → payment becomes FAILED, booking becomes CANCELLED
+    //   - updateMany WHERE status='PROCESSING' returns count=0
+    //   - Re-read finds FAILED/CANCELLED → ConfirmationRaceConflict
     //
-    // For now, verify the terminal-state path (which is equivalent in outcome):
+    // IMPORTANT: This is a SIMULATED race via test seam, not real database concurrency.
+    // True concurrent interleaving requires PostgreSQL with interactive transactions
+    // and row-level locking, which SQLite's serialized mode cannot reproduce.
+    // The test seam targets the exact TOCTOU gap without broadly mocking Prisma
+    // or weakening production logic.
     const org = await createUser('ORGANIZER');
     const user = await createUser('PUBLIC');
     const event = await createEvent(org.id);
     const tt = await createTicketType(event.id, 5000, 10);
     const { payment, providerRef, booking } = await createPaidBookingWithReservation(user, event, tt, 2);
 
-    // First set to PROCESSING (simulating the state at initial read)
-    await db.payment.update({
-      where: { id: payment.id },
-      data: { status: 'PROCESSING', processedAt: new Date() },
+    // Record pre-state
+    const invBefore = await checkInventory(tt.id);
+    const notificationsBefore = await db.notification.count({
+      where: { userId: user.id, type: 'PAYMENT' },
+    });
+    const validTicketsBefore = await db.ticket.count({
+      where: { bookingId: booking.id, status: 'VALID' },
     });
 
-    // Then concurrent process transitions to FAILED (simulating the race)
-    await db.payment.update({
-      where: { id: payment.id },
-      data: { status: 'FAILED', failedAt: new Date() },
-    });
-    await db.booking.update({
-      where: { id: booking.id },
-      data: { status: 'CANCELLED', cancellationReason: 'Concurrent failure' },
+    // Set up test seam: during the TOCTOU gap, a concurrent process transitions
+    // the payment to FAILED and the booking to CANCELLED.
+    setTestOnBeforeConditionalUpdate(async () => {
+      await db.payment.update({
+        where: { id: payment.id },
+        data: { status: 'FAILED', failedAt: new Date() },
+      });
+      await db.booking.update({
+        where: { id: booking.id },
+        data: { status: 'CANCELLED', cancellationReason: 'Concurrent failure race' },
+      });
     });
 
-    // Late confirmation — reads FAILED → ConfirmationPreconditionFailed
-    // (In true concurrency, this would be ConfirmationRaceConflict from updateMany count=0)
-    await expect(
-      confirmBookingOnPaymentSuccess({ paymentId: payment.id, providerReference: providerRef }),
-    ).rejects.toThrow(ConfirmationPreconditionFailed);
+    // Call confirm — it should throw ConfirmationRaceConflict
+    let raceError: ConfirmationRaceConflict | undefined;
+    try {
+      await confirmBookingOnPaymentSuccess({ paymentId: payment.id, providerReference: providerRef });
+    } catch (error) {
+      if (error instanceof ConfirmationRaceConflict) {
+        raceError = error;
+      } else {
+        // Re-throw unexpected errors
+        throw error;
+      }
+    }
 
-    // Payment remains FAILED
+    // Verify the error has correct properties
+    expect(raceError).toBeDefined();
+    expect(raceError!.currentPaymentStatus).toBe('FAILED');
+    expect(raceError!.currentBookingStatus).toBe('CANCELLED');
+    expect(raceError!.code).toBe('CONFIRMATION_RACE_CONFLICT');
+
+    // Payment remains FAILED (no side effects from the losing confirmation)
     const paymentAfter = await db.payment.findUnique({ where: { id: payment.id }, select: { status: true } });
     expect(paymentAfter?.status).toBe('FAILED');
 
     // Booking remains CANCELLED
     const bookingAfter = await db.booking.findUnique({ where: { id: booking.id }, select: { status: true } });
     expect(bookingAfter?.status).toBe('CANCELLED');
+
+    // No tickets activated
+    const validTicketsAfter = await db.ticket.count({
+      where: { bookingId: booking.id, status: 'VALID' },
+    });
+    expect(validTicketsAfter).toBe(validTicketsBefore);
+
+    // No inventory change (soldCount unchanged)
+    const invAfter = await checkInventory(tt.id);
+    expect(invAfter.soldCount).toBe(invBefore.soldCount);
+
+    // No notification created for a race conflict
+    const notificationsAfter = await db.notification.count({
+      where: { userId: user.id, type: 'PAYMENT' },
+    });
+    expect(notificationsAfter).toBe(notificationsBefore);
+  });
+
+  it('10d. Genuine updateMany count=0 race — concurrent process completes payment (duplicate success)', async () => {
+    // This test exercises the updateMany count=0 → idempotent path (CASE A).
+    // The seam simulates a concurrent process that successfully completes the payment
+    // and confirms the booking before our updateMany runs.
+    const org = await createUser('ORGANIZER');
+    const user = await createUser('PUBLIC');
+    const event = await createEvent(org.id);
+    const tt = await createTicketType(event.id, 5000, 10);
+    const { payment, providerRef, booking } = await createPaidBookingWithReservation(user, event, tt, 2);
+
+    // Set up test seam: concurrent process completes the payment and confirms the booking
+    setTestOnBeforeConditionalUpdate(async () => {
+      await db.payment.update({
+        where: { id: payment.id },
+        data: { status: 'COMPLETED', completedAt: new Date(), providerRef },
+      });
+      await db.booking.update({
+        where: { id: booking.id },
+        data: { status: 'CONFIRMED', confirmedAt: new Date() },
+      });
+      // Activate tickets and confirm inventory (as the winning process would)
+      await db.ticket.updateMany({
+        where: { bookingId: booking.id, status: 'PENDING' },
+        data: { status: 'VALID' },
+      });
+      await confirmReservation({ ticketTypeId: tt.id, quantity: 2 });
+    });
+
+    // Call confirm — should return idempotent result (not throw)
+    const result = await confirmBookingOnPaymentSuccess({
+      paymentId: payment.id,
+      providerReference: providerRef,
+    });
+
+    expect(result.confirmed).toBe(false);
+    expect(result.ticketsActivated).toBe(0);
+    expect(result.inventoryConfirmed).toEqual([]);
+
+    // Payment is COMPLETED
+    const paymentAfter = await db.payment.findUnique({ where: { id: payment.id }, select: { status: true } });
+    expect(paymentAfter?.status).toBe('COMPLETED');
+
+    // Booking is CONFIRMED
+    const bookingAfter = await db.booking.findUnique({ where: { id: booking.id }, select: { status: true } });
+    expect(bookingAfter?.status).toBe('CONFIRMED');
+
+    // Tickets were activated by the winning process (exactly 2)
+    const validTickets = await db.ticket.count({
+      where: { bookingId: booking.id, status: 'VALID' },
+    });
+    expect(validTickets).toBe(2);
+
+    // No duplicate notification from the idempotent path
+    const notifications = await db.notification.count({
+      where: { userId: user.id, type: 'PAYMENT' },
+    });
+    expect(notifications).toBeLessThanOrEqual(1);
   });
 });

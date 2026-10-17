@@ -74,10 +74,22 @@ export interface ConfirmBookingResult {
 // (step 1) and the conditional updateMany (step 5). In production, this is undefined
 // (no-op). In tests, it allows simulating a concurrent modification that occurs
 // during that gap, causing updateMany to return count=0.
+//
+// Security: Dual-layer environment guard prevents production activation:
+//   Layer 1 (setter): Throws if NODE_ENV !== 'test' — rejects activation outside tests
+//   Layer 2 (call-site): Requires NODE_ENV === 'test' to fire — even if variable is
+//     somehow set (module leak, prototype pollution), it cannot run in production
 let _testOnBeforeConditionalUpdate: (() => Promise<void>) | undefined;
 
-/** @internal Test seam for simulating concurrent race — do NOT use in production code */
+/** @internal Test seam for simulating concurrent race — do NOT use in production code.
+ *  Throws if called outside NODE_ENV=test to prevent production activation. */
 export function setTestOnBeforeConditionalUpdate(fn: (() => Promise<void>) | undefined) {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error(
+      'setTestOnBeforeConditionalUpdate must not be called outside the test environment. ' +
+      `Current NODE_ENV: ${process.env.NODE_ENV ?? '(unset)'}`,
+    );
+  }
   _testOnBeforeConditionalUpdate = fn;
 }
 
@@ -172,7 +184,8 @@ export async function confirmBookingOnPaymentSuccess(
   // between reading payment.status (step 1) and the conditional updateMany (step 5).
   // This is the exact window where a real concurrent process could change the
   // payment state, causing updateMany to return count=0.
-  if (_testOnBeforeConditionalUpdate) {
+  // Security: Call-site guard — only fires in test environment.
+  if (_testOnBeforeConditionalUpdate && process.env.NODE_ENV === 'test') {
     await _testOnBeforeConditionalUpdate();
   }
 

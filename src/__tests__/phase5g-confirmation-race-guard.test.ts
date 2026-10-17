@@ -228,6 +228,11 @@ async function createPaidBookingWithReservation(
 // ═══════════════════════════════════════════════════════════════════
 
 beforeEach(() => {
+  // Belt-and-suspenders: reset test seam before each test, even though
+  // afterEach also resets it. This guards against cross-test leakage if
+  // a prior test's afterEach somehow fails to complete.
+  setTestOnBeforeConditionalUpdate(undefined);
+
   created.users = [];
   created.events = [];
   created.ticketTypes = [];

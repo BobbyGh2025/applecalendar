@@ -417,10 +417,11 @@ describe('Audit 2: Webhook event records — permanent rejection, transient retr
     expect(webhookEvent!.processingError).toBeTruthy();
   });
 
-  it('transient failure: leaves event as processed=false so it can be retried', async () => {
-    // Create a fixture where the booking confirmation will fail because
-    // the payment is already in a terminal state (COMPLETED + already confirmed).
-    // This simulates a transient processing failure.
+  it('stale failure event on COMPLETED payment is handled as non-retriable', async () => {
+    // Create a fixture where a failure webhook arrives for an already-COMPLETED
+    // payment. The terminal-state guard correctly identifies this as a stale event
+    // and marks it as processed=true (non-retriable). Retrying won't help because
+    // COMPLETED → FAILED is not a legal transition.
     const fixture = await createPendingPaymentFixture(5000);
     try {
       // First, successfully process the webhook
@@ -431,25 +432,17 @@ describe('Audit 2: Webhook event records — permanent rejection, transient retr
 
       await processWebhookEvent({ event: successEvent });
 
-      // Now create a NEW webhook event for the SAME payment but with a FAILURE event type
-      // This should succeed (payment transitions to FAILED... but wait, payment is COMPLETED now)
-      // Let's use a different approach: create a webhook event that will cause a processing error
+      // Verify payment is COMPLETED
+      const paymentAfterSuccess = await db.payment.findUnique({
+        where: { id: fixture.payment.id },
+        select: { status: true },
+      });
+      expect(paymentAfterSuccess?.status).toBe('COMPLETED');
 
-      // Actually, let's test the transient failure path more directly.
-      // A webhook with a success event for a payment that's already COMPLETED
-      // should be handled idempotently (not a transient failure).
-      // 
-      // Instead, let's verify that the catch block marks processed=false.
-      // We can't easily simulate a transient DB failure, but we CAN verify
-      // the code structure: the catch block calls markEventProcessed(id, false, error).
-      //
-      // Let's test with a failure event on an already-COMPLETED payment.
-      // The FAILED transition will be invalid (COMPLETED → FAILED is illegal),
-      // which will throw InvalidPaymentTransition — this is caught by the catch block.
-
+      // Now a failure webhook arrives for the COMPLETED payment
       const failureEvent: NormalizedWebhookEvent = {
         provider: 'PAYSTACK',
-        eventId: `evt-fail-transient-${uid()}`,
+        eventId: `evt-fail-stale-${uid()}`,
         eventType: 'charge.failed',
         eventReference: fixture.providerRef,
         amount: 5000 as unknown as import('@/lib/money').Money,
@@ -459,17 +452,17 @@ describe('Audit 2: Webhook event records — permanent rejection, transient retr
         isPaymentFailure: true,
       };
 
-      // This should throw because COMPLETED → FAILED is illegal
-      await expect(
-        processWebhookEvent({ event: failureEvent }),
-      ).rejects.toThrow();
+      // The webhook handler returns non-retriable result (does not throw)
+      const result = await processWebhookEvent({ event: failureEvent });
+      expect(result.processed).toBe(true);
+      expect(result.outcome).toContain('terminal state');
 
-      // Verify the webhook event was marked as processed=false (retryable)
+      // Verify the webhook event was marked as processed=true (non-retriable)
       const webhookEvent = await db.paymentWebhookEvent.findUnique({
         where: { eventId: failureEvent.eventId },
       });
       expect(webhookEvent).toBeTruthy();
-      expect(webhookEvent!.processed).toBe(false); // Transient — retryable
+      expect(webhookEvent!.processed).toBe(true); // Non-retriable — stale event
       expect(webhookEvent!.processingError).toBeTruthy();
     } finally {
       await cleanup({ eventId: fixture.event.id, userIds: [fixture.user.id, fixture.organizer.id] });

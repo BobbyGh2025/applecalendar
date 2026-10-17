@@ -23,15 +23,29 @@
  *   - Ticket activation only affects PENDING tickets (VALID unchanged)
  *   - Inventory confirmation is idempotent (if reservedCount already decremented, no-op)
  *
+ * Race condition handling:
+ *   - When a concurrent request wins the Payment status update:
+ *     - If winner transitioned to COMPLETED + CONFIRMED → idempotent (no side effects)
+ *     - If winner transitioned to FAILED/EXPIRED/CANCELLED → ConfirmationRaceConflict
+ *       (non-idempotent, must NOT report confirmed or send notification)
+ *   - When payment is already in a terminal non-COMPLETED state:
+ *     → ConfirmationPreconditionFailed (non-retriable, caller should not retry)
+ *
  * Notification safety:
  *   - Financial state commits FIRST
  *   - Notification creation happens AFTER the financial transaction
  *   - Notification failure does NOT roll back financial state
+ *   - No notification is sent for idempotent or conflict results
  */
 
 import { db } from '@/lib/db';
-import { validatePaymentTransition, type PaymentTransitionResult } from './payment-state-machine';
-import { PaymentNotFound, BookingNotFound, PaymentAlreadyConfirmed } from './payment-domain-errors';
+import { validatePaymentTransition, isTerminalStatus, type PaymentTransitionResult } from './payment-state-machine';
+import {
+  PaymentNotFound,
+  BookingNotFound,
+  ConfirmationRaceConflict,
+  ConfirmationPreconditionFailed,
+} from './payment-domain-errors';
 import { confirmReservation, releaseReservation } from './inventory';
 import { activateTickets } from './ticket-service';
 import { logger } from '@/lib/logger';
@@ -55,6 +69,34 @@ export interface ConfirmBookingResult {
   inventoryConfirmed: string[];
 }
 
+// ─── Test seam ───
+// Narrowly scoped to the TOCTOU race window between the payment status read
+// (step 1) and the conditional updateMany (step 5). In production, this is undefined
+// (no-op). In tests, it allows simulating a concurrent modification that occurs
+// during that gap, causing updateMany to return count=0.
+//
+// Security: Dual-layer environment guard prevents production activation:
+//   Layer 1 (setter): Throws if NODE_ENV !== 'test' — rejects activation outside tests
+//   Layer 2 (call-site): Requires NODE_ENV === 'test' to fire — even if variable is
+//     somehow set (module leak, prototype pollution), it cannot run in production
+let _testOnBeforeConditionalUpdate: (() => Promise<void>) | undefined;
+
+/** @internal Test seam for simulating concurrent race — do NOT use in production code.
+ *  Throws if called outside NODE_ENV=test to prevent production activation. */
+export function setTestOnBeforeConditionalUpdate(fn: (() => Promise<void>) | undefined) {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error(
+      'setTestOnBeforeConditionalUpdate must not be called outside the test environment. ' +
+      `Current NODE_ENV: ${process.env.NODE_ENV ?? '(unset)'}`,
+    );
+  }
+  _testOnBeforeConditionalUpdate = fn;
+}
+
+// ─── Terminal states that are NOT COMPLETED ───
+
+const TERMINAL_NON_COMPLETED = new Set(['FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED']);
+
 // ─── Core: Confirm Booking on Payment Success ───
 
 /**
@@ -63,14 +105,17 @@ export interface ConfirmBookingResult {
  * Steps (inside a Prisma transaction):
  *   1. Load Payment with Booking
  *   2. If Payment is already COMPLETED → idempotent return (already confirmed)
- *   3. Validate transition: current → COMPLETED
- *   4. Update Payment: status = COMPLETED, completedAt = now, providerRef
- *   5. Update Booking: status = CONFIRMED, confirmedAt = now (conditional on PENDING)
- *   6. Activate tickets: PENDING → VALID
- *   7. Confirm inventory: reservedCount → soldCount for each ticket type
+ *   3. If Payment is in a terminal non-COMPLETED state → ConfirmationPreconditionFailed
+ *      (non-retriable — the payment will never become confirmable)
+ *   4. Validate transition: current → COMPLETED
+ *   5. Update Payment: status = COMPLETED, completedAt = now, providerRef
+ *   6. Update Booking: status = CONFIRMED, confirmedAt = now (conditional on PENDING)
+ *   7. Activate tickets: PENDING → VALID
+ *   8. Confirm inventory: reservedCount → soldCount for each ticket type
  *
  * After transaction:
- *   8. Create notification (failure does NOT roll back financial state)
+ *   9. Create notification (failure does NOT roll back financial state)
+ *      — ONLY if confirmation was newly performed (not idempotent or conflict)
  */
 export async function confirmBookingOnPaymentSuccess(
   params: ConfirmBookingOnPaymentSuccessParams,
@@ -108,7 +153,7 @@ export async function confirmBookingOnPaymentSuccess(
     throw new BookingNotFound(`payment:${paymentId}`);
   }
 
-  // 2. Idempotency: if payment is already COMPLETED, this is a duplicate
+  // 2. Idempotency: if payment is already COMPLETED, this is a duplicate success
   if (payment.status === 'COMPLETED') {
     logger.info('Payment already completed — confirmation is idempotent', { paymentId });
     return {
@@ -120,12 +165,33 @@ export async function confirmBookingOnPaymentSuccess(
     };
   }
 
-  // 3. Validate the payment transition
+  // 3. Pre-transition check: if payment is in a terminal non-COMPLETED state,
+  //    it can never become COMPLETED. This is a non-retriable precondition failure.
+  //    Without this check, validatePaymentTransition would throw InvalidPaymentTransition,
+  //    which the webhook handler treats as retriable → infinite retry loop.
+  if (TERMINAL_NON_COMPLETED.has(payment.status)) {
+    logger.warn('Payment in terminal non-COMPLETED state — confirmation precondition failed', {
+      paymentId,
+      status: payment.status,
+    });
+    throw new ConfirmationPreconditionFailed(paymentId, payment.status);
+  }
+
+  // 4. Validate the payment transition
   const transition = validatePaymentTransition(payment.status, 'COMPLETED');
 
-  // 4-7. Atomic transaction for financial state
+  // Test seam: simulate concurrent modification during the TOCTOU gap
+  // between reading payment.status (step 1) and the conditional updateMany (step 5).
+  // This is the exact window where a real concurrent process could change the
+  // payment state, causing updateMany to return count=0.
+  // Security: Call-site guard — only fires in test environment.
+  if (_testOnBeforeConditionalUpdate && process.env.NODE_ENV === 'test') {
+    await _testOnBeforeConditionalUpdate();
+  }
+
+  // 5-8. Atomic transaction for financial state
   const result = await db.$transaction(async (tx) => {
-    // 4. Update Payment status (with provider reference) — status guard prevents TOCTOU
+    // 5. Update Payment status (with provider reference) — status guard prevents TOCTOU
     const paymentUpdate = await tx.payment.updateMany({
       where: { id: paymentId, status: payment.status },
       data: {
@@ -136,16 +202,45 @@ export async function confirmBookingOnPaymentSuccess(
     });
 
     if (paymentUpdate.count === 0) {
-      // Lost race: another process already transitioned this payment.
-      // Safe to treat as idempotent — the other process completed the confirmation.
-      logger.info('Payment status changed by concurrent process — confirmation is idempotent', {
-        paymentId,
-        expectedStatus: payment.status,
+      // A concurrent request won the status transition. Distinguish:
+      //
+      // CASE A: Genuine duplicate success
+      //   Payment = COMPLETED, Booking = CONFIRMED
+      //   → Return idempotent result. No notification. No side effects.
+      //
+      // CASE B: Conflicting race
+      //   Payment = FAILED/EXPIRED/CANCELLED/REFUNDED, or
+      //   Booking = CANCELLED/EXPIRED/REFUNDED (not CONFIRMED)
+      //   → Throw ConfirmationRaceConflict. Do NOT send notification.
+      //   → Caller (webhook handler) must treat as non-retriable.
+      const currentState = await tx.payment.findUnique({
+        where: { id: paymentId },
+        select: {
+          status: true,
+          booking: { select: { status: true } },
+        },
       });
-      return { ticketsActivated: 0, inventoryConfirmed: [] };
+
+      const currentPaymentStatus = currentState?.status ?? 'MISSING';
+      const currentBookingStatus = currentState?.booking?.status ?? 'MISSING';
+
+      if (currentPaymentStatus === 'COMPLETED' && currentBookingStatus === 'CONFIRMED') {
+        // CASE A: Genuine duplicate success — idempotent
+        logger.info('Concurrent payment confirmation already completed — idempotent', { paymentId });
+        return { ticketsActivated: 0, inventoryConfirmed: [], alreadyConfirmed: true };
+      }
+
+      // CASE B: Conflicting race — confirmation did not occur
+      // Do NOT send notification. Do NOT report a newly confirmed booking.
+      logger.warn('Confirmation race conflict — payment state changed by concurrent process', {
+        paymentId,
+        currentPaymentStatus,
+        currentBookingStatus,
+      });
+      throw new ConfirmationRaceConflict(paymentId, currentPaymentStatus, currentBookingStatus);
     }
 
-    // 5. Update Booking status (conditional — only if PENDING)
+    // 6. Update Booking status (conditional — only if PENDING)
     const bookingUpdate = await tx.booking.updateMany({
       where: { id: payment.bookingId, status: 'PENDING' },
       data: {
@@ -173,26 +268,28 @@ export async function confirmBookingOnPaymentSuccess(
         //   - Activate tickets on a cancelled booking
         //   - Confirm inventory on a cancelled booking
         //   - Create VALID tickets for an unconfirmable booking
-        // The payment remains in its pre-transaction state (PENDING/PROCESSING),
-        // and the webhook event will be recorded with processingError for reconciliation.
+        // The payment update will be rolled back, and the webhook event will be
+        // recorded with processingError for reconciliation.
         logger.error('Booking in non-confirmable state during payment confirmation — aborting', {
           bookingId: payment.bookingId,
           currentStatus: currentBooking?.status,
           paymentId,
         });
-        throw new BookingNotFound(
-          `Booking ${payment.bookingId} is in ${currentBooking?.status ?? 'unknown'} state and cannot be confirmed`,
+        throw new ConfirmationRaceConflict(
+          paymentId,
+          'COMPLETED', // We just set payment to COMPLETED in step 5
+          currentBooking?.status ?? 'UNKNOWN',
         );
       }
     }
 
-    // 6. Activate tickets: PENDING → VALID
+    // 7. Activate tickets: PENDING → VALID
     const ticketResult = await activateTickets({
       bookingId: payment.bookingId,
       tx,
     });
 
-    // 7. Confirm inventory for each ticket type
+    // 8. Confirm inventory for each ticket type
     const ticketTypeQuantities = new Map<string, number>();
     for (const ticket of payment.booking.tickets) {
       const current = ticketTypeQuantities.get(ticket.ticketTypeId) ?? 0;
@@ -208,10 +305,25 @@ export async function confirmBookingOnPaymentSuccess(
     return {
       ticketsActivated: ticketResult.activated,
       inventoryConfirmed,
+      alreadyConfirmed: false,
     };
   });
 
-  // 8. Create notification AFTER financial transaction commits
+  // A concurrent request completed the payment while this request was running.
+  // Return a duplicate-success result WITHOUT sending a notification or
+  // reporting a newly confirmed booking.
+  if (result.alreadyConfirmed) {
+    return {
+      paymentId,
+      bookingId: payment.bookingId,
+      confirmed: false,
+      ticketsActivated: 0,
+      inventoryConfirmed: [],
+    };
+  }
+
+  // 9. Create notification AFTER financial transaction commits
+  //    ONLY when confirmation was newly performed (not idempotent or conflict).
   try {
     await db.notification.create({
       data: {

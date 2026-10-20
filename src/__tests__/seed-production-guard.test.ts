@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Phase 5G — Seed Production Guard Test
@@ -18,13 +20,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 describe('Phase 5G — Seed Production Guard', () => {
   const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 
+  // process.env.NODE_ENV is typed as read-only in NodeJS.ProcessEnv.
+  // We need to mutate it for testing; cast through writable env.
+  const setNodeEnv = (value: string | undefined) => {
+    (process.env as Record<string, string | undefined>).NODE_ENV = value;
+  };
+
   afterEach(() => {
     // Restore original NODE_ENV after each test
-    process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+    setNodeEnv(ORIGINAL_NODE_ENV);
   });
 
   it('throws immediately when NODE_ENV=production', async () => {
-    process.env.NODE_ENV = 'production';
+    setNodeEnv('production');
 
     // The guard is a simple synchronous check at the top of main().
     // Rather than importing the full seed module (which instantiates PrismaClient
@@ -48,7 +56,7 @@ describe('Phase 5G — Seed Production Guard', () => {
   });
 
   it('error message mentions hardcoded credentials and user data overwrite', async () => {
-    process.env.NODE_ENV = 'production';
+    setNodeEnv('production');
 
     const productionGuard = () => {
       if (process.env.NODE_ENV === 'production') {
@@ -65,7 +73,7 @@ describe('Phase 5G — Seed Production Guard', () => {
   });
 
   it('does NOT throw when NODE_ENV=development', () => {
-    process.env.NODE_ENV = 'development';
+    setNodeEnv('development');
 
     const productionGuard = () => {
       if (process.env.NODE_ENV === 'production') {
@@ -77,7 +85,7 @@ describe('Phase 5G — Seed Production Guard', () => {
   });
 
   it('does NOT throw when NODE_ENV=test', () => {
-    process.env.NODE_ENV = 'test';
+    setNodeEnv('test');
 
     const productionGuard = () => {
       if (process.env.NODE_ENV === 'production') {
@@ -94,8 +102,6 @@ describe('Phase 5G — Seed Production Guard', () => {
     // source code structure — the guard must be the first logic in main().
     //
     // Reading the source directly to verify guard position:
-    const fs = require('fs');
-    const path = require('path');
     const seedPath = path.join(process.cwd(), 'prisma', 'seed.ts');
     const source = fs.readFileSync(seedPath, 'utf-8');
 
@@ -131,7 +137,7 @@ describe('Phase 5G — Seed Production Guard', () => {
     // Verify the guard only blocks NODE_ENV=production, not undefined or empty
     const guard = (env: string | undefined) => {
       const prev = process.env.NODE_ENV;
-      process.env.NODE_ENV = env;
+      setNodeEnv(env);
       let threw = false;
       try {
         if (process.env.NODE_ENV === 'production') {
@@ -140,7 +146,7 @@ describe('Phase 5G — Seed Production Guard', () => {
       } catch {
         threw = true;
       } finally {
-        process.env.NODE_ENV = prev;
+        setNodeEnv(prev);
       }
       return threw;
     };

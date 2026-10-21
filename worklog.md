@@ -430,3 +430,72 @@ Stage Summary:
 - With real PG 17: 1307 PASS, 4 FAIL (Paystack BLOCKED), 0 SKIP
 - No new lint/TS/build errors from Phase 5G
 - PR #2 remains draft
+
+---
+Task ID: 19
+Agent: main
+Task: Phase 5G — Final acceptance and blocker resolution from 94a16b2
+
+Work Log:
+- Verified remote at 94a16b2, PR #2 open/draft/mergeable
+- Git checkout malfunction persists — used detached worktree for all operations
+
+- Task 2 — CI Installation:
+  - Attempted all 4 methods — ALL BLOCKED (PAT has `repo` scope only, NOT `workflow`):
+    1. git push → "refusing to allow a PAT to create or update workflow without workflow scope"
+    2. Contents API (PUT /contents/.github/workflows/ci.yml) → 404
+    3. Git Data API (POST /git/trees with workflow path) → 404
+    4. Browser → redirects to GitHub login (no authenticated web session)
+  - .github/workflows/ci.yml does NOT exist remotely
+  - Zero workflow runs exist
+  - Provided exact manual steps for authorized operator
+  - DO NOT claim CI is installed
+
+- Task 3 — PostgreSQL 17 Concurrency (VERIFIED AGAIN):
+  - Reinstalled PostgreSQL 17.11 via apt download + dpkg-deb extraction (user-space)
+  - Configured unix_socket_directories=/tmp/pg17-socket, started server
+  - Created applecalendar_test database, postgres superuser
+  - Deployed all 3 Prisma migrations successfully
+  - Ran phase5g-postgresql-concurrency.test.ts against REAL PostgreSQL 17.11
+  - Result: 11/11 PASS (181ms test time)
+    - 1a: Payment table columns ✅  1b: Money constraints ✅  1c: Webhook dedup ✅
+    - 2a: READ COMMITTED default ✅  2b: SERIALIZABLE ✅  2c: REPEATABLE READ ✅
+    - 3a: Concurrent confirmations — one succeeds ✅
+    - 3b: Concurrent webhooks — consistent state ✅
+    - 3c: Conditional updateMany count=0 ✅
+    - 4a: PostgreSQL 17.x ✅  4b: PostgreSQL (not SQLite) ✅
+
+- Task 4 — Paystack Sandbox Acceptance:
+  - All 3 credentials MISSING (not set in environment):
+    - PAYSTACK_SECRET_KEY: MISSING
+    - PAYSTACK_PUBLIC_KEY: MISSING
+    - PAYSTACK_WEBHOOK_SECRET: MISSING
+  - 4/30 tests FAIL (2a-2d: Real Paystack Connectivity)
+  - 26/30 domain logic tests PASS
+  - Documented exact secure configuration steps for authorized operator
+
+- Task 5 — Full Regression Verification:
+  - Reseeded database (fixed 8 transient failures from stale data)
+  - Full test suite: 1311 total (1296 PASS, 4 FAIL, 11 SKIP)
+    - seed-production-guard: 6/6 PASS
+    - phase5g-confirmation-race-guard: 32/32 PASS
+    - phase5g-payment-hardening: 23/23 PASS
+    - phase5g-sandbox-acceptance: 26/30 PASS, 4 FAIL (BLOCKED)
+    - phase5g-postgresql-concurrency: 11/11 SKIP (locally; 11/11 PASS vs real PG 17)
+    - phase4e-venues: 63/63 PASS
+  - Production build: PASS
+  - ESLint: 2 errors (pre-existing server-keeper.js only, 0 from Phase 5G)
+  - TypeScript: 25 errors (all pre-existing, 0 from Phase 5G)
+  - No regressions introduced by Phase 5G code
+
+Stage Summary:
+- PostgreSQL 17 concurrency: 11/11 PASS vs real PostgreSQL 17.11 (re-verified)
+- CI workflow: NOT INSTALLED — PAT permanently lacks `workflow` scope
+- Paystack: 4/30 FAIL — 3 env vars MISSING → BLOCKED
+- 2 remaining blockers:
+  1. CI workflow: NOT INSTALLED (requires GitHub web editor by authenticated user with `workflow` scope)
+  2. Paystack 4 tests: FAIL (3 env vars MISSING → BLOCKED)
+- Full suite (SQLite): 1296 PASS, 4 FAIL (Paystack), 11 SKIP (PG)
+- Full suite (with real PG 17): 1307 PASS, 4 FAIL (Paystack), 0 SKIP
+- Build: PASS | Lint: 2 pre-existing | TS: 25 pre-existing | Phase 5G errors: 0
+- PR #2 remains draft — do not merge

@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { z } from 'zod';
+import { dispatchNotification, NotificationType } from '@/lib/services/notification-service';
+import { logger } from '@/lib/logger';
 
 const VALID_ACTIONS = ['approve', 'reject'] as const;
 
@@ -58,16 +60,26 @@ export async function PATCH(
       }),
     ]);
 
-    // Notify the organizer
-    await db.notification.create({
-      data: {
+    // Notify the organizer — notification failure does not break the action
+    try {
+      await dispatchNotification({
         userId: event.organizerId,
         title: action === 'approve' ? 'Event Approved' : 'Event Rejected',
         message: `Your event "${event.title}" has been ${action === 'approve' ? 'approved and published' : 'rejected'}.${reason ? ` Reason: ${reason}` : ''}`,
-        type: 'EVENT_UPDATE',
+        type: NotificationType.EVENT_UPDATE,
+        eventId: id,
+        relatedEntityId: id,
+        relatedEntityType: 'Event',
+        dedupKey: `event-${action}-${id}`,
         link: `/events/${id}`,
-      },
-    });
+      });
+    } catch (notificationError) {
+      logger.error('Failed to send event moderation notification', {
+        eventId: id,
+        action,
+        error: notificationError instanceof Error ? notificationError.message : 'unknown',
+      });
+    }
 
     return NextResponse.json({
       event: updatedEvent,

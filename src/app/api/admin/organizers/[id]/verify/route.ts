@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { authenticate, requireRole } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { verifyOrganizerSchema } from '@/lib/validations';
+import { dispatchNotification, NotificationType } from '@/lib/services/notification-service';
+import { logger } from '@/lib/logger';
 
 export async function PATCH(
   request: NextRequest,
@@ -59,17 +61,26 @@ export async function PATCH(
       data: updateData,
     });
 
-    // Create a notification to the organizer
-    await db.notification.create({
-      data: {
+    // Notify the organizer — notification failure does not break the verification
+    try {
+      await dispatchNotification({
         userId: profile.userId,
         title: action === 'verify' ? 'Organizer Profile Verified' : 'Organizer Profile Rejected',
         message: action === 'verify'
           ? `Your organizer profile "${profile.organizationName}" has been verified! You can now publish events.`
           : `Your organizer profile "${profile.organizationName}" has been rejected.${reason ? ` Reason: ${reason}` : ''}`,
-        type: 'SYSTEM',
-      },
-    });
+        type: NotificationType.SYSTEM,
+        relatedEntityId: id,
+        relatedEntityType: 'Organizer',
+        dedupKey: `organizer-${action}-${id}`,
+      });
+    } catch (notificationError) {
+      logger.error('Failed to send organizer verification notification', {
+        organizerId: id,
+        action,
+        error: notificationError instanceof Error ? notificationError.message : 'unknown',
+      });
+    }
 
     return NextResponse.json({ profile: updatedProfile });
   } catch (error) {

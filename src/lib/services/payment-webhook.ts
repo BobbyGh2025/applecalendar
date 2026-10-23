@@ -19,6 +19,16 @@
  *   - Payment state machine prevents illegal transitions
  *   - Booking confirmation is idempotent
  *
+ * Race condition handling:
+ *   - ConfirmationRaceConflict: A concurrent process transitioned the payment
+ *     to a non-COMPLETED state during confirmation. Non-retriable — mark as
+ *     processed to prevent infinite retry loops.
+ *   - ConfirmationPreconditionFailed: Payment is already in a terminal
+ *     non-COMPLETED state (FAILED/EXPIRED/CANCELLED/REFUNDED). Non-retriable —
+ *     mark as processed to prevent infinite retry loops.
+ *   - Terminal-state guard: If a success webhook arrives for a payment already
+ *     in a terminal state, mark as processed (non-retriable).
+ *
  * Processing order:
  *   - Mark event as received (insert with processed=false)
  *   - Process business logic (transition payment, confirm booking)
@@ -35,9 +45,12 @@ import {
   WebhookAmountMismatch,
   WebhookCurrencyMismatch,
   PaymentNotFound,
+  ConfirmationRaceConflict,
+  ConfirmationPreconditionFailed,
 } from './payment-domain-errors';
 import type { NormalizedWebhookEvent } from './payment-provider';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from './notification-service';
 
 // ─── Types ───
 
@@ -185,6 +198,43 @@ export async function processWebhookEvent(
     let outcome: string;
 
     if (event.isPaymentSuccess) {
+      // ─── Terminal-state guard for success events ───
+      // If the payment is already in a terminal state, this success event
+      // is either stale (payment already COMPLETED) or conflicting (payment
+      // FAILED/EXPIRED/CANCELLED). In both cases, retrying won't help.
+      if (isTerminalStatus(payment.status as PaymentStatus)) {
+        if (payment.status === 'COMPLETED') {
+          // Payment already completed — idempotent, not an error
+          logger.info('Success webhook for already-COMPLETED payment — idempotent', {
+            paymentId: payment.id,
+            currentStatus: payment.status,
+            eventId: event.eventId,
+          });
+          await markEventProcessed(webhookEventId, true, `Payment already COMPLETED — success event is idempotent`);
+          return {
+            webhookEventId,
+            processed: true,
+            paymentId: payment.id,
+            outcome: `Payment already COMPLETED — success event is idempotent`,
+          };
+        }
+
+        // Payment in terminal non-COMPLETED state (FAILED/EXPIRED/CANCELLED/REFUNDED)
+        // This success event is stale or conflicting. Non-retriable.
+        logger.warn('Success webhook for terminal non-COMPLETED payment — event is stale/conflicting', {
+          paymentId: payment.id,
+          currentStatus: payment.status,
+          eventId: event.eventId,
+        });
+        await markEventProcessed(webhookEventId, true, `Payment in terminal state ${payment.status} — success event cannot be applied`);
+        return {
+          webhookEventId,
+          processed: true,
+          paymentId: payment.id,
+          outcome: `Payment in terminal state ${payment.status} — success event cannot be applied (non-retriable)`,
+        };
+      }
+
       // Payment success → confirm booking
       const result = await confirmBookingOnPaymentSuccess({
         paymentId: payment.id,
@@ -196,9 +246,11 @@ export async function processWebhookEvent(
     } else if (event.isPaymentFailure) {
       // Payment failure → transition payment to FAILED + release inventory
 
-      // If payment is already in a terminal state (COMPLETED, FAILED, EXPIRED, etc.),
+      // If payment is already COMPLETED or in a terminal state (FAILED, EXPIRED, etc.),
       // this failure event is stale — mark as processed to prevent infinite retry.
-      if (isTerminalStatus(payment.status as PaymentStatus)) {
+      // COMPLETED is not a terminal state (it can transition to REFUNDED), but
+      // a failure event for a COMPLETED payment is definitively stale.
+      if (payment.status === 'COMPLETED' || isTerminalStatus(payment.status as PaymentStatus)) {
         logger.info('Failure webhook for terminal payment — event is stale', {
           paymentId: payment.id,
           currentStatus: payment.status,
@@ -255,6 +307,31 @@ export async function processWebhookEvent(
       });
 
       outcome = 'Payment failed';
+
+      // Notify user that their payment failed
+      try {
+        const booking = await db.booking.findUnique({
+          where: { id: payment.bookingId },
+          select: { userId: true, bookingRef: true, event: { select: { title: true, id: true } } },
+        });
+        await dispatchNotification({
+          userId: booking!.userId,
+          title: 'Payment Failed',
+          message: `Your payment for booking ${booking?.bookingRef ?? payment.bookingId} on "${booking?.event.title ?? 'event'}" has failed. Please try again or contact support.`,
+          type: NotificationType.PAYMENT,
+          eventId: booking?.event.id,
+          relatedEntityId: payment.id,
+          relatedEntityType: 'Payment',
+          dedupKey: `payment-failed-${payment.id}`,
+          link: booking?.event.id ? `/events/${booking.event.id}` : undefined,
+        });
+      } catch (notificationError) {
+        // Notification failure does NOT roll back payment state
+        logger.error('Failed to send payment failure notification', {
+          paymentId: payment.id,
+          error: notificationError instanceof Error ? notificationError.message : 'unknown',
+        });
+      }
     } else {
       outcome = `Event type "${event.eventType}" not actionable`;
     }
@@ -275,7 +352,44 @@ export async function processWebhookEvent(
       outcome,
     };
   } catch (error) {
-    // Mark event as failed — do NOT mark as processed
+    // ─── Non-retriable conflict errors ───
+    // ConfirmationRaceConflict and ConfirmationPreconditionFailed are non-retriable:
+    // the payment state will not change on retry, so mark as processed=true
+    // to prevent infinite retry loops.
+    if (error instanceof ConfirmationRaceConflict) {
+      logger.warn('Confirmation race conflict — marking webhook as processed (non-retriable)', {
+        eventId: event.eventId,
+        paymentId: payment.id,
+        currentPaymentStatus: error.currentPaymentStatus,
+        currentBookingStatus: error.currentBookingStatus,
+      });
+      await markEventProcessed(webhookEventId, true, `Confirmation race conflict: payment=${error.currentPaymentStatus}, booking=${error.currentBookingStatus}`);
+      return {
+        webhookEventId,
+        processed: true,
+        paymentId: payment.id,
+        outcome: `Confirmation race conflict: payment=${error.currentPaymentStatus}, booking=${error.currentBookingStatus} (non-retriable)`,
+      };
+    }
+
+    if (error instanceof ConfirmationPreconditionFailed) {
+      logger.warn('Confirmation precondition failed — marking webhook as processed (non-retriable)', {
+        eventId: event.eventId,
+        paymentId: payment.id,
+        paymentStatus: error.paymentStatus,
+      });
+      await markEventProcessed(webhookEventId, true, `Payment in terminal state ${error.paymentStatus} — cannot confirm`);
+      return {
+        webhookEventId,
+        processed: true,
+        paymentId: payment.id,
+        outcome: `Payment in terminal state ${error.paymentStatus} — cannot confirm (non-retriable)`,
+      };
+    }
+
+    // ─── Retriable errors ───
+    // Mark event as failed — do NOT mark as processed.
+    // The event will be retried on the next webhook delivery.
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     await markEventProcessed(webhookEventId, false, errorMessage);
 

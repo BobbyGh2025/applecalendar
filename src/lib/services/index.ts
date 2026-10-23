@@ -36,6 +36,8 @@ export {
   WebhookAmountMismatch,
   WebhookCurrencyMismatch,
   PaymentNotExpirable,
+  ConfirmationRaceConflict,
+  ConfirmationPreconditionFailed,
 } from './payment-domain-errors';
 
 // Provider abstraction
@@ -150,3 +152,36 @@ export {
   validateTransition as validateOrganizerTransition,
   executeLifecycleTransition,
 } from './organizer-lifecycle';
+
+// Notification service (Phase 6)
+export {
+  dispatchNotification,
+  dispatchWithEmail,
+  dispatchWithSms,
+  markNotificationRead,
+  markAllNotificationsRead,
+  getUnreadCount,
+  getNotificationPreferences,
+  setNotificationPreference,
+  ensureDefaultPreferences,
+  NotificationType,
+  DeliveryChannel,
+  DeliveryStatus,
+  type DispatchNotificationParams,
+  type DispatchResult,
+  type NotificationTypeValue,
+} from './notification-service';
+
+// Notification channels (Phase 6)
+export {
+  InAppChannel,
+  MockEmailChannel,
+  MockSmsChannel,
+  registerChannel,
+  getChannel,
+  getAllChannels,
+  initializeDefaultChannels,
+  type NotificationChannel,
+  type NotificationPayload,
+  type ChannelDeliveryResult,
+} from './notification-channels';

@@ -25,6 +25,7 @@ import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { releaseReservation, restoreSoldCount } from '@/lib/services/inventory';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from '@/lib/services/notification-service';
 import { z } from 'zod';
 
 const cancelBookingSchema = z.object({
@@ -150,15 +151,7 @@ export async function PATCH(
         data: { status: 'CANCELLED', cancelledAt: new Date() },
       });
 
-      // Create notification
-      await tx.notification.create({
-        data: {
-          userId: booking.userId,
-          title: 'Booking Cancelled',
-          message: `Your booking ${booking.bookingRef} for "${booking.event.title}" has been cancelled. ${(validTickets.length + pendingTickets.length)} ticket(s) released.`,
-          type: 'BOOKING',
-        },
-      });
+      // Notification will be created AFTER transaction commits
 
       return updatedBooking;
     });
@@ -170,6 +163,27 @@ export async function PATCH(
       validTicketsReleased: validTickets.length,
       pendingTicketsReleased: pendingTickets.length,
     });
+
+    // Notify user of cancellation — AFTER transaction commits
+    // Notification failure does NOT roll back the cancellation
+    try {
+      await dispatchNotification({
+        userId: booking.userId,
+        title: 'Booking Cancelled',
+        message: `Your booking ${booking.bookingRef} for "${booking.event.title}" has been cancelled. ${(validTickets.length + pendingTickets.length)} ticket(s) released.`,
+        type: NotificationType.BOOKING,
+        eventId: booking.event.id,
+        relatedEntityId: bookingId,
+        relatedEntityType: 'Booking',
+        dedupKey: `booking-cancelled-${bookingId}`,
+        link: `/events/${booking.event.id}`,
+      });
+    } catch (notificationError) {
+      logger.error('Failed to send booking cancellation notification', {
+        bookingId,
+        error: notificationError instanceof Error ? notificationError.message : 'unknown',
+      });
+    }
 
     return NextResponse.json({
       success: true,

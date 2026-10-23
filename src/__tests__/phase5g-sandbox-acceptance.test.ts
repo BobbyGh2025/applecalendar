@@ -49,6 +49,7 @@ import {
 } from '@/lib/services/booking-payment';
 
 import { expireSinglePayment } from '@/lib/services/payment-expiry';
+import { asMoney } from '@/lib/money';
 import type { NormalizedWebhookEvent } from '@/lib/services/payment-provider';
 
 // Side-effect import to register providers
@@ -457,7 +458,7 @@ describe('Phase 5G — Step 5: Webhook Processing', () => {
       eventId: `paystack-dedup-${uid()}`,
       eventType: 'charge.success',
       eventReference: providerRef,
-      amount: 50000,
+      amount: asMoney(50000),
       currency: 'GHS',
       eventAt: new Date(),
       isPaymentSuccess: true,
@@ -497,7 +498,7 @@ describe('Phase 5G — Step 5: Webhook Processing', () => {
       eventId: `paystack-amount-mismatch-${uid()}`,
       eventType: 'charge.success',
       eventReference: providerRef,
-      amount: 99999, // Mismatch!
+      amount: asMoney(99999), // Mismatch!
       currency: 'GHS',
       eventAt: new Date(),
       isPaymentSuccess: true,
@@ -519,7 +520,7 @@ describe('Phase 5G — Step 5: Webhook Processing', () => {
       eventId: `paystack-unknown-ref-${uid()}`,
       eventType: 'charge.success',
       eventReference: 'nonexistent-reference-xyz',
-      amount: 50000,
+      amount: asMoney(50000),
       currency: 'GHS',
       eventAt: new Date(),
       isPaymentSuccess: true,
@@ -548,7 +549,7 @@ describe('Phase 5G — Step 5: Webhook Processing', () => {
       eventId: `paystack-failed-event-${uid()}`,
       eventType: 'charge.failed',
       eventReference: providerRef,
-      amount: 50000,
+      amount: asMoney(50000),
       currency: 'GHS',
       eventAt: new Date(),
       isPaymentSuccess: false,
@@ -587,7 +588,7 @@ describe('Phase 5G — Step 6: Verify vs Webhook Race', () => {
       eventId,
       eventType: 'charge.success',
       eventReference: providerRef,
-      amount: 50000,
+      amount: asMoney(50000),
       currency: 'GHS',
       eventAt: new Date(),
       isPaymentSuccess: true,
@@ -967,7 +968,7 @@ describe('Phase 5G — Step 10: Security Audit', () => {
       eventId: `paystack-security-audit-fail-${uid()}`,
       eventType: 'charge.failed',
       eventReference: providerRef,
-      amount: 50000,
+      amount: asMoney(50000),
       currency: 'GHS',
       eventAt: new Date(),
       isPaymentSuccess: false,

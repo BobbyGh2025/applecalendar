@@ -579,17 +579,17 @@ describe('Area 2: Webhook Dedup & Retry', () => {
     }
   });
 
-  it('webhook events are NOT marked processed before financial effects are committed', async () => {
-    // This verifies the critical ordering property by testing the failure path:
-    // When confirmBookingOnPaymentSuccess throws (transient error), the event
-    // must remain unprocessed (processed=false). This proves that
-    // markEventProcessed(true) is called AFTER the financial transaction,
-    // not before — if it were called before, a subsequent failure would
-    // leave the event marked processed despite no financial effects.
+  it('terminal-state conflict is correctly handled as non-retriable (processed=true)', async () => {
+    // When a success webhook arrives for a FAILED payment, the terminal-state
+    // guard correctly identifies this as a permanent (non-retriable) conflict.
+    // The event is marked processed=true to prevent infinite retry loops.
+    // This verifies:
+    //   1. Terminal-state guard fires BEFORE financial effects
+    //   2. Event is marked processed=true (non-retriable, not an error)
+    //   3. No financial effects are applied (payment remains FAILED)
     const fixture = await createTestPaymentFixture(5000);
     try {
-      // Set payment to FAILED — confirmBookingOnPaymentSuccess will throw
-      // because the transition FAILED→COMPLETED is illegal
+      // Set payment to FAILED — success webhook is a permanent conflict
       await db.payment.update({
         where: { id: fixture.payment.id },
         data: {
@@ -611,16 +611,17 @@ describe('Area 2: Webhook Dedup & Retry', () => {
         isPaymentFailure: false,
       };
 
-      // processWebhookEvent should throw (state machine violation)
-      await expect(processWebhookEvent({ event })).rejects.toThrow();
+      // processWebhookEvent returns non-retriable result (does not throw)
+      const result = await processWebhookEvent({ event });
+      expect(result.processed).toBe(true);
+      expect(result.outcome).toContain('terminal state');
 
-      // The event must be unprocessed — proving markEventProcessed(true)
-      // was NOT called before the financial effects (which failed)
+      // The event must be processed=true — non-retriable conflict
       const dbEvent = await db.paymentWebhookEvent.findUnique({
         where: { eventId: event.eventId },
       });
       expect(dbEvent).not.toBeNull();
-      expect(dbEvent!.processed).toBe(false);
+      expect(dbEvent!.processed).toBe(true);
 
       // Payment must remain FAILED — no financial effects were applied
       const payment = await db.payment.findUnique({ where: { id: fixture.payment.id } });
@@ -634,15 +635,16 @@ describe('Area 2: Webhook Dedup & Retry', () => {
     }
   });
 
-  it('transient failure in business logic leaves event unprocessed for retry', async () => {
-    // When confirmBookingOnPaymentSuccess throws (e.g., state machine rejection),
-    // the catch block marks processed=false so the event can be retried.
+  it('terminal-state conflict for EXPIRED payment is non-retriable', async () => {
+    // When a success webhook arrives for an EXPIRED payment, the terminal-state
+    // guard correctly identifies this as a permanent (non-retriable) conflict.
+    // The event is marked processed=true to prevent infinite retry loops.
     const fixture = await createTestPaymentFixture(5000);
     try {
-      // Set payment to FAILED (wrong state for success confirmation)
+      // Set payment to EXPIRED (permanent terminal state)
       await db.payment.update({
         where: { id: fixture.payment.id },
-        data: { providerRef: 'transient-fail-ref', status: 'FAILED', failedAt: new Date() },
+        data: { providerRef: 'transient-fail-ref', status: 'EXPIRED' },
       });
 
       const event: NormalizedWebhookEvent = {
@@ -657,16 +659,18 @@ describe('Area 2: Webhook Dedup & Retry', () => {
         isPaymentFailure: false,
       };
 
-      // This should throw because the payment is FAILED, not PENDING/PROCESSING
-      await expect(processWebhookEvent({ event })).rejects.toThrow();
+      // The webhook handler returns a non-retriable result (does not throw)
+      const result = await processWebhookEvent({ event });
+      expect(result.processed).toBe(true);
+      expect(result.outcome).toContain('terminal state');
 
       const dbEvent = await db.paymentWebhookEvent.findUnique({
         where: { eventId: event.eventId },
       });
 
       expect(dbEvent).not.toBeNull();
-      // Transient/retriable failure: event should remain unprocessed
-      expect(dbEvent!.processed).toBe(false);
+      // Non-retriable conflict: event is marked processed to prevent infinite retry
+      expect(dbEvent!.processed).toBe(true);
     } finally {
       await cleanupTestPaymentFixture({
         eventId: fixture.event.id,

@@ -122,6 +122,9 @@ export async function dispatchNotification(
   } = params;
 
   // 1. Dedup check — if dedupKey exists, skip
+  //    Two-phase: findUnique first (fast path), then handle P2002 on create (race path).
+  //    This avoids TOCTOU: if two concurrent requests pass findUnique, the @@unique([dedupKey])
+  //    constraint causes one create to fail with P2002 — we catch it and return wasDuplicate.
   if (dedupKey) {
     const existing = await db.notification.findUnique({
       where: { dedupKey },
@@ -137,22 +140,44 @@ export async function dispatchNotification(
     }
   }
 
-  // 2. Create the in-app notification record
-  const notification = await db.notification.create({
-    data: {
-      userId,
-      title,
-      message,
-      type,
-      link,
-      eventId,
-      relatedEntityId,
-      relatedEntityType,
-      dedupKey,
-      deliveryChannel: DeliveryChannel.IN_APP,
-      deliveryStatus: DeliveryStatus.PENDING,
-    },
-  });
+  // 2. Create the in-app notification record (may race on dedupKey unique constraint)
+  let notification;
+  try {
+    notification = await db.notification.create({
+      data: {
+        userId,
+        title,
+        message,
+        type,
+        link,
+        eventId,
+        relatedEntityId,
+        relatedEntityType,
+        dedupKey,
+        deliveryChannel: DeliveryChannel.IN_APP,
+        deliveryStatus: DeliveryStatus.PENDING,
+      },
+    });
+  } catch (createError) {
+    // Handle concurrent dedup: another process created a notification with the same
+    // dedupKey between our findUnique and this create (P2002 = unique constraint violation).
+    if (dedupKey && isPrismaUniqueConstraintViolation(createError)) {
+      const existing = await db.notification.findUnique({
+        where: { dedupKey },
+        select: { id: true },
+      });
+      if (existing) {
+        logger.debug('Notification dedup — concurrent create detected, returning existing', { dedupKey });
+        return {
+          notificationId: existing.id,
+          wasDuplicate: true,
+          deliveryResults: [],
+        };
+      }
+    }
+    // Not a dedup race — re-throw
+    throw createError;
+  }
 
   // 3. Dispatch through channels
   const channelsToUse = requestedChannels ?? [DeliveryChannel.IN_APP];
@@ -398,4 +423,18 @@ export async function ensureDefaultPreferences(userId: string): Promise<void> {
       });
     }
   }
+}
+
+// ─── Helper: Prisma Unique Constraint Violation Detection ───
+
+/**
+ * Detect Prisma P2002 error (unique constraint violation).
+ * Used to handle concurrent notification dispatches that race on dedupKey.
+ */
+function isPrismaUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as { code: string }).code === 'P2002'
+  );
 }

@@ -49,6 +49,7 @@ import {
 import { confirmReservation, releaseReservation } from './inventory';
 import { activateTickets } from './ticket-service';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from './notification-service';
 
 // ─── Types ───
 
@@ -133,6 +134,7 @@ export async function confirmBookingOnPaymentSuccess(
           bookingRef: true,
           userId: true,
           eventId: true,
+          event: { select: { id: true } },
           tickets: {
             select: {
               id: true,
@@ -325,13 +327,15 @@ export async function confirmBookingOnPaymentSuccess(
   // 9. Create notification AFTER financial transaction commits
   //    ONLY when confirmation was newly performed (not idempotent or conflict).
   try {
-    await db.notification.create({
-      data: {
-        userId: payment.booking.userId,
-        title: 'Payment Confirmed',
-        message: `Your payment for booking ${payment.booking.bookingRef} has been confirmed. Your tickets are now valid.`,
-        type: 'PAYMENT',
-      },
+    await dispatchNotification({
+      userId: payment.booking.userId,
+      title: 'Payment Confirmed',
+      message: `Your payment for booking ${payment.booking.bookingRef} has been confirmed. Your tickets are now valid.`,
+      type: NotificationType.PAYMENT,
+      eventId: payment.booking.event?.id,
+      relatedEntityId: paymentId,
+      relatedEntityType: 'Payment',
+      dedupKey: `payment-confirmed-${paymentId}`,
     });
   } catch (notificationError) {
     // Notification failure does NOT roll back financial state

@@ -27,6 +27,7 @@ import { validatePaymentTransition, canBeExpired, type PaymentStatus } from './p
 import { releaseReservation } from './inventory';
 import { expireTickets } from './ticket-service';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from './notification-service';
 
 // ─── Types ───
 
@@ -118,6 +119,7 @@ export async function expireSinglePayment(
           status: true,
           userId: true,
           bookingRef: true,
+          event: { select: { id: true } },
           tickets: {
             select: { id: true, ticketTypeId: true, status: true },
           },
@@ -195,13 +197,15 @@ export async function expireSinglePayment(
   // 5. Notification (after transaction commits)
   if (payment.booking) {
     try {
-      await db.notification.create({
-        data: {
-          userId: payment.booking.userId,
-          title: 'Payment Expired',
-          message: `Your payment for booking ${payment.booking.bookingRef} has expired. Please try booking again.`,
-          type: 'PAYMENT',
-        },
+      await dispatchNotification({
+        userId: payment.booking.userId,
+        title: 'Payment Expired',
+        message: `Your payment for booking ${payment.booking.bookingRef} has expired. Please try booking again.`,
+        type: NotificationType.PAYMENT,
+        eventId: payment.booking.event?.id,
+        relatedEntityId: paymentId,
+        relatedEntityType: 'Payment',
+        dedupKey: `payment-expired-${paymentId}`,
       });
     } catch (notificationError) {
       logger.error('Failed to create payment expiry notification', {

@@ -312,10 +312,10 @@ export async function processWebhookEvent(
       try {
         const booking = await db.booking.findUnique({
           where: { id: payment.bookingId },
-          select: { bookingRef: true, event: { select: { title: true, id: true } } },
+          select: { userId: true, bookingRef: true, event: { select: { title: true, id: true } } },
         });
         await dispatchNotification({
-          userId: payment.booking.userId,
+          userId: booking!.userId,
           title: 'Payment Failed',
           message: `Your payment for booking ${booking?.bookingRef ?? payment.bookingId} on "${booking?.event.title ?? 'event'}" has failed. Please try again or contact support.`,
           type: NotificationType.PAYMENT,

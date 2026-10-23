@@ -52,6 +52,7 @@ import {
   confirmBookingOnPaymentSuccess,
 } from '@/lib/services';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from '@/lib/services/notification-service';
 
 const bookingLimiter = rateLimit({ windowMs: 60_000, maxRequests: 10 });
 
@@ -217,14 +218,16 @@ export async function POST(
 
       // Notification AFTER transaction commits (failure does NOT roll back financial state)
       try {
-        await db.notification.create({
-          data: {
-            userId: user.id,
-            title: 'Booking Created — Payment Required',
-            message: `Your booking ${bookingRef} for "${event.title}" has been created. Please complete payment to confirm your ${quantity} ticket(s).`,
-            type: 'BOOKING',
-            link: `/events/${id}`,
-          },
+        await dispatchNotification({
+          userId: user.id,
+          title: 'Booking Created — Payment Required',
+          message: `Your booking ${bookingRef} for "${event.title}" has been created. Please complete payment to confirm your ${quantity} ticket(s).`,
+          type: NotificationType.BOOKING,
+          eventId: id,
+          relatedEntityId: result.booking.id,
+          relatedEntityType: 'Booking',
+          dedupKey: `booking-created-${result.booking.id}`,
+          link: `/events/${id}`,
         });
       } catch (notificationError) {
         logger.error('Failed to create booking notification', {
@@ -321,14 +324,16 @@ export async function POST(
 
     // Notification AFTER transaction commits
     try {
-      await db.notification.create({
-        data: {
-          userId: user.id,
-          title: 'Booking Confirmed',
-          message: `Your booking ${bookingRef} for "${event.title}" has been confirmed. ${quantity} ticket(s) reserved.`,
-          type: 'BOOKING',
-          link: `/events/${id}`,
-        },
+      await dispatchNotification({
+        userId: user.id,
+        title: 'Booking Confirmed',
+        message: `Your booking ${bookingRef} for "${event.title}" has been confirmed. ${quantity} ticket(s) reserved.`,
+        type: NotificationType.BOOKING,
+        eventId: id,
+        relatedEntityId: result.booking.id,
+        relatedEntityType: 'Booking',
+        dedupKey: `booking-confirmed-${result.booking.id}`,
+        link: `/events/${id}`,
       });
     } catch (notificationError) {
       logger.error('Failed to create booking confirmation notification', {

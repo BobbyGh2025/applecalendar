@@ -50,6 +50,7 @@ import {
 } from './payment-domain-errors';
 import type { NormalizedWebhookEvent } from './payment-provider';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from './notification-service';
 
 // ─── Types ───
 
@@ -306,6 +307,31 @@ export async function processWebhookEvent(
       });
 
       outcome = 'Payment failed';
+
+      // Notify user that their payment failed
+      try {
+        const booking = await db.booking.findUnique({
+          where: { id: payment.bookingId },
+          select: { bookingRef: true, event: { select: { title: true, id: true } } },
+        });
+        await dispatchNotification({
+          userId: payment.booking.userId,
+          title: 'Payment Failed',
+          message: `Your payment for booking ${booking?.bookingRef ?? payment.bookingId} on "${booking?.event.title ?? 'event'}" has failed. Please try again or contact support.`,
+          type: NotificationType.PAYMENT,
+          eventId: booking?.event.id,
+          relatedEntityId: payment.id,
+          relatedEntityType: 'Payment',
+          dedupKey: `payment-failed-${payment.id}`,
+          link: booking?.event.id ? `/events/${booking.event.id}` : undefined,
+        });
+      } catch (notificationError) {
+        // Notification failure does NOT roll back payment state
+        logger.error('Failed to send payment failure notification', {
+          paymentId: payment.id,
+          error: notificationError instanceof Error ? notificationError.message : 'unknown',
+        });
+      }
     } else {
       outcome = `Event type "${event.eventType}" not actionable`;
     }

@@ -729,3 +729,76 @@ Stage Summary:
 - Full suite: 1324 PASS, 4 FAIL (Paystack), 11 SKIP (PG)
 - Build: PASS | Lint: 2 pre-existing | TS: 24 pre-existing | Phase 6 errors: 0
 - Phase 5G blockers unchanged: CI workflow (PAT scope), Paystack sandbox (0 secrets)
+
+---
+Task ID: 24
+Agent: main
+Task: Phase 6B — Notification Reliability Audit and Hardening
+
+Work Log:
+- Verified remote branch at 6d8fcdb (Phase 6A), PR #2 open/draft/mergeable
+- Deep audit of Phase 6A: traced all execution paths in notification-service.ts, notification-channels.ts, API routes, payment webhook, refund service, booking cancel, admin moderate/verify, organizer-lifecycle
+- Identified 4 critical issues and 3 non-critical issues in Phase 6A
+
+Critical Issues Found and Fixed:
+- CRITICAL-1: Missing migration for Phase 6A schema changes — created migration 3_phase6_notification_delivery with all columns, NotificationPreference table, dedupKey unique index
+- CRITICAL-2: Booking cancel notification inside transaction — moved out of tx, now uses dispatchNotification() with try/catch, notification failure cannot roll back cancellation
+- CRITICAL-3: TOCTOU race in dispatchNotification dedup — two concurrent requests with same dedupKey could both pass findUnique and both create; fixed by catching P2002 unique constraint violation and returning wasDuplicate=true
+- CRITICAL-4: 8 inline db.notification.create() sites not using centralized service — migrated ALL to dispatchNotification() with try/catch: book route (2 sites), booking-confirmation, payment-expiry, admin moderate, admin verify, organizer-lifecycle
+
+Schema Migration Details:
+- 3_phase6_notification_delivery/migration.sql:
+  - ALTER TABLE Notification ADD: eventId, relatedEntityId, relatedEntityType, deliveryChannel, deliveryStatus, dedupKey, deliveredAt, failedAt, readAt
+  - CREATE UNIQUE INDEX Notification_dedupKey_key (partial — WHERE dedupKey IS NOT NULL)
+  - CREATE INDEX on (userId, deliveryStatus), (eventId), (relatedEntityId, relatedEntityType)
+  - CREATE TABLE NotificationPreference with unique(userId, type, channel)
+  - Safe migration: all new columns nullable or have defaults
+
+Delivery & Retry Semantics Verified:
+- Notification failure NEVER rolls back primary booking/payment/refund transaction
+- Status transitions: PENDING → SENT (success), PENDING → FAILED (permanent), stays PENDING (transient)
+- Retries with same dedupKey return wasDuplicate=true, do not create new notification
+- Provider exceptions caught and logged, do not crash dispatchNotification
+- Permanent failures set failedAt, transient failures do not
+
+New Test Coverage: 26 tests (phase6b-notification-reliability.test.ts)
+- 1. Concurrent dedup (TOCTOU race: 5 concurrent dispatches → 1 created, 4 duplicates)
+- 2. Delivery status transitions (PENDING → SENT)
+- 3. Provider failures (permanent vs transient, failedAt semantics)
+- 4. Provider exceptions (unexpected throws handled gracefully)
+- 5. Authorization (cross-user isolation in markAllRead, getUnreadCount)
+- 6. Mark-read semantics and idemp7a. Unread count consistency under concurrent updates
+- 8. Cancellation notification safety with dedupKey
+- 9. Notification failure never rolls back
+- 10. Schema field consistency (all Phase 6A fields present)
+- 11. Delivery channel edge cases (no phone, unregistered, mixed success/fail)
+- 12. Retries do not duplicate successful deliveries
+
+Inline Notification Sites Migrated (8 sites):
+- src/app/api/events/[id]/book/route.ts (2: paid + free booking)
+- src/lib/services/booking-confirmation.ts (1: payment confirmed)
+- src/lib/services/payment-expiry.ts (1: payment expired)
+- src/app/api/admin/events/[id]/moderate/route.ts (1: event approved/rejected)
+- src/app/api/admin/organizers/[id]/verify/route.ts (1: organizer verified/rejected)
+- src/lib/services/organizer-lifecycle.ts (1: lifecycle transitions)
+- src/app/api/bookings/[id]/cancel/route.ts (1: booking cancelled — moved out of tx)
+- Zero inline db.notification.create() calls remain (except in notification-service.ts itself)
+
+Test Results:
+- Phase 6A: 28/28 PASS (unchanged)
+- Phase 6B: 26/26 PASS (new)
+- Full suite: 1350 PASS, 4 FAIL (Paystack BLOCKED), 11 SKIP (PG on SQLite)
+- Production build: PASS
+- ESLint: 2 errors (pre-existing server-keeper.js, 0 Phase 6B)
+- TypeScript: 23 errors (all pre-existing, 0 Phase 6B)
+
+Stage Summary:
+- Phase 6B: Notification reliability audit and hardening — COMPLETE
+- 11 files changed, 972 insertions, 78 deletions
+- Commit: 7bde838 on branch phase5g-confirmation-race-guard
+- All inline notification sites migrated to centralized dispatchNotification()
+- TOCTOU race condition fixed with P2002 handling
+- Booking cancel notification safety: moved out of transaction
+- Migration created for Phase 6A schema changes
+- Phase 5G blockers unchanged: CI workflow (PAT scope), Paystack sandbox (0 secrets)
+- PR #2 remains draft — do not merge

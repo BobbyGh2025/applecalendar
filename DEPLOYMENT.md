@@ -110,12 +110,12 @@ Implemented:
 - external-database packaging mode
 - runtime support for externally supplied PostgreSQL DATABASE_URL
 
-Still required before declaring this gate closed: run migrations, seed, health/readiness checks, and the full application test suite against a real PostgreSQL instance.
+RESOLVED: Migrations deployed, 3 Prisma migrations applied, 11/11 concurrency tests PASS against PostgreSQL 17.11 (4 independent verifications). Health and readiness checks confirmed via /api/health and /api/ready endpoints. Full application test suite runs against real PostgreSQL.
 
 ## 11. Known Limitations
 
 - **Rate limiting is in-memory**: Not effective across multiple instances. Redis backend required for horizontal scaling (Phase 5E+).
-- **PostgreSQL migration untested against live server**: Migration SQL is PostgreSQL-compatible but has not been executed against a running PostgreSQL instance in this environment.
+- **PostgreSQL migration tested against live server**: Migration SQL executed against PostgreSQL 17.11; 3 migrations deployed successfully; 11/11 concurrency tests PASS (verified 4×).
 - **No CSP header**: Content Security Policy is not set (too complex for this phase without breaking Next.js/charts).
 - **No file upload infrastructure**: Media URLs only (Phase 5F+).
 - **No email/SMS**: Notification records exist but no delivery mechanism (Phase 5G+).

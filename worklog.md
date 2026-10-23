@@ -578,3 +578,51 @@ Stage Summary:
 - Full suite (with real PG 17): 1307 PASS, 4 FAIL (Paystack), 0 SKIP
 - Build: PASS | Lint: 2 pre-existing | TS: 25 pre-existing | Phase 5G errors: 0
 - PR #2 remains draft — do not merge until both BLOCKED gates pass
+
+---
+Task ID: 21
+Agent: main
+Task: Close Phase 5G — final verification, blocker documentation, next-phase analysis
+
+Work Log:
+- Verified remote at 97691fa, PR #2 open/draft/mergeable
+- Confirmed .github/workflows/ci.yml does NOT exist remotely (404)
+- Confirmed 0 workflow runs exist
+- Confirmed PAT scope: `repo` only — `workflow` ABSENT
+- Confirmed GitHub repository secrets: 0 total (no PAYSTACK_ secrets configured)
+- Confirmed all 3 Paystack env vars MISSING from environment and .env
+- STOPPED retrying CI installation — 5 methods exhausted across 6+ sessions, all blocked by PAT scope
+
+- PostgreSQL 17 Concurrency (4th independent verification):
+  - Fresh PG 17.11 install (apt download + dpkg-deb extraction)
+  - Initialized cluster, created applecalendar_test, deployed 3 migrations
+  - Result: 11/11 PASS (209ms)
+
+- Full Regression Suite:
+  - SQLite: 1311 total (1296 PASS, 4 FAIL, 11 SKIP)
+  - With PG 17: 1307 PASS, 4 FAIL (Paystack BLOCKED), 0 SKIP
+  - Production build: PASS
+  - ESLint: 2 errors (pre-existing server-keeper.js, 0 Phase 5G)
+  - TypeScript: 25 errors (all pre-existing, 0 Phase 5G)
+
+- Phase Roadmap Analysis:
+  - Reviewed worklog (21 tasks), DEPLOYMENT.md, agent-ctx docs, PR description
+  - Phase progression: 2 → 4a-h → 5b → 5c → 5d → 5e → 5f → 5g
+  - Phase 5G is the FINAL explicitly planned phase
+  - No explicit roadmap document defines Phase 5H or later
+  - DEPLOYMENT.md "Known Limitations" mentions future work informally:
+    1. Redis rate limiting (Phase 5E+ mentioned)
+    2. Content Security Policy header
+    3. File upload infrastructure (Phase 5F+)
+    4. Email/SMS notifications (Phase 5G+)
+  - These are informal references, NOT explicit phase definitions
+  - DECISION: Do not invent a new phase. Prepare prioritized backlog and await approval.
+
+Stage Summary:
+- Phase 5G code: COMPLETE — no implementation tasks remain
+- 5 PASS gates: seed guard (6/6), race guard (32/32), hardening (23/23), domain logic (26/26), PG 17 concurrency (11/11)
+- 2 BLOCKED gates: CI workflow (PAT scope), Paystack sandbox (secrets)
+- No explicit next phase in roadmap — backlog proposal required
+- Full suite: 1296 PASS (SQLite) / 1307 PASS (PG 17), 4 FAIL (Paystack), 11 SKIP (PG on SQLite)
+- Build: PASS | Lint: 2 pre-existing | TS: 25 pre-existing | Phase 5G errors: 0
+- PR #2 remains draft — do not merge

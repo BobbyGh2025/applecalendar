@@ -342,16 +342,100 @@ export async function dispatchWithSms(
   });
 }
 
+// ─── Event cancellation attendee notifications (Phase 6B) ───
+
+/**
+ * Notify all active bookers that an event was cancelled.
+ *
+ * Phase 6B fix D1: PATCH /api/events/[id] (PUBLISHED → CANCELLED) and the
+ * DELETE soft-delete path previously cancelled events silently — paying
+ * ticketholders were never told.
+ *
+ * Design:
+ *   - Caller resolves DISTINCT booker userIds for ACTIVE bookings
+ *     (status PENDING or CONFIRMED) — cancelled/refunded bookers excluded.
+ *   - dedupKey "event-cancelled-{eventId}-{userId}" makes retries and
+ *     re-cancellation attempts idempotent per user.
+ *   - Per-user try/catch: one failed dispatch never aborts the loop.
+ *   - This function NEVER throws — safe to call fire-and-forget after the
+ *     event state transition has committed.
+ */
+export async function notifyAttendeesEventCancelled(params: {
+  eventId: string;
+  eventTitle: string;
+  bookerUserIds: string[];
+}): Promise<{ notified: number; failed: number }> {
+  const { eventId, eventTitle, bookerUserIds } = params;
+  let notified = 0;
+  let failed = 0;
+
+  for (const userId of bookerUserIds) {
+    try {
+      await dispatchNotification({
+        userId,
+        title: 'Event Cancelled',
+        message: `The event "${eventTitle}" has been cancelled by the organizer. If you purchased tickets, you will be contacted regarding refunds.`,
+        type: NotificationType.EVENT_UPDATE,
+        eventId,
+        relatedEntityId: eventId,
+        relatedEntityType: 'Event',
+        dedupKey: `event-cancelled-${eventId}-${userId}`,
+        link: `/events/${eventId}`,
+      });
+      notified++;
+    } catch (error) {
+      failed++;
+      logger.error('Failed to dispatch event cancellation notification', {
+        eventId,
+        userId,
+        error: error instanceof Error ? error.message : 'unknown',
+      });
+    }
+  }
+
+  return { notified, failed };
+}
+
+/**
+ * Resolve the DISTINCT userIds of all active bookers (PENDING or CONFIRMED)
+ * for an event. Used by event cancellation flows so cancelled/refunded
+ * bookers are not re-notified.
+ */
+export async function getActiveBookerUserIds(eventId: string): Promise<string[]> {
+  const bookings = await db.booking.findMany({
+    where: { eventId, status: { in: ['PENDING', 'CONFIRMED'] } },
+    select: { userId: true },
+    distinct: ['userId'],
+  });
+  return bookings.map((b) => b.userId);
+}
+
 // ─── Mark as read ───
 
-export async function markNotificationRead(notificationId: string): Promise<void> {
-  await db.notification.update({
-    where: { id: notificationId },
+/**
+ * Mark a notification as read — OWNERSHIP ENFORCED.
+ *
+ * Phase 6B fix D2: previously updated by id alone with no userId scoping.
+ * The update is now scoped to { id, userId }; if the notification does not
+ * exist OR belongs to another user, count=0 and an error is thrown so the
+ * caller can map it to 404/403. Cross-user mutation is impossible.
+ */
+export async function markNotificationRead(
+  notificationId: string,
+  userId: string,
+): Promise<void> {
+  const result = await db.notification.updateMany({
+    where: { id: notificationId, userId },
     data: {
       isRead: true,
       readAt: new Date(),
     },
   });
+  if (result.count === 0) {
+    throw new Error(
+      `Notification ${notificationId} not found for user ${userId}`,
+    );
+  }
 }
 
 export async function markAllNotificationsRead(userId: string): Promise<number> {

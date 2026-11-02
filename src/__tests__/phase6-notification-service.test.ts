@@ -394,7 +394,7 @@ describe('Phase 6: Notification Service', () => {
         type: NotificationType.INFO,
       });
 
-      await markNotificationRead(result.notificationId);
+      await markNotificationRead(result.notificationId, testUser.id);
 
       const notification = await db.notification.findUnique({
         where: { id: result.notificationId },
@@ -458,7 +458,7 @@ describe('Phase 6: Notification Service', () => {
         message: 'Already read',
         type: NotificationType.INFO,
       });
-      await markNotificationRead(result.notificationId);
+      await markNotificationRead(result.notificationId, testUser.id);
 
       await dispatchNotification({
         userId: testUser.id,

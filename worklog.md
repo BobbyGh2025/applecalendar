@@ -802,3 +802,129 @@ Stage Summary:
 - Migration created for Phase 6A schema changes
 - Phase 5G blockers unchanged: CI workflow (PAT scope), Paystack sandbox (0 secrets)
 - PR #2 remains draft — do not merge
+
+---
+
+## Task 25 — Phase 6B Continuation: Reliability Audit Completion (2026-11-02)
+
+Continued from 00ce494 after a corrupted inspection session. Verified git state first:
+- Branch phase5g-confirmation-race-guard: local == remote == 00ce494 (in sync)
+- No unintended changes in working tree (only auto-generated .zscripts/dev.pid on main)
+- Worktree recreated at /home/z/phase6b-work from 00ce494
+
+### Completed Inspection Findings
+
+Confirmed Defects:
+- D1: Event cancellation never notified attendees (PATCH PUBLISHED→CANCELLED and
+  DELETE soft-delete path were silent). File: src/app/api/events/[id]/route.ts
+- D2: markNotificationRead(notificationId) updated by id with NO userId scoping
+  (unsafe exported service API; route had its own check). File:
+  src/lib/services/notification-service.ts
+- D3: Notification preferences had no API route; ensureDefaultPreferences never
+  called in production; consent unenforceable by users. Files:
+  src/lib/services/notification-service.ts (service-only helpers)
+
+Verified Sound (no bypasses):
+- db.notification.create exists ONLY in notification-service.ts (canonical path)
+- All 12 production call sites use dispatchNotification (book×2, cancel,
+  moderate, verify, webhook, expiry, booking-confirmation, refund×3, lifecycle)
+- Every dispatch is AFTER its business transaction, try/catch-wrapped
+- Schema parity: SQLite schema.prisma == PostgreSQL schema.postgresql.prisma for
+  Notification + NotificationPreference (fields, @@unique, @@index identical)
+- Migration 3_phase6_notification_delivery is additive-only (nullable columns +
+  defaults, partial unique index on dedupKey WHERE NOT NULL); DB-enforced dedup
+  is REQUIRED for the concurrent P2002 race path
+
+Incident (documented, recovered): between sessions the dev server on main
+re-pushed main's schema (which lacks Phase 6 columns) to db/custom.db, dropping
+Notification.deliveryChannel etc. Fixed via additive `prisma migrate diff` +
+`prisma db push` from the Phase 6 schema — data-preserving (SQLite table
+redefine copies all rows; NotificationPreference created fresh). No data lost.
+
+### Fixes Implemented
+
+Fix D1 — Event cancellation attendee notifications:
+- notifyAttendeesEventCancelled({eventId, eventTitle, bookerUserIds}) added to
+  notification-service.ts: per-user dispatch, dedupKey
+  "event-cancelled-{eventId}-{userId}", type EVENT_UPDATE, per-user try/catch,
+  NEVER throws, returns {notified, failed}
+- getActiveBookerUserIds(eventId): DISTINCT userIds of PENDING/CONFIRMED
+  bookings (cancelled/refunded bookers excluded)
+- Wired into PATCH /api/events/[id] (after status transition commits, guarded
+  by existingEvent.status !== 'CANCELLED') and DELETE soft-delete branch
+- Notification failure never fails the PATCH/DELETE response
+
+Fix D2 — markNotificationRead ownership hardening:
+- New signature: markNotificationRead(notificationId, userId)
+- Uses updateMany({where: {id, userId}}); count=0 → throws (caller maps 404/403)
+- Cross-user mutation now impossible at the service layer
+- All test call sites updated (6A: 2 sites, 6B: 6 sites); 6B test 5a now
+  actually asserts cross-user rejection (previously acknowledged the gap)
+
+Fix D3 — Notification preferences API:
+- New route: src/app/api/notifications/preferences/route.ts
+- GET: list authenticated user's preferences (empty = defaults)
+- PUT: zod-validated {type, channel, enabled} upsert scoped to session user
+  (userId NEVER taken from body); invalid type/channel → 400; unauth → 401
+
+### New Tests: phase6c-notification-hardening.test.ts (22 tests, all PASS)
+
+1. Event cancellation attendee notifications (6 tests):
+   1a. getActiveBookerUserIds: DISTINCT PENDING+CONFIRMED only (CANCELLED/
+       REFUNDED excluded, duplicate bookings deduped)
+   1b. one notification per booker with correct fields + SENT status
+   1c. re-run dedup: no duplicate rows
+   1d. parallel double-cancellation: exactly one row per booker (race safety)
+   1e. empty booker list: never throws, zero rows
+   1f. per-user failure isolation: 1 bad userId does not abort the loop
+2. Route-level authorization (12 tests, NextRequest + real session tokens):
+   2a. GET /api/notifications returns ONLY the authenticated user's rows
+   2b. unauthenticated list → 401
+   2c. cross-user mark-read → 403 + stays unread
+   2d. owner mark-read → 200 + read
+   2e. unread-count scoped per user (with byType breakdown)
+   2f. mark-all-read only touches authenticated user
+   2g. PUT preferences creates for session user only
+   2h/2i. invalid type/channel → 400 VALIDATION_ERROR
+   2j. unauthenticated preferences → 401 (GET + PUT)
+   2k. empty preferences = defaults
+   2l. unread count consistent when mark-all races with new dispatch
+3. Migration parity (4 tests):
+   3a. Notification model identical in both schemas (fields + attributes)
+   3b. NotificationPreference model identical in both schemas
+   3c. migration SQL provider-agnostic (no SQLite-only/PG-only syntax)
+   3d. dedupKey unique index is partial (NULLs excluded)
+
+### Test Results (all verified by actual runs)
+- Phase 6C: 22/22 PASS (new)
+- Phase 6 family: 76/76 PASS (28 6A + 26 6B + 22 6C)
+- Full suite: 1372 PASS, 4 FAIL (Paystack BLOCKED — 0 repo secrets, unchanged),
+  11 SKIP (PG concurrency on SQLite), 1 file skipped (PG-only)
+- Production build: PASS (bun run build, compiled successfully)
+- ESLint: 2 errors (pre-existing server-keeper.js require imports; 0 new)
+- TypeScript: 23 errors (all pre-existing; 0 Phase 6C — one TS1501 fixed)
+- DB integrity: additive db push re-applied Phase 6 columns to shared dev DB
+  without data loss (documented above)
+
+Known Limitations / Remaining Risks (documented, not fixed):
+- Bulk cancellation notify is in-request sequential (in-app only, 1 insert per
+  user, per-user isolation). Very large events → background queue is future
+  work; no queue infra approved for this phase
+- Feed cursor pagination (id < cursor + createdAt desc) can skip a row created
+  mid-pagination — acceptable for notification feeds
+- Bookers who sign up between event cancellation and re-cancellation share the
+  same dedupKey (event-cancelled-{eventId}-{userId}) — re-notification to the
+  SAME user is suppressed across status flips; acceptable trade-off
+- Admin verify route still lacks an audit-log entry (pre-existing; out of scope)
+- ensureDefaultPreferences is still not wired to signup (defaults are enforced
+  by the dispatch-time fallback: missing preference row = IN_APP enabled);
+  wiring it into registration is future work
+
+Phase 5G Blockers (unchanged, NOT resolved):
+- CI workflow: PAT lacks workflow scope — docs/ci-reference.yml requires manual
+  installation by a repo admin
+- Paystack sandbox: 0 GitHub repository secrets configured; 4 sandbox tests
+  remain BLOCKED (not fixed, not claimed fixed)
+- PR #2 remains DRAFT — do not merge
+
+Commit: (this commit) on branch phase5g-confirmation-race-guard

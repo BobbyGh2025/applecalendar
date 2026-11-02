@@ -6,6 +6,8 @@ import { updateEventSchema } from '@/lib/validations';
 import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
 import { verifyVenueAssignment } from '@/lib/services/venue-auth';
 import { filterPublicEventFields, filterPublicParticipantFields, filterPublicMediaFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
+import { notifyAttendeesEventCancelled, getActiveBookerUserIds } from '@/lib/services/notification-service';
+import { logger } from '@/lib/logger';
 
 import { slugify } from '@/lib/utils/slugify';
 
@@ -348,6 +350,29 @@ export async function PATCH(
       },
     });
 
+    // Phase 6B fix D1: notify active bookers when the event was cancelled.
+    // Runs AFTER the event update has committed; notification failure never
+    // fails the PATCH response. dedupKey per user makes retries idempotent.
+    if (updateData.status === 'CANCELLED' && existingEvent.status !== 'CANCELLED') {
+      try {
+        const bookerUserIds = await getActiveBookerUserIds(id);
+        const result = await notifyAttendeesEventCancelled({
+          eventId: id,
+          eventTitle: existingEvent.title,
+          bookerUserIds,
+        });
+        logger.info('Event cancellation notifications dispatched', {
+          eventId: id,
+          ...result,
+        });
+      } catch (notificationError) {
+        logger.error('Failed to dispatch event cancellation notifications', {
+          eventId: id,
+          error: notificationError instanceof Error ? notificationError.message : 'unknown',
+        });
+      }
+    }
+
     return NextResponse.json({ event: fullEvent });
   } catch (error) {
     return handleApiError(error);
@@ -391,6 +416,26 @@ export async function DELETE(
           where: { id },
           data: { status: 'CANCELLED', isBookable: false },
         });
+
+        // Phase 6B fix D1: notify active bookers of the cancellation.
+        // After the status transition commits; failure never fails DELETE.
+        try {
+          const bookerUserIds = await getActiveBookerUserIds(id);
+          const notifyResult = await notifyAttendeesEventCancelled({
+            eventId: id,
+            eventTitle: existingEvent.title,
+            bookerUserIds,
+          });
+          logger.info('Event soft-delete cancellation notifications dispatched', {
+            eventId: id,
+            ...notifyResult,
+          });
+        } catch (notificationError) {
+          logger.error('Failed to dispatch soft-delete cancellation notifications', {
+            eventId: id,
+            error: notificationError instanceof Error ? notificationError.message : 'unknown',
+          });
+        }
       }
 
       return NextResponse.json({

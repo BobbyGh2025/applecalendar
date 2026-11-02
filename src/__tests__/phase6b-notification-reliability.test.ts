@@ -319,11 +319,12 @@ describe('Phase 6B: Notification Reliability', () => {
         type: NotificationType.INFO,
       });
 
-      // Try to mark it as read using markNotificationRead (no user check in service)
-      // This tests the SERVICE layer — the API route has authorization,
-      // but the service function markNotificationRead doesn't.
-      // We verify the API route authorization separately.
-      // For now, verify that the notification belongs to otherUser
+      // D2 fix: markNotificationRead now requires the owner's userId.
+      // A cross-user attempt must throw and leave the notification unread.
+      await expect(
+        markNotificationRead(result.notificationId, testUser.id)
+      ).rejects.toThrow();
+
       const notification = await db.notification.findUnique({
         where: { id: result.notificationId },
       });
@@ -397,7 +398,7 @@ describe('Phase 6B: Notification Reliability', () => {
         type: NotificationType.INFO,
       });
 
-      await markNotificationRead(result.notificationId);
+      await markNotificationRead(result.notificationId, testUser.id);
 
       const notification = await db.notification.findUnique({
         where: { id: result.notificationId },
@@ -414,7 +415,7 @@ describe('Phase 6B: Notification Reliability', () => {
         type: NotificationType.INFO,
       });
 
-      await markNotificationRead(result.notificationId);
+      await markNotificationRead(result.notificationId, testUser.id);
       const firstRead = (await db.notification.findUnique({
         where: { id: result.notificationId },
         select: { readAt: true },
@@ -422,7 +423,7 @@ describe('Phase 6B: Notification Reliability', () => {
 
       // Small delay to detect if readAt changes
       await new Promise(r => setTimeout(r, 10));
-      await markNotificationRead(result.notificationId);
+      await markNotificationRead(result.notificationId, testUser.id);
       const secondRead = (await db.notification.findUnique({
         where: { id: result.notificationId },
         select: { readAt: true },
@@ -466,7 +467,7 @@ describe('Phase 6B: Notification Reliability', () => {
 
       // Concurrently mark all as read
       await Promise.all(
-        results.map(r => markNotificationRead(r.notificationId))
+        results.map(r => markNotificationRead(r.notificationId, testUser.id))
       );
 
       // Unread count should be 0
@@ -480,7 +481,7 @@ describe('Phase 6B: Notification Reliability', () => {
       await dispatchNotification({ userId: testUser.id, title: 'C', message: 'C', type: NotificationType.INFO });
 
       // Mark first as read
-      await markNotificationRead(r1.notificationId);
+      await markNotificationRead(r1.notificationId, testUser.id);
 
       const unread = await getUnreadCount(testUser.id);
       expect(unread).toBe(2);

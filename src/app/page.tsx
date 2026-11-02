@@ -25,6 +25,7 @@ import { OrganizerEventContent } from '@/components/organizer-event-content';
 import { MyBookings } from '@/components/my-bookings';
 import { MyTickets } from '@/components/my-tickets';
 import { NotificationsView } from '@/components/notifications-view';
+import { NotificationSettingsView } from '@/components/notification-settings-view';
 import { UserProfile } from '@/components/user-profile';
 import { ChangePassword } from '@/components/change-password';
 import { ForgotPassword } from '@/components/forgot-password';
@@ -79,6 +80,8 @@ function renderCurrentView() {
       return <MyTickets />;
     case 'notifications':
       return <NotificationsView />;
+    case 'notification-settings':
+      return <NotificationSettingsView />;
     case 'user-profile':
       return <UserProfile />;
     case 'change-password':

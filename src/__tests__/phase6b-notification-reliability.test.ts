@@ -220,6 +220,11 @@ describe('Phase 6B: Notification Reliability', () => {
     it('3a. permanent failure marks delivery status as FAILED', async () => {
       registerChannel(new PermanentFailChannel());
 
+      // Phase 6C: explicit opt-in — missing preference rows are treated as opted out
+      await setNotificationPreference(
+        testUser.id, NotificationType.PAYMENT, DeliveryChannel.EMAIL, true
+      );
+
       const result = await dispatchNotification({
         userId: testUser.id,
         title: 'Permanent Fail',
@@ -242,6 +247,11 @@ describe('Phase 6B: Notification Reliability', () => {
 
     it('3b. transient failure leaves status as PENDING (retryable)', async () => {
       registerChannel(new TransientFailChannel());
+
+      // Phase 6C: explicit opt-in — missing preference rows are treated as opted out
+      await setNotificationPreference(
+        testUser.id, NotificationType.PAYMENT, DeliveryChannel.EMAIL, true
+      );
 
       const result = await dispatchNotification({
         userId: testUser.id,
@@ -269,6 +279,11 @@ describe('Phase 6B: Notification Reliability', () => {
   describe('4. Provider exceptions (unexpected throws)', () => {
     it('4a. channel that throws does not crash dispatchNotification', async () => {
       registerChannel(new ThrowingChannel());
+
+      // Phase 6C: explicit opt-in — missing preference rows are treated as opted out
+      await setNotificationPreference(
+        testUser.id, NotificationType.BOOKING, DeliveryChannel.SMS, true
+      );
 
       // Should NOT throw — the exception is caught internally
       const result = await dispatchNotification({
@@ -548,6 +563,11 @@ describe('Phase 6B: Notification Reliability', () => {
       // Even with a failing channel, dispatchNotification should not throw
       registerChannel(new PermanentFailChannel());
 
+      // Phase 6C: explicit opt-in — missing preference rows are treated as opted out
+      await setNotificationPreference(
+        testUser.id, NotificationType.PAYMENT, DeliveryChannel.EMAIL, true
+      );
+
       const result = await dispatchNotification({
         userId: testUser.id,
         title: 'Fail Test',
@@ -635,6 +655,11 @@ describe('Phase 6B: Notification Reliability', () => {
     it('11a. SMS fails permanently when user has no phone', async () => {
       registerChannel(new MockSmsChannel());
 
+      // Phase 6C: explicit opt-in — missing preference rows are treated as opted out
+      await setNotificationPreference(
+        testUser.id, NotificationType.BOOKING, DeliveryChannel.SMS, true
+      );
+
       const result = await dispatchNotification({
         userId: testUser.id,
         title: 'SMS No Phone',
@@ -663,6 +688,11 @@ describe('Phase 6B: Notification Reliability', () => {
 
     it('11c. IN_APP always succeeds even if other channels fail', async () => {
       registerChannel(new PermanentFailChannel());
+
+      // Phase 6C: explicit opt-in — missing preference rows are treated as opted out
+      await setNotificationPreference(
+        testUser.id, NotificationType.PAYMENT, DeliveryChannel.EMAIL, true
+      );
 
       const result = await dispatchNotification({
         userId: testUser.id,

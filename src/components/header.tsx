@@ -6,10 +6,14 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { MobileMenuButton } from '@/components/sidebar-nav';
 import { useAppStore } from '@/stores/app-store';
-import { Search, Bell, User, LogOut, CalendarDays } from 'lucide-react';
+import { useUnreadCount } from '@/hooks/use-unread-count';
+import { Search, Bell, User, LogOut, CalendarDays, Settings2 } from 'lucide-react';
 
 export function Header() {
-  const { user, currentView, navigate, setSearchQuery, searchQuery, clearAuth } = useAppStore();
+  const { user, currentView, navigate, setSearchQuery, searchQuery, clearAuth, unreadCount } = useAppStore();
+
+  // Phase 6C: live unread badge (fetch on login + 30s light polling)
+  useUnreadCount();
 
   const showSearch = currentView === 'public-discover';
 
@@ -45,14 +49,27 @@ export function Header() {
       <div className="flex items-center gap-2 ml-auto">
         {user ? (
           <>
-            {/* Notification Bell */}
+            {/* Notification Bell with unread badge (Phase 6C) */}
             <Button
               variant="ghost"
               size="icon"
               className="relative"
               onClick={() => navigate('notifications')}
+              aria-label={
+                unreadCount > 0
+                  ? `Notifications (${unreadCount} unread)`
+                  : 'Notifications'
+              }
             >
               <Bell className="h-5 w-5" />
+              {unreadCount > 0 && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold leading-none text-white"
+                  aria-hidden="true"
+                >
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </Button>
 
             {/* User Dropdown */}
@@ -77,6 +94,9 @@ export function Header() {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('notifications')}>
                   <Bell className="h-4 w-4 mr-2" /> Notifications
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('notification-settings')}>
+                  <Settings2 className="h-4 w-4 mr-2" /> Notification Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={clearAuth} className="text-red-600">

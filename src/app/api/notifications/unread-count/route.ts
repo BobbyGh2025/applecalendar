@@ -13,14 +13,19 @@ export async function GET(request: NextRequest) {
   try {
     const user = await authenticate(request);
 
-    const count = await db.notification.count({
-      where: { userId: user.id, isRead: false },
-    });
+    // Phase 6C: SKIPPED records (user opted out) are excluded everywhere
+    const visibleWhere = {
+      userId: user.id,
+      isRead: false,
+      deliveryStatus: { not: 'SKIPPED' as const },
+    };
+
+    const count = await db.notification.count({ where: visibleWhere });
 
     // Breakdown by type
     const byType = await db.notification.groupBy({
       by: ['type'],
-      where: { userId: user.id, isRead: false },
+      where: visibleWhere,
       _count: { type: true },
     });
 

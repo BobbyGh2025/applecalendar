@@ -87,8 +87,30 @@ export interface DispatchResult {
     channel: string;
     success: boolean;
     error?: string;
+    /** True when the channel was NOT attempted because the user opted out */
+    skipped?: boolean;
   }>;
 }
+
+/**
+ * Phase 6C: default enablement when a user has NO preference row for a
+ * type+channel combination. Aligned with ensureDefaultPreferences():
+ *
+ *   - IN_APP  → enabled (the in-app feed is the base experience)
+ *   - EMAIL   → DISABLED (no consent = no email)
+ *   - SMS     → DISABLED (no consent = no SMS)
+ *
+ * Before Phase 6C a missing row was treated as enabled for EVERY channel,
+ * meaning existing users with no preference rows were implicitly opted in
+ * to EMAIL/SMS. Safe while no call site requested those channels, but a
+ * latent consent violation — now fixed so the fallback matches the
+ * registration-time defaults exactly.
+ */
+const DEFAULT_CHANNEL_ENABLED: Record<string, boolean> = {
+  [DeliveryChannel.IN_APP]: true,
+  [DeliveryChannel.EMAIL]: false,
+  [DeliveryChannel.SMS]: false,
+};
 
 // ─── Core: dispatch notification ───
 
@@ -183,8 +205,19 @@ export async function dispatchNotification(
   const channelsToUse = requestedChannels ?? [DeliveryChannel.IN_APP];
   const deliveryResults: DispatchResult['deliveryResults'] = [];
 
+  // Phase 6C opt-out tracking:
+  //   - inAppOptedOut: the user explicitly disabled IN_APP for this type.
+  //     The record is kept (dedup anchor) but marked SKIPPED so it does not
+  //     appear in the feed — enforced preference, not just metadata.
+  //   - anyChannelDelivered: if ANY requested channel actually delivered,
+  //     the record stays visible (e.g. user disabled IN_APP but enabled
+  //     EMAIL and the email was sent — the record reflects real delivery).
+  let inAppOptedOut = false;
+  let anyChannelDelivered = false;
+
   for (const channelName of channelsToUse) {
-    // 3a. Check user preference for this type+channel
+    // 3a. Check user preference for this type+channel.
+    // Missing row → DEFAULT_CHANNEL_ENABLED (IN_APP on, EMAIL/SMS off).
     const preference = await db.notificationPreference.findUnique({
       where: {
         userId_type_channel: { userId, type, channel: channelName },
@@ -192,28 +225,24 @@ export async function dispatchNotification(
       select: { enabled: true },
     });
 
-    // If preference exists and is disabled, skip this channel
-    // If no preference exists, default to enabled (opt-in not required for existing users)
-    if (preference !== null && !preference.enabled) {
+    const preferenceEnabled =
+      preference !== null
+        ? preference.enabled
+        : DEFAULT_CHANNEL_ENABLED[channelName] ?? true;
+
+    // User opted out of this type+channel — channel is NOT attempted.
+    if (!preferenceEnabled) {
       logger.debug('Notification skipped — user preference disabled', {
         userId,
         type,
         channel: channelName,
+        source: preference !== null ? 'preference_row' : 'safe_default',
       });
 
-      // For IN_APP, still mark as SENT (the record exists = delivered)
       if (channelName === DeliveryChannel.IN_APP) {
-        await db.notification.update({
-          where: { id: notification.id },
-          data: {
-            deliveryStatus: DeliveryStatus.SENT,
-            deliveredAt: new Date(),
-          },
-        });
-        deliveryResults.push({ channel: channelName, success: true });
-      } else {
-        deliveryResults.push({ channel: channelName, success: true });
+        inAppOptedOut = true;
       }
+      deliveryResults.push({ channel: channelName, success: true, skipped: true });
       continue;
     }
 
@@ -275,6 +304,7 @@ export async function dispatchNotification(
             deliveredAt: new Date(),
           },
         });
+        anyChannelDelivered = true;
         deliveryResults.push({ channel: channelName, success: true });
       } else {
         // Delivery failed — update status
@@ -305,6 +335,17 @@ export async function dispatchNotification(
         error: 'Channel threw unexpected error',
       });
     }
+  }
+
+  // Phase 6C: if the user opted out of IN_APP and no other channel
+  // delivered, mark the record SKIPPED. The row remains as the dedup
+  // anchor (retries stay idempotent) but is excluded from the feed and
+  // unread counts by the list/unread-count routes.
+  if (inAppOptedOut && !anyChannelDelivered) {
+    await db.notification.update({
+      where: { id: notification.id },
+      data: { deliveryStatus: DeliveryStatus.SKIPPED },
+    });
   }
 
   return {
@@ -453,7 +494,12 @@ export async function markAllNotificationsRead(userId: string): Promise<number> 
 
 export async function getUnreadCount(userId: string): Promise<number> {
   return db.notification.count({
-    where: { userId, isRead: false },
+    where: {
+      userId,
+      isRead: false,
+      // Phase 6C: records the user opted out of (SKIPPED) are never counted
+      deliveryStatus: { not: DeliveryStatus.SKIPPED },
+    },
   });
 }
 

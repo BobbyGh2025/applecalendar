@@ -928,3 +928,121 @@ Phase 5G Blockers (unchanged, NOT resolved):
 - PR #2 remains DRAFT — do not merge
 
 Commit: (this commit) on branch phase5g-confirmation-race-guard
+
+---
+
+## Task 26 — Phase 6C: Notification Lifecycle and User Interface (2026-11-02)
+
+Start point: commit 42e41a1 (Phase 6B completion). Branch phase5g-confirmation-race-guard,
+worktree /home/z/phase6b-work (clean at start), local = remote verified before any change.
+
+### Inspection findings (reported before implementation)
+- G1: ensureDefaultPreferences existed but was never wired to registration
+  (deferred in Phase 6B). New users relied on dispatch-time fallback.
+- G2: dispatch fallback treated a MISSING preference row as enabled for EVERY
+  channel — existing users without rows were implicitly opted in to EMAIL/SMS.
+  Latent consent violation (no call site requests EMAIL/SMS today, so no live
+  exposure). 13 dispatch call sites audited — all use default [IN_APP].
+- G3: opting out of IN_APP for a type still created a visible, SENT record.
+- G4: preferences API existed (GET/PUT, session-scoped, zod) but no UI.
+- G5: notification centre gaps — no unread badge (unread-count API unused),
+  no mark-all UI, no pagination/filter UI, legacy type icon map, navigation
+  ignored relatedEntityType/link, silent mark-read failure, no error state.
+
+### Fixes implemented (all verified by tests)
+1. Registration integration (G1) — src/app/api/auth/route.ts:
+   ensureDefaultPreferences(user.id) awaited right after the audit log,
+   wrapped in .catch(logger.error) — registration NEVER fails because of
+   preference init. Idempotent upserts; 15 rows (5 types × 3 channels);
+   defaults IN_APP=true, EMAIL/SMS=false (consent-safe).
+2. Safe fallback for existing users (G2) — notification-service.ts:
+   DEFAULT_CHANNEL_ENABLED {IN_APP: true, EMAIL: false, SMS: false}.
+   Missing row → EMAIL/SMS channels are NOT attempted. Matches
+   ensureDefaultPreferences exactly. (Behavior change: 6A/6B provider-failure
+   tests now explicitly opt in via setNotificationPreference — their
+   failure-path intent is preserved; updated with Phase 6C comments.)
+3. IN_APP opt-out is now enforced (G3) — dispatchNotification: opted-out
+   IN_APP + no other channel delivered → record marked SKIPPED. Row is kept
+   as the dedup anchor (retries stay idempotent) but is excluded from the
+   list route, unread-count route (count + byType), and service
+   getUnreadCount. If EMAIL was enabled and delivered, the record stays
+   visible (reflects real delivery). DispatchResult entries carry
+   skipped?: boolean for opted-out channels.
+4. Preferences UI (G4) — src/components/notification-settings-view.tsx:
+   5 types × 3 channels matrix with Switch controls; server defaults shown
+   for missing rows; optimistic save with rollback + toast on failure;
+   channel legend; explicit "mock provider — no real messages sent" copy
+   (no real email/SMS claimed anywhere). Wired as new AppView
+   'notification-settings' (app-store, page.tsx, sidebar-nav for all 4
+   roles, header dropdown, and a Settings button inside the centre).
+   Ownership: UI only calls session-token endpoints; server derives userId
+   from session (cross-user writes impossible — retested).
+5. Notification centre (G5) — src/components/notifications-view.tsx rebuilt:
+   unread badge chip + per-row dot/left border; row click AND explicit
+   mark-read button (aria-labels); mark-all-read with count feedback;
+   All/Unread tabs; type filter Select; cursor pagination (Load more,
+   limit 20); correct icon/color map for BOOKING/PAYMENT/REFUND/
+   EVENT_UPDATE/SYSTEM/INFO; navigation: eventId → event-detail,
+   Booking/Payment/Refund → my-bookings, /events/{id} deep link fallback;
+   distinct empty (all-caught-up vs filtered), loading skeleton, and error
+   + Retry states; keyboard accessible rows; responsive mobile/desktop.
+6. Header unread badge — src/hooks/use-unread-count.ts (fetch on login +
+   30s light polling, silent failure); badge on the bell (9+ cap, aria-label
+   with unread count); live in both header and centre via store count.
+
+### Tests added (28 new — all verified by actual runs)
+- phase6c-notification-lifecycle.test.ts (13, node env):
+  1a/1b/1c registration initializes 15 consent-safe rows, idempotency
+  preserves user choices, duplicate register 409;
+  2a/2b missing-row fallback: EMAIL/SMS never attempted (channel spies
+  assert .sent length 0), default IN_APP dispatch unchanged;
+  3a/3b/3c/3d opt-out enforcement: disabled EMAIL never attempted, IN_APP
+  SKIPPED + hidden from list/unread-count, IN_APP-off + EMAIL-on stays
+  visible, SKIPPED row remains dedup anchor;
+  4a/4b/4c PUT→dispatch integration, 5 concurrent PUTs → exactly 5 rows,
+  GET returns only own rows;
+  5a service+routes all exclude SKIPPED.
+- phase6c-notification-ui.test.tsx (15, jsdom + Testing Library —
+  @testing-library/react/jest-dom/user-event added as devDeps):
+  centre render/unread indicators, row click marks read + badge decrement,
+  mark-all (stateful mock) + refetch, unread tab → unreadOnly=true,
+  cursor pagination appends, empty state, error + Retry;
+  preferences matrix defaults, persisted rows override, toggle PUT payload
+  + success toast, failed save reverts + error toast, load-error Retry;
+  header badge present/absent, logged-out header.
+
+### Test Results (verified by actual runs this session)
+- Phase 6 family: 104/104 PASS (28 6A + 26 6B + 22 6B-hardening +
+  13 6C-lifecycle + 15 6C-UI)
+- Full suite: 1400 PASS / 4 FAIL / 11 SKIP (1 file skipped, PG-only)
+  — the 4 FAIL are the PRE-EXISTING Paystack sandbox BLOCKED tests
+  (0 repo secrets, unchanged since Phase 5G; NOT claimed fixed)
+- Production build: PASS (bun run build, compiled successfully)
+- ESLint: 2 errors (pre-existing server-keeper.js require imports; 0 new)
+- TypeScript: 23 errors (all pre-existing; 0 in Phase 6C files)
+- devDeps added: @testing-library/react, @testing-library/jest-dom,
+  @testing-library/user-event (test-only; no runtime impact)
+
+### Safeguards preserved
+- No schema changes this phase (0 migrations; Phase 6B models reused as-is)
+- No real email/SMS provider introduced; mock channels only, UI copy says so
+- Dispatch remains after-commit + never rolls back primary transactions
+- All Phase 5G payment safeguards untouched; PR #2 remains DRAFT — do not merge
+- No secrets exposed; no test weakened (opt-in lines ADDED to preserve
+  failure-path coverage under the new consent-safe fallback)
+- CI workflow + Paystack sandbox blockers UNCHANGED and NOT claimed resolved
+
+### Known limitations / remaining risks
+- EMAIL/SMS remain unreachable in production code paths (no caller requests
+  them). Enabling them later now requires BOTH an explicit preference row
+  (or UI opt-in) — by design.
+- SKIPPED + later re-enabled: the dedup anchor suppresses re-delivery of the
+  same logical event (one-shot semantics), consistent with the 6B
+  re-cancellation trade-off.
+- mark-all-read may count SKIPPED rows in its "markedRead" total (they are
+  isRead=false internally); they are invisible either way — cosmetic only.
+- Unread badge polls every 30s (no websocket infra approved for this phase).
+- Registration preference init is awaited (15 upserts, ~10-30ms); a failure
+  logs and continues — dispatch-time fallback covers any missing rows.
+
+Commit: (this commit) on branch phase5g-confirmation-race-guard

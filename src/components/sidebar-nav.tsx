@@ -26,6 +26,7 @@ import {
   Building2,
   UserCog,
   MapPin,
+  Settings2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -41,6 +42,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'my-bookings', label: 'My Bookings', icon: Ticket },
     { view: 'my-tickets', label: 'My Tickets', icon: QrCode },
     { view: 'notifications', label: 'Notifications', icon: Bell },
+    { view: 'notification-settings', label: 'Notification Settings', icon: Settings2 },
     { view: 'user-profile', label: 'Profile', icon: UserCircle },
     { view: 'change-password', label: 'Change Password', icon: Lock },
   ],
@@ -53,6 +55,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'my-bookings', label: 'My Bookings', icon: Ticket },
     { view: 'my-tickets', label: 'My Tickets', icon: QrCode },
     { view: 'notifications', label: 'Notifications', icon: Bell },
+    { view: 'notification-settings', label: 'Notification Settings', icon: Settings2 },
     { view: 'organizer-ads', label: 'Advertisements', icon: Megaphone },
     { view: 'organizer-venues', label: 'Venues', icon: MapPin },
     { view: 'organizer-profile', label: 'Org Profile', icon: Building2 },
@@ -64,6 +67,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'public-discover', label: 'Discover Events', icon: CalendarDays },
     { view: 'my-tickets', label: 'Check Tickets', icon: ScanLine },
     { view: 'notifications', label: 'Notifications', icon: Bell },
+    { view: 'notification-settings', label: 'Notification Settings', icon: Settings2 },
     { view: 'user-profile', label: 'Profile', icon: UserCircle },
     { view: 'change-password', label: 'Change Password', icon: Lock },
   ],
@@ -75,6 +79,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { view: 'admin-ads', label: 'Advertisements', icon: Megaphone },
     { view: 'admin-organizers', label: 'Organizers', icon: Building2 },
     { view: 'notifications', label: 'Notifications', icon: Bell },
+    { view: 'notification-settings', label: 'Notification Settings', icon: Settings2 },
     { view: 'user-profile', label: 'Profile', icon: UserCircle },
     { view: 'change-password', label: 'Change Password', icon: Lock },
   ],

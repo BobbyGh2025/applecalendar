@@ -352,6 +352,11 @@ describe('Phase 6: Notification Service', () => {
       const failEmail = new MockEmailChannel({ shouldFail: true });
       registerChannel(failEmail);
 
+      // Phase 6C: explicit opt-in — missing preference rows are treated as opted out
+      await setNotificationPreference(
+        testUser.id, NotificationType.PAYMENT, DeliveryChannel.EMAIL, true
+      );
+
       const result = await dispatchWithEmail({
         userId: testUser.id,
         title: 'Fail Test',
@@ -369,6 +374,11 @@ describe('Phase 6: Notification Service', () => {
   describe('7. Mock SMS channel', () => {
     it('7a. SMS fails permanently when user has no phone', async () => {
       // User has no phone by default
+      // Phase 6C: explicit opt-in — missing preference rows are treated as opted out
+      await setNotificationPreference(
+        testUser.id, NotificationType.BOOKING, DeliveryChannel.SMS, true
+      );
+
       const result = await dispatchNotification({
         userId: testUser.id,
         title: 'SMS Test',

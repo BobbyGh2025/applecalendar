@@ -15,7 +15,12 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10), 100);
 
     // Build where clause
-    const where: Record<string, unknown> = { userId: user.id };
+    // Phase 6C: records the user opted out of (deliveryStatus SKIPPED) are
+    // kept only as dedup anchors — they never appear in the feed.
+    const where: Record<string, unknown> = {
+      userId: user.id,
+      deliveryStatus: { not: 'SKIPPED' },
+    };
     if (unreadOnly) where.isRead = false;
     if (type) where.type = type;
 
@@ -34,9 +39,13 @@ export async function GET(request: NextRequest) {
     const items = hasMore ? notifications.slice(0, limit) : notifications;
     const nextCursor = hasMore ? items[items.length - 1].id : null;
 
-    // Get unread count
+    // Get unread count (SKIPPED records excluded — Phase 6C)
     const unreadCount = await db.notification.count({
-      where: { userId: user.id, isRead: false },
+      where: {
+        userId: user.id,
+        isRead: false,
+        deliveryStatus: { not: 'SKIPPED' },
+      },
     });
 
     return NextResponse.json({

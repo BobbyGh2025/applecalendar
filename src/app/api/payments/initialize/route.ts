@@ -79,6 +79,22 @@ export async function POST(request: NextRequest) {
       provider,
     });
 
+    // Phase 6D verification (H-2): a terminal-state payment must never be
+    // re-initialized. Previously, the idempotency fallback returned the
+    // EXISTING payment (e.g. status FAILED) with requiresPaymentAction=true,
+    // and this route re-issued a Paystack authorization URL for it. FAILED is
+    // terminal: the webhook/verify paths reject success for terminal
+    // non-COMPLETED payments, so a user who paid at the re-issued URL would be
+    // charged with no path to confirmation. The booking must be recreated.
+    const TERMINAL_PAYMENT_STATUSES = ['FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED'];
+    if (TERMINAL_PAYMENT_STATUSES.includes(result.status)) {
+      throw new ApiError(
+        400,
+        'PAYMENT_NOT_RETRYABLE',
+        `The payment for this booking is in ${result.status} state and cannot be retried. Please create a new booking.`
+      );
+    }
+
     // If provider requires initialization, attempt provider-side initialization
     let authorizationUrl: string | null = result.authorizationUrl;
     let providerRef: string | null = null;

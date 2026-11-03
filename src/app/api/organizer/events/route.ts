@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
 
-    const parsed = organizerEventsQuerySchema.safeParse(searchParams);
+    // Phase 6D verification (M-7): convert URLSearchParams (see events route).
+    const parsed = organizerEventsQuerySchema.safeParse(Object.fromEntries(searchParams));
     if (!parsed.success) {
       return ApiError.fromZodError(parsed.error).toResponse();
     }

@@ -172,11 +172,16 @@ export async function POST(
         });
 
         // Create payment record via domain service
+        // Phase 6D verification (C-1): pass the transaction client — the Payment
+        // INSERT must run on the SAME connection as the Booking row, or its FK
+        // check blocks on the uncommitted Booking and the interactive transaction
+        // times out (every paid booking would fail on PostgreSQL).
         const paymentResult = await createBookingPayment({
           bookingId: booking.id,
           userId: user.id,
           amount: totalAmount,
           currency: ticketType.currency,
+          tx,
         });
 
         // Set booking expiry to match payment expiry
@@ -283,11 +288,13 @@ export async function POST(
       });
 
       // Create COMPLETED FREE payment via domain service
+      // Phase 6D verification (C-1): same connection requirement as the paid path.
       const paymentResult = await createBookingPayment({
         bookingId: booking.id,
         userId: user.id,
         amount: 0,
         currency: ticketType.currency,
+        tx,
       });
 
       // Create tickets as PENDING then immediately activate them

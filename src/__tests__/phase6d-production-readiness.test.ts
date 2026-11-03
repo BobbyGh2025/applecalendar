@@ -48,6 +48,7 @@ import bcrypt from 'bcryptjs';
 // ─── Services under test ───
 import { reserveInventory, releaseReservation } from '@/lib/services/inventory';
 import { generateIdempotencyKey } from '@/lib/services/booking-payment';
+import * as bookingPaymentModule from '@/lib/services/booking-payment';
 import { createPendingTickets } from '@/lib/services/ticket-service';
 import { processWebhookEvent } from '@/lib/services/payment-webhook';
 import { WebhookAmountMismatch } from '@/lib/services/payment-domain-errors';
@@ -744,8 +745,14 @@ describe('H1: inventory reservation rolls back with the booking transaction', ()
     const event = await createEvent(org.id);
     const tt = await createTicketType(event.id, 5000, 10);
 
-    // Force the payment creation (inside the booking transaction) to fail
-    const createSpy = vi.spyOn(db.payment, 'create').mockRejectedValueOnce(new Error('injected tx failure'));
+    // Force the payment creation (inside the booking transaction) to fail.
+    // Phase 6D verification (C-1): createBookingPayment now runs on the TX
+    // client inside the transaction, so the failure is injected at the service
+    // module boundary — the injected failure lands INSIDE the interactive
+    // transaction exactly where the real payment INSERT happens.
+    const createSpy = vi
+      .spyOn(bookingPaymentModule, 'createBookingPayment')
+      .mockRejectedValueOnce(new Error('injected tx failure'));
 
     const response = await bookRoute(
       await authedRequest(user, `/api/events/${event.id}/book`, {
@@ -771,8 +778,11 @@ describe('H1: inventory reservation rolls back with the booking transaction', ()
     const event = await createEvent(org.id, { isPaid: false });
     const tt = await createTicketType(event.id, 0, 10);
 
-    // The free path also creates a payment row (FREE provider) inside the tx
-    const createSpy = vi.spyOn(db.payment, 'create').mockRejectedValueOnce(new Error('injected tx failure'));
+    // The free path also creates a payment row (FREE provider) inside the tx.
+    // C-1: inject the failure at the service boundary (see paid-path note).
+    const createSpy = vi
+      .spyOn(bookingPaymentModule, 'createBookingPayment')
+      .mockRejectedValueOnce(new Error('injected tx failure'));
 
     const response = await bookRoute(
       await authedRequest(user, `/api/events/${event.id}/book`, {

@@ -6,6 +6,9 @@
 |----------|----------|--------|-------------|
 | `DATABASE_URL` | Yes | Yes | PostgreSQL connection string |
 | `JWT_SECRET` | Yes | Yes | JWT signing secret (min 32 chars, `openssl rand -hex 32`) |
+| `PAYSTACK_SECRET_KEY` | Yes | Yes | Paystack secret key (`sk_live_…` / `sk_test_…`) — startup fails without it |
+| `PAYSTACK_PUBLIC_KEY` | Yes | No | Paystack public key (`pk_live_…` / `pk_test_…`) |
+| `PAYSTACK_WEBHOOK_SECRET` | Yes | Yes | Paystack webhook HMAC secret — required for webhook verification |
 | `APP_URL` | Yes | No | Public application URL |
 | `CORS_ALLOWED_ORIGINS` | Yes | No | Comma-separated allowed origins |
 | `DEFAULT_CURRENCY` | No | No | Default currency code (default: GHS) |
@@ -71,6 +74,9 @@ bun run build
 NODE_ENV=production \
 DATABASE_URL="postgresql://..." \
 JWT_SECRET="..." \
+PAYSTACK_SECRET_KEY="sk_live_..." \
+PAYSTACK_PUBLIC_KEY="pk_live_..." \
+PAYSTACK_WEBHOOK_SECRET="..." \
 APP_URL="https://app.applecalendar.com" \
 CORS_ALLOWED_ORIGINS="https://app.applecalendar.com" \
 bun .next/standalone/server.js
@@ -124,6 +130,6 @@ RESOLVED: Migrations deployed, 3 Prisma migrations applied, 11/11 concurrency te
 
 - **Rate limiting is in-memory**: Not effective across multiple instances. Redis backend required for horizontal scaling (Phase 5E+).
 - **PostgreSQL migration tested against live server**: Migration SQL executed against PostgreSQL 17.11; 3 migrations deployed successfully; 11/11 concurrency tests PASS (verified 4×).
-- **No CSP header**: Content Security Policy is not set (too complex for this phase without breaking Next.js/charts).
+- **CSP `script-src` allows `'unsafe-eval'`**: required by Next.js dev/React tooling today; tightening to nonce-based CSP is future work (Phase 6D added CSP to all routes; the eval allowance is the remaining weakness).
 - **No file upload infrastructure**: Media URLs only (Phase 5F+).
 - **No email/SMS**: Notification records exist but no delivery mechanism (Phase 5G+).

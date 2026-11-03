@@ -14,7 +14,10 @@ export async function GET(request: NextRequest) {
 
     // Dashboard stats endpoint
     if (type === 'stats') {
-      const parsed = paginationSchema.safeParse(searchParams);
+      // Phase 6D verification (M-7): URLSearchParams must be converted to a
+      // plain object — Zod reads plain properties only, so passing the raw
+      // URLSearchParams silently ignored every query filter.
+      const parsed = paginationSchema.safeParse(Object.fromEntries(searchParams));
       if (!parsed.success) {
         return ApiError.fromZodError(parsed.error).toResponse();
       }
@@ -92,7 +95,7 @@ export async function GET(request: NextRequest) {
 
     // Users list endpoint
     if (type === 'users') {
-      const parsed = usersQuerySchema.safeParse(searchParams);
+      const parsed = usersQuerySchema.safeParse(Object.fromEntries(searchParams));
       if (!parsed.success) {
         return ApiError.fromZodError(parsed.error).toResponse();
       }

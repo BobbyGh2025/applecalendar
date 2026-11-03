@@ -1153,3 +1153,73 @@ received idempotent seed upserts (update: {}) by accident of shell env, no
 data loss.
 
 Commit: (this commit) on branch phase5g-confirmation-race-guard
+
+---
+
+## Task 28 — Phase 6D verification round: independent audit sweep + fixes (2026-11-03)
+
+Context: the Phase 6D execution (Task 27, commit 7426624) was pushed before its session context
+was lost. This round RE-VERIFIED every Task 27 claim from scratch (rule: do not trust the report),
+then ran an independent audit sweep, personally verified each new finding against the code, and
+fixed the confirmed critical/high ones. All fixes additive; no schema changes; no provider
+activation; PR #2 stays draft.
+
+### Task 27 evidence re-verified (all confirmed)
+- 7426624 is HEAD of phase5g-confirmation-race-guard (local AND origin); PR #2 open, draft=true,
+  not merged (GitHub API). Working tree on main did NOT contain 6D — synced from the pushed diff.
+- Phase 6D suite 36/36, 5G+6A-6C regression 159/159, full suite 1437 PASS / 4 FAIL (exactly the
+  pre-existing BLOCKED Paystack 2a-2d), tsc 0 errors, eslint clean, build green, PG 17.11
+  concurrency 11/11 — every number reproduced independently.
+
+### New verified findings → fixed this round
+- C-1 (CRITICAL, pre-existing at 5d1ccca): booking route called createBookingPayment (global db
+  connection) INSIDE db.$transaction on BOTH paid and free paths — on PostgreSQL the Payment
+  INSERT blocks on the uncommitted Booking FK until the interactive transaction times out:
+  EVERY booking fails with a 5s hang. Never caught: no test exercised the route success path.
+  FIX: optional tx param on createBookingPayment, threaded from both book-route paths; success-path
+  route tests (paid+free), tx-participation rollback proof, and a PG-gated route test (PASS on
+  real PG 17.11).
+- H-2: payment initialize re-issued a Paystack authorization URL for a TERMINAL payment returned
+  by the idempotency fallback (FAILED/CANCELLED/EXPIRED/REFUNDED). charge.success for such a
+  payment is discarded and verify refuses it — user could be charged with no path to tickets.
+  FIX: 400 PAYMENT_NOT_RETRYABLE; control test proves genuine PENDING still initializes.
+- H-3: full refund completion closed the ledger but left tickets VALID + booking CONFIRMED —
+  free entry after refund via check-in (which only inspects ticket.status). FIX:
+  processRefundCompletion now cancels non-USED tickets, restores soldCount for VALID ones
+  (guarded helper, portable SQL), and transitions Booking → REFUNDED; partial refunds untouched.
+- H-4: booking cancel classified inventory ops from a PRE-TX ticket snapshot; a confirm committing
+  between snapshot and tx skipped restoreSoldCount forever (permanent soldCount leak; user paid,
+  booking cancelled, no inventory freed). FIX: classify from in-transaction state; race simulated
+  in test via mocked pre-read + real interleaved confirm; soldCount correctly restored.
+- H-5: verifyAccessToken never bound session.userId to the token's userId claim (silent account
+  takeover if the signing secret leaks); JWT_SECRET strength unenforced. FIX: session-owner
+  binding + production gate (>=32 chars, no known placeholder) in validateEnv.
+- H-6: cross-tenant event exposure — list route let any ORGANIZER/STAFF read ANY organizer's
+  events at ANY status unscoped; detail route returned the FULL object (contactEmail/Phone,
+  rejectionReason, moderatedBy/At) to non-owners. FIX: getViewerOrganizerIds (profile→owner-USER
+  mapping, mirroring organizer/events) scopes non-public statuses to own orgs; non-owners get
+  public treatment (404 for non-visible, filtered fields otherwise); SUPER_ADMIN unaffected.
+- M-7 (pre-existing, user-facing): SIX routes passed raw URLSearchParams to Zod safeParse — Zod
+  reads plain properties only, so EVERY query filter (status, search, category, date, city,
+  isFree, venue; users/venues/ads equivalents) was silently a no-op. admin/venues, payments,
+  callback and venues already used Object.fromEntries (pattern existed). FIXED all six:
+  events, admin (stats+users), organizer/events, organizer/venues, ads.
+
+### Documented, NOT implemented (operator/next phase)
+- localStorage-held refresh token (move to httpOnly cookie); refresh route unthrottled;
+  registration/login enumeration; logout revokes all sessions; socialLinks scheme validation;
+  token-cleanup schedulers never wired; no account self-deletion; duplicate-refund TOCTOU
+  (needs partial unique index — schema change deferred); DEPLOYMENT.md env eager-validation;
+  admin user role-change audit log; inventory-hold squatting cap; urlField length cap;
+  ticket-type quantity vs sold+reserved check; CSP script-src 'unsafe-eval'; Caddyfile
+  XTransformPort must never ship to production (sandbox artifact).
+
+### Verification (actual runs, this round)
+- New src/__tests__/phase6d2-verified-fixes.test.ts: 18/18 PASS on SQLite; PG-gated C-1 route
+  test PASS on PostgreSQL 17.11. phase6d-production-readiness.test.ts 36/36 (H1 failure
+  injection moved to the service boundary — createBookingPayment now runs on the tx client).
+- 5G+6A-6C regression: 159/159. Full suite (48 files, chunked): 1455 PASS / 4 FAIL (pre-existing
+  BLOCKED Paystack) / 12 skipped. tsc --noEmit: 0 errors (sqlite AND pg schema). ESLint: exit 0.
+  Production build: compiled successfully. PG 17.11: migrations applied, concurrency 11/11.
+
+Commit: (this commit) on branch phase5g-confirmation-race-guard

@@ -83,22 +83,11 @@ export async function PATCH(
       // No body or invalid JSON — no reason provided, that's fine
     }
 
-    // Classify tickets by type for inventory operations
+    // Classify tickets for logging/notification counts only — inventory
+    // operations are classified from FRESH in-transaction state (H-4 below),
+    // because this snapshot can be stale under the cancel-vs-confirm race.
     const validTickets = booking.tickets.filter(t => t.status === 'VALID');
     const pendingTickets = booking.tickets.filter(t => t.status === 'PENDING');
-
-    // Build ticket type count maps for inventory operations
-    const validTicketTypeCounts = new Map<string, number>();
-    for (const ticket of validTickets) {
-      const count = validTicketTypeCounts.get(ticket.ticketTypeId) || 0;
-      validTicketTypeCounts.set(ticket.ticketTypeId, count + 1);
-    }
-
-    const pendingTicketTypeCounts = new Map<string, number>();
-    for (const ticket of pendingTickets) {
-      const count = pendingTicketTypeCounts.get(ticket.ticketTypeId) || 0;
-      pendingTicketTypeCounts.set(ticket.ticketTypeId, count + 1);
-    }
 
     // Perform cancellation transactionally
     const result = await db.$transaction(async (tx) => {
@@ -116,11 +105,24 @@ export async function PATCH(
         throw new ApiError(409, 'CONFLICT', 'Booking has already been cancelled or is no longer cancellable');
       }
 
-      const updatedBooking = await tx.booking.findUnique({
-        where: { id: bookingId },
+      // Phase 6D verification (H-4): re-read ticket statuses INSIDE the
+      // transaction, after the conditional booking update. The pre-transaction
+      // snapshot can be stale: if confirmBookingOnPaymentSuccess commits
+      // between the snapshot and this transaction (exactly when users hit
+      // cancel after paying), the snapshot says PENDING while the tickets are
+      // actually VALID/sold — classifying from the snapshot then released
+      // reservedCount that was already zeroed and NEVER restored soldCount,
+      // permanently leaking inventory. Classification now derives from the
+      // in-transaction state, which is correct for every interleaving.
+      const freshTickets = await tx.ticket.findMany({
+        where: {
+          bookingId,
+          status: { in: ['PENDING', 'VALID'] },
+        },
+        select: { id: true, ticketTypeId: true, status: true },
       });
 
-      // Cancel all valid and pending tickets
+      // Cancel all valid and pending tickets (freshly observed)
       await tx.ticket.updateMany({
         where: {
           bookingId,
@@ -131,13 +133,24 @@ export async function PATCH(
         },
       });
 
-      // ─── CONFIRMED booking: restore soldCount ───
+      // Classify by CURRENT status for inventory operations
+      const validTicketTypeCounts = new Map<string, number>();
+      const pendingTicketTypeCounts = new Map<string, number>();
+      for (const ticket of freshTickets) {
+        if (ticket.status === 'VALID') {
+          validTicketTypeCounts.set(ticket.ticketTypeId, (validTicketTypeCounts.get(ticket.ticketTypeId) || 0) + 1);
+        } else {
+          pendingTicketTypeCounts.set(ticket.ticketTypeId, (pendingTicketTypeCounts.get(ticket.ticketTypeId) || 0) + 1);
+        }
+      }
+
+      // ─── Sold tickets: restore soldCount ───
       // These tickets were sold (payment completed), so we decrement soldCount
       for (const [ticketTypeId, count] of validTicketTypeCounts) {
         await restoreSoldCount(ticketTypeId, count, tx);
       }
 
-      // ─── PENDING booking: release reservedCount ───
+      // ─── Reserved tickets: release reservedCount ───
       // These tickets were reserved but not sold (payment not completed), so we decrement reservedCount
       for (const [ticketTypeId, count] of pendingTicketTypeCounts) {
         await releaseReservation({ ticketTypeId, quantity: count, tx });
@@ -153,7 +166,9 @@ export async function PATCH(
 
       // Notification will be created AFTER transaction commits
 
-      return updatedBooking;
+      return tx.booking.findUnique({
+        where: { id: bookingId },
+      });
     });
 
     logger.info('Booking cancelled', {

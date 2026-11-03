@@ -135,3 +135,50 @@ export function getBookabilityStatus(event: {
 
   return { canBook: true, reason: null };
 }
+
+// ─── Phase 6D verification (H-6): cross-tenant read scoping ───
+
+import { db } from '@/lib/db';
+import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
+
+/**
+ * Compute the USER IDs whose events the given user may view WITHOUT public
+ * field filtering: their own events (direct ownership) plus events of
+ * organizations they belong to with events.view permission. Mirrors the
+ * scoping used by /api/organizer/events (Event.organizerId references User).
+ * Returns at least [userId] — direct ownership always grants full view.
+ *
+ * SUPER_ADMIN callers do not need this helper (they bypass filtering).
+ */
+export async function getViewerOrganizerIds(userId: string): Promise<string[]> {
+  const profileIds: string[] = [];
+
+  const profile = await db.organizerProfile.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  if (profile) profileIds.push(profile.id);
+
+  const memberships = await db.organizerMembership.findMany({
+    where: { userId, status: 'ACTIVE' },
+    select: { organizerId: true, role: true, permissions: true },
+  });
+  for (const m of memberships) {
+    const perms = getOrganizerPermissions(m);
+    if (hasPermission(perms, PERMISSIONS.EVENTS_VIEW) && !profileIds.includes(m.organizerId)) {
+      profileIds.push(m.organizerId);
+    }
+  }
+
+  // Event.organizerId references User — map organization profiles to owners
+  const ownerUserIds = new Set<string>([userId]);
+  if (profileIds.length > 0) {
+    const profiles = await db.organizerProfile.findMany({
+      where: { id: { in: profileIds } },
+      select: { userId: true },
+    });
+    for (const p of profiles) ownerUserIds.add(p.userId);
+  }
+
+  return Array.from(ownerUserIds);
+}

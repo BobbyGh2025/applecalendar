@@ -29,6 +29,7 @@
 
 import { db } from '@/lib/db';
 import { validatePaymentTransition } from './payment-state-machine';
+import { restoreSoldCount } from './inventory';
 import {
   PaymentNotFound,
   RefundNotFound,
@@ -220,7 +221,7 @@ export async function processRefundCompletion(
     where: { id: refundId },
     include: {
       payment: {
-        select: { id: true, amount: true, status: true, refundedAmount: true },
+        select: { id: true, amount: true, status: true, refundedAmount: true, bookingId: true },
       },
     },
   });
@@ -307,6 +308,50 @@ export async function processRefundCompletion(
         data: {
           status: 'REFUNDED',
         },
+      });
+
+      // Phase 6D verification (H-3): a full refund must also invalidate the
+      // booking and its tickets. Previously the ledger closed but the attendee
+      // kept a VALID QR code after their money was returned — free entry via
+      // check-in (check-in only inspects ticket.status), plus resale/transfer
+      // abuse. Mirrors the booking-cancel treatment: cancel non-USED tickets,
+      // restore soldCount for VALID ones (those seats can be resold), and
+      // transition the Booking to its documented REFUNDED terminal state.
+      const tickets = await tx.ticket.findMany({
+        where: { bookingId: refund.payment.bookingId, status: { in: ['PENDING', 'VALID'] } },
+        select: { id: true, ticketTypeId: true, status: true },
+      });
+
+      if (tickets.length > 0) {
+        await tx.ticket.updateMany({
+          where: { id: { in: tickets.map((t) => t.id) }, status: { in: ['PENDING', 'VALID'] } },
+          data: { status: 'CANCELLED' },
+        });
+
+        // Restore soldCount per ticket type for VALID tickets only
+        // (PENDING tickets never incremented soldCount). Uses the same
+        // guarded, idempotent helper as booking cancellation — portable
+        // across SQLite and PostgreSQL (no GREATEST).
+        const validByType = new Map<string, number>();
+        for (const t of tickets) {
+          if (t.status === 'VALID') {
+            validByType.set(t.ticketTypeId, (validByType.get(t.ticketTypeId) ?? 0) + 1);
+          }
+        }
+        for (const [ticketTypeId, count] of validByType) {
+          await restoreSoldCount(ticketTypeId, count, tx);
+        }
+      }
+
+      await tx.booking.updateMany({
+        where: { id: refund.payment.bookingId, status: { in: ['CONFIRMED', 'PENDING'] } },
+        data: { status: 'REFUNDED' },
+      });
+
+      logger.info('Full refund completed — booking and tickets invalidated', {
+        refundId,
+        bookingId: refund.payment.bookingId,
+        cancelledTickets: tickets.length,
       });
     }
   });

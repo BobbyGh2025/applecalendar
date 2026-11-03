@@ -74,6 +74,23 @@ function validateEnv(): EnvConfig {
         );
       }
     }
+
+    // Phase 6D verification (H-5): a short JWT_SECRET makes HS256 offline
+    // brute-force feasible; combined with session claim forgery it becomes
+    // account takeover. Enforce a minimum length and reject known example
+    // placeholder values, fail-closed.
+    const configuredSecret = process.env.JWT_SECRET as string;
+    const WEAK_SECRET_PLACEHOLDERS = new Set([
+      'change-me-to-a-strong-random-secret',
+      'dev-only-jwt-secret-change-in-production',
+      'test-jwt-secret-for-vitest-2025',
+    ]);
+    if (configuredSecret.length < 32 || WEAK_SECRET_PLACEHOLDERS.has(configuredSecret)) {
+      throw new Error(
+        '[AppleCalendar] FATAL: JWT_SECRET must be at least 32 characters and must not be a known placeholder value. ' +
+        `Generate one with: openssl rand -base64 48 (received length: ${configuredSecret.length}).`
+      );
+    }
   }
 
   // In development, JWT_SECRET can fall back to a dev-only value (with warning)

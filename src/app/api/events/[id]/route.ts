@@ -5,7 +5,7 @@ import { handleApiError, ApiError } from '@/lib/errors';
 import { updateEventSchema } from '@/lib/validations';
 import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
 import { verifyVenueAssignment } from '@/lib/services/venue-auth';
-import { filterPublicEventFields, filterPublicParticipantFields, filterPublicMediaFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
+import { filterPublicEventFields, filterPublicParticipantFields, filterPublicMediaFields, isEventPubliclyVisible, getViewerOrganizerIds } from '@/lib/services/event-auth';
 import { notifyAttendeesEventCancelled, getActiveBookerUserIds } from '@/lib/services/notification-service';
 import { logger } from '@/lib/logger';
 
@@ -109,6 +109,44 @@ export async function GET(
     const isPublicUser = !authenticatedUser || authenticatedUser.role === 'PUBLIC';
     if (isPublicUser && !isEventPubliclyVisible(event.status)) {
       throw new ApiError(404, 'NOT_FOUND', 'Event not found');
+    }
+
+    // Phase 6D verification (H-6): a non-public role does NOT by itself grant
+    // access to unfiltered events. Previously any ORGANIZER/STAFF account
+    // received the FULL event object (contactEmail, contactPhone,
+    // rejectionReason, moderatedBy/moderatedAt) for every event of every
+    // organizer, including competitors' DRAFT/PENDING/REJECTED events.
+    // Owners, events-view members of the owning org, and SUPER_ADMIN keep the
+    // full object; everyone else gets the public treatment (404 for
+    // non-visible statuses, filtered fields otherwise).
+    let canViewFullEvent = false;
+    if (!isPublicUser && authenticatedUser) {
+      if (authenticatedUser.role === 'SUPER_ADMIN') {
+        canViewFullEvent = true;
+      } else {
+        const viewerOrganizerIds = await getViewerOrganizerIds(authenticatedUser.id);
+        canViewFullEvent = viewerOrganizerIds.includes(event.organizerId);
+      }
+    }
+
+    if (!isPublicUser && !canViewFullEvent) {
+      if (!isEventPubliclyVisible(event.status)) {
+        throw new ApiError(404, 'NOT_FOUND', 'Event not found');
+      }
+
+      // Publicly visible but not their event — apply the public field filter
+      const publicEvent = filterPublicEventFields(event);
+      if (publicEvent.participants) {
+        (publicEvent as any).participants = publicEvent.participants.map(
+          (p: Record<string, unknown>) => filterPublicParticipantFields(p)
+        );
+      }
+      if (publicEvent.media) {
+        (publicEvent as any).media = publicEvent.media.map(
+          (m: Record<string, unknown>) => filterPublicMediaFields(m)
+        );
+      }
+      return NextResponse.json({ event: publicEvent });
     }
 
     // Phase 4F: Filter private fields for public users

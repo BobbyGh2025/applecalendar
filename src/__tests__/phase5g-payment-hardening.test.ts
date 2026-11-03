@@ -868,28 +868,36 @@ describe('4. Verify Route Failure Handling (Phase 5G Fix)', () => {
     expect(paymentAfterFail?.status).toBe('FAILED');
 
     // Now: a late charge.success arrives (e.g., race condition or retry)
-    // The state machine MUST prevent FAILED → COMPLETED
+    // The webhook handler catches this at the terminal-state guard and handles
+    // it gracefully as a non-retriable conflict — it does NOT throw.
     const successEventId = `evt-success-late-${uid()}`;
-    // This should throw InvalidPaymentTransition
-    await expect(
-      processWebhookEvent({
-        event: {
-          provider: 'PAYSTACK',
-          eventId: successEventId,
-          eventType: 'charge.success',
-          eventReference: providerRef,
-          amount: asMoney(payment.amount),
-          currency: payment.currency,
-          eventAt: new Date(),
-          isPaymentSuccess: true,
-          isPaymentFailure: false,
-        },
-      }),
-    ).rejects.toThrow(InvalidPaymentTransition);
+    const result = await processWebhookEvent({
+      event: {
+        provider: 'PAYSTACK',
+        eventId: successEventId,
+        eventType: 'charge.success',
+        eventReference: providerRef,
+        amount: asMoney(payment.amount),
+        currency: payment.currency,
+        eventAt: new Date(),
+        isPaymentSuccess: true,
+        isPaymentFailure: false,
+      },
+    });
+
+    // The event is processed (non-retriable) — marked as processed=true
+    // to prevent infinite retry loops
+    expect(result.processed).toBe(true);
+    expect(result.outcome).toContain('terminal state');
+    expect(result.paymentId).toBe(payment.id);
 
     // Payment remains FAILED (not resurrected)
     const paymentFinal = await db.payment.findUnique({ where: { id: payment.id }, select: { status: true } });
     expect(paymentFinal?.status).toBe('FAILED');
+
+    // Webhook event is marked as processed (non-retriable)
+    const webhookEvent = await db.paymentWebhookEvent.findUnique({ where: { eventId: successEventId } });
+    expect(webhookEvent?.processed).toBe(true);
   });
 });
 

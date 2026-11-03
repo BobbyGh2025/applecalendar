@@ -5,7 +5,9 @@ import { handleApiError, ApiError } from '@/lib/errors';
 import { updateEventSchema } from '@/lib/validations';
 import { PERMISSIONS, hasPermission, getOrganizerPermissions } from '@/lib/permissions';
 import { verifyVenueAssignment } from '@/lib/services/venue-auth';
-import { filterPublicEventFields, filterPublicParticipantFields, filterPublicMediaFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
+import { filterPublicEventFields, filterPublicParticipantFields, filterPublicMediaFields, isEventPubliclyVisible, getViewerOrganizerIds } from '@/lib/services/event-auth';
+import { notifyAttendeesEventCancelled, getActiveBookerUserIds } from '@/lib/services/notification-service';
+import { logger } from '@/lib/logger';
 
 import { slugify } from '@/lib/utils/slugify';
 
@@ -107,6 +109,44 @@ export async function GET(
     const isPublicUser = !authenticatedUser || authenticatedUser.role === 'PUBLIC';
     if (isPublicUser && !isEventPubliclyVisible(event.status)) {
       throw new ApiError(404, 'NOT_FOUND', 'Event not found');
+    }
+
+    // Phase 6D verification (H-6): a non-public role does NOT by itself grant
+    // access to unfiltered events. Previously any ORGANIZER/STAFF account
+    // received the FULL event object (contactEmail, contactPhone,
+    // rejectionReason, moderatedBy/moderatedAt) for every event of every
+    // organizer, including competitors' DRAFT/PENDING/REJECTED events.
+    // Owners, events-view members of the owning org, and SUPER_ADMIN keep the
+    // full object; everyone else gets the public treatment (404 for
+    // non-visible statuses, filtered fields otherwise).
+    let canViewFullEvent = false;
+    if (!isPublicUser && authenticatedUser) {
+      if (authenticatedUser.role === 'SUPER_ADMIN') {
+        canViewFullEvent = true;
+      } else {
+        const viewerOrganizerIds = await getViewerOrganizerIds(authenticatedUser.id);
+        canViewFullEvent = viewerOrganizerIds.includes(event.organizerId);
+      }
+    }
+
+    if (!isPublicUser && !canViewFullEvent) {
+      if (!isEventPubliclyVisible(event.status)) {
+        throw new ApiError(404, 'NOT_FOUND', 'Event not found');
+      }
+
+      // Publicly visible but not their event — apply the public field filter
+      const publicEvent = filterPublicEventFields(event);
+      if (publicEvent.participants) {
+        (publicEvent as any).participants = publicEvent.participants.map(
+          (p: Record<string, unknown>) => filterPublicParticipantFields(p)
+        );
+      }
+      if (publicEvent.media) {
+        (publicEvent as any).media = publicEvent.media.map(
+          (m: Record<string, unknown>) => filterPublicMediaFields(m)
+        );
+      }
+      return NextResponse.json({ event: publicEvent });
     }
 
     // Phase 4F: Filter private fields for public users
@@ -348,6 +388,29 @@ export async function PATCH(
       },
     });
 
+    // Phase 6B fix D1: notify active bookers when the event was cancelled.
+    // Runs AFTER the event update has committed; notification failure never
+    // fails the PATCH response. dedupKey per user makes retries idempotent.
+    if (updateData.status === 'CANCELLED' && existingEvent.status !== 'CANCELLED') {
+      try {
+        const bookerUserIds = await getActiveBookerUserIds(id);
+        const result = await notifyAttendeesEventCancelled({
+          eventId: id,
+          eventTitle: existingEvent.title,
+          bookerUserIds,
+        });
+        logger.info('Event cancellation notifications dispatched', {
+          eventId: id,
+          ...result,
+        });
+      } catch (notificationError) {
+        logger.error('Failed to dispatch event cancellation notifications', {
+          eventId: id,
+          error: notificationError instanceof Error ? notificationError.message : 'unknown',
+        });
+      }
+    }
+
     return NextResponse.json({ event: fullEvent });
   } catch (error) {
     return handleApiError(error);
@@ -391,6 +454,26 @@ export async function DELETE(
           where: { id },
           data: { status: 'CANCELLED', isBookable: false },
         });
+
+        // Phase 6B fix D1: notify active bookers of the cancellation.
+        // After the status transition commits; failure never fails DELETE.
+        try {
+          const bookerUserIds = await getActiveBookerUserIds(id);
+          const notifyResult = await notifyAttendeesEventCancelled({
+            eventId: id,
+            eventTitle: existingEvent.title,
+            bookerUserIds,
+          });
+          logger.info('Event soft-delete cancellation notifications dispatched', {
+            eventId: id,
+            ...notifyResult,
+          });
+        } catch (notificationError) {
+          logger.error('Failed to dispatch soft-delete cancellation notifications', {
+            eventId: id,
+            error: notificationError instanceof Error ? notificationError.message : 'unknown',
+          });
+        }
       }
 
       return NextResponse.json({

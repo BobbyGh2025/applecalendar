@@ -229,12 +229,19 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenPaylo
   if (!payload.sessionId) return null;
 
   // Check that the session hasn't been revoked
+  // Phase 6D verification (H-5): also bind the session to its owner. The
+  // userId claim in a signed JWT is only as trustworthy as the signing secret;
+  // if the secret is ever weak or leaked, an attacker holding ANY live session
+  // could mint a token with a VICTIM's userId and their own (valid, unrevoked)
+  // sessionId — previously enough for a silent full account takeover. The
+  // session row now must belong to the token's claimed user.
   const session = await db.refreshToken.findUnique({
     where: { id: payload.sessionId },
-    select: { isRevoked: true },
+    select: { isRevoked: true, userId: true },
   });
 
   if (!session || session.isRevoked) return null;
+  if (session.userId !== payload.userId) return null;
 
   return payload;
 }

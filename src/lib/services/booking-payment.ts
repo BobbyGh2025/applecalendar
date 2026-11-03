@@ -28,6 +28,7 @@ import { ProviderNotSupported } from './payment-domain-errors';
 import { validatePaymentMoneyConstraints } from '@/lib/money-constraints';
 import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
+import type { PrismaTransaction } from './inventory';
 
 // ─── Types ───
 
@@ -38,6 +39,14 @@ export interface CreateBookingPaymentParams {
   amount: number;
   /** ISO 4217 currency code */
   currency: string;
+  /**
+   * Phase 6D verification (C-1): optional transaction client. When called
+   * inside db.$transaction (e.g. the booking route), the transaction client
+   * MUST be supplied — otherwise the Payment INSERT runs on a separate pooled
+   * connection and blocks on the Booking foreign key (PostgreSQL aborts the
+   * interactive transaction after its timeout, failing every booking).
+   */
+  tx?: PrismaTransaction;
   /** Provider override (defaults to PAYSTACK for paid, FREE for free) */
   provider?: string;
   /** Idempotency key (generated if not provided) */
@@ -143,7 +152,13 @@ export async function createBookingPayment(
     provider: requestedProvider,
     idempotencyKey,
     expiryMinutes,
+    tx,
   } = params;
+
+  // Phase 6D verification (C-1): all reads/writes in this function run on the
+  // caller's transaction client when provided, so the Payment row participates
+  // in the same atomic unit (and connection) as the Booking row.
+  const client = tx ?? db;
 
   // 1. Validate money constraints
   validatePaymentMoneyConstraints({ amount });
@@ -160,7 +175,7 @@ export async function createBookingPayment(
 
   // 4b. Idempotency: if a payment with this idempotencyKey already exists, return it
   // This prevents duplicate payment creation on retry (e.g., network timeout + retry)
-  const existingPayment = await db.payment.findUnique({
+  const existingPayment = await client.payment.findUnique({
     where: { idempotencyKey: key },
     select: {
       id: true,
@@ -201,7 +216,7 @@ export async function createBookingPayment(
   // findUnique check and this create — we must return the existing payment, not throw.
   let payment: { id: string; provider: string; status: string; idempotencyKey: string | null; expiresAt: Date | null };
   try {
-    payment = await db.payment.create({
+    payment = await client.payment.create({
       data: {
         bookingId,
         userId,
@@ -226,7 +241,7 @@ export async function createBookingPayment(
     if (isPrismaUniqueConstraintViolation(createError)) {
       // Concurrent request created the payment — read and return it (idempotent)
       // The P2002 could be on idempotencyKey OR bookingId — check both.
-      const concurrentByIdempotencyKey = await db.payment.findUnique({
+      const concurrentByIdempotencyKey = await client.payment.findUnique({
         where: { idempotencyKey: key },
         select: {
           id: true,
@@ -253,7 +268,7 @@ export async function createBookingPayment(
       }
 
       // P2002 on bookingId — a payment already exists for this booking
-      const concurrentByBookingId = await db.payment.findUnique({
+      const concurrentByBookingId = await client.payment.findUnique({
         where: { bookingId },
         select: {
           id: true,

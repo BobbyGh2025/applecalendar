@@ -118,6 +118,43 @@ export class PaymentAlreadyConfirmed extends PaymentDomainError {
   }
 }
 
+// ─── Confirmation Race Errors ───
+
+export class ConfirmationRaceConflict extends PaymentDomainError {
+  /** Current payment status at the time of the conflict */
+  readonly currentPaymentStatus: string;
+  /** Current booking status at the time of the conflict */
+  readonly currentBookingStatus: string;
+
+  constructor(paymentId: string, currentPaymentStatus: string, currentBookingStatus: string) {
+    super(
+      'CONFIRMATION_RACE_CONFLICT',
+      `Payment state changed during confirmation: payment=${currentPaymentStatus}, booking=${currentBookingStatus}. Reconciliation is required.`,
+      409,
+      { paymentId, currentPaymentStatus, currentBookingStatus },
+    );
+    this.name = 'ConfirmationRaceConflict';
+    this.currentPaymentStatus = currentPaymentStatus;
+    this.currentBookingStatus = currentBookingStatus;
+  }
+}
+
+export class ConfirmationPreconditionFailed extends PaymentDomainError {
+  /** The terminal state that prevents confirmation */
+  readonly paymentStatus: string;
+
+  constructor(paymentId: string, paymentStatus: string) {
+    super(
+      'CONFIRMATION_PRECONDITION_FAILED',
+      `Payment ${paymentId} is in terminal state ${paymentStatus} and cannot be confirmed. This event is non-retriable.`,
+      409,
+      { paymentId, paymentStatus },
+    );
+    this.name = 'ConfirmationPreconditionFailed';
+    this.paymentStatus = paymentStatus;
+  }
+}
+
 export class FreeEventRequiresFreeProvider extends PaymentDomainError {
   constructor() {
     super(

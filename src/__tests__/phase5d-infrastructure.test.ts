@@ -362,7 +362,7 @@ describe('8. Error Handling', () => {
   it('handleApiError sanitizes unknown errors in production', async () => {
     const { handleApiError } = await import('@/lib/errors');
     const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
+    Object.assign(process.env, { NODE_ENV: 'production' });
     try {
       const response = handleApiError(
         new Error('database connection string: postgresql://admin:pass@host')
@@ -373,7 +373,7 @@ describe('8. Error Handling', () => {
       expect(body.error.message).not.toContain('postgresql');
       expect(body.error.message).not.toContain('admin');
     } finally {
-      process.env.NODE_ENV = originalEnv;
+      Object.assign(process.env, { NODE_ENV: originalEnv });
     }
   });
 
@@ -425,13 +425,13 @@ describe('9. Structured Logger', () => {
   it('Logger debug is suppressed in production', async () => {
     const { Logger } = await import('@/lib/logger');
     const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
+    Object.assign(process.env, { NODE_ENV: 'production' });
     try {
       const prodLogger = new Logger();
       // Should not throw, but also should not output
       expect(() => prodLogger.debug('Should not appear')).not.toThrow();
     } finally {
-      process.env.NODE_ENV = originalEnv;
+      Object.assign(process.env, { NODE_ENV: originalEnv });
     }
   });
 

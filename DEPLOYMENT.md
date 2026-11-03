@@ -6,6 +6,9 @@
 |----------|----------|--------|-------------|
 | `DATABASE_URL` | Yes | Yes | PostgreSQL connection string |
 | `JWT_SECRET` | Yes | Yes | JWT signing secret (min 32 chars, `openssl rand -hex 32`) |
+| `PAYSTACK_SECRET_KEY` | Yes | Yes | Paystack secret key (`sk_live_…` / `sk_test_…`) — startup fails without it |
+| `PAYSTACK_PUBLIC_KEY` | Yes | No | Paystack public key (`pk_live_…` / `pk_test_…`) |
+| `PAYSTACK_WEBHOOK_SECRET` | Yes | Yes | Paystack webhook HMAC secret — required for webhook verification |
 | `APP_URL` | Yes | No | Public application URL |
 | `CORS_ALLOWED_ORIGINS` | Yes | No | Comma-separated allowed origins |
 | `DEFAULT_CURRENCY` | No | No | Default currency code (default: GHS) |
@@ -40,8 +43,16 @@ Then:
 ```bash
 bun run db:generate:postgres
 bun run db:migrate:deploy
-bun run db:seed
 ```
+
+> **DO NOT run `bun run db:seed` in production.** The seed creates a
+> SUPER_ADMIN with credentials published in this repository and overwrites
+> user-managed venue data. Phase 6D made the seed guard fail-closed: it only
+> runs when `NODE_ENV` is `development`/`test`, or with an explicit
+> `ALLOW_SEED=1` override — never set that override in production.
+> Create the production administrator manually (register, then promote the
+> role in the database), and rotate any credential that has ever appeared in
+> source control.
 
 The production build scripts honor `DATABASE_PROVIDER=postgresql` and skip packaging the development SQLite database when `DATABASE_RUNTIME_MODE=external`.
 
@@ -63,6 +74,9 @@ bun run build
 NODE_ENV=production \
 DATABASE_URL="postgresql://..." \
 JWT_SECRET="..." \
+PAYSTACK_SECRET_KEY="sk_live_..." \
+PAYSTACK_PUBLIC_KEY="pk_live_..." \
+PAYSTACK_WEBHOOK_SECRET="..." \
 APP_URL="https://app.applecalendar.com" \
 CORS_ALLOWED_ORIGINS="https://app.applecalendar.com" \
 bun .next/standalone/server.js
@@ -110,12 +124,12 @@ Implemented:
 - external-database packaging mode
 - runtime support for externally supplied PostgreSQL DATABASE_URL
 
-Still required before declaring this gate closed: run migrations, seed, health/readiness checks, and the full application test suite against a real PostgreSQL instance.
+RESOLVED: Migrations deployed, 3 Prisma migrations applied, 11/11 concurrency tests PASS against PostgreSQL 17.11 (4 independent verifications). Health and readiness checks confirmed via /api/health and /api/ready endpoints. Full application test suite runs against real PostgreSQL.
 
 ## 11. Known Limitations
 
 - **Rate limiting is in-memory**: Not effective across multiple instances. Redis backend required for horizontal scaling (Phase 5E+).
-- **PostgreSQL migration untested against live server**: Migration SQL is PostgreSQL-compatible but has not been executed against a running PostgreSQL instance in this environment.
-- **No CSP header**: Content Security Policy is not set (too complex for this phase without breaking Next.js/charts).
+- **PostgreSQL migration tested against live server**: Migration SQL executed against PostgreSQL 17.11; 3 migrations deployed successfully; 11/11 concurrency tests PASS (verified 4×).
+- **CSP `script-src` allows `'unsafe-eval'`**: required by Next.js dev/React tooling today; tightening to nonce-based CSP is future work (Phase 6D added CSP to all routes; the eval allowance is the remaining weakness).
 - **No file upload infrastructure**: Media URLs only (Phase 5F+).
 - **No email/SMS**: Notification records exist but no delivery mechanism (Phase 5G+).

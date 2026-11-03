@@ -5,7 +5,7 @@ import { handleApiError, ApiError } from '@/lib/errors';
 import { createEventSchema, eventQuerySchema } from '@/lib/validations';
 import { getOperableOrganizerEntitlements, getOrganizerUsage, requireWithinLimit } from '@/lib/services/entitlements';
 import { verifyVenueAssignment } from '@/lib/services/venue-auth';
-import { filterPublicEventFields, filterPublicParticipantFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
+import { filterPublicEventFields, filterPublicParticipantFields, isEventPubliclyVisible, getViewerOrganizerIds } from '@/lib/services/event-auth';
 
 import { slugify } from '@/lib/utils/slugify';
 
@@ -38,7 +38,11 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
 
-    const parsed = eventQuerySchema.safeParse(searchParams);
+    // Phase 6D verification (M-7): URLSearchParams must be converted to a
+    // plain object before Zod parsing — Zod reads plain properties only, so
+    // passing the raw URLSearchParams made EVERY query filter (status, search,
+    // category, date, city, isFree, venue) silently a no-op.
+    const parsed = eventQuerySchema.safeParse(Object.fromEntries(searchParams));
     if (!parsed.success) {
       return ApiError.fromZodError(parsed.error).toResponse();
     }
@@ -55,14 +59,42 @@ export async function GET(request: NextRequest) {
 
     const isPublicUser = !authUser || !['ORGANIZER', 'SUPER_ADMIN', 'STAFF'].includes(authUser.role);
 
+    // Phase 6D verification (H-6): non-public roles were previously allowed to
+    // list events of ANY status across ALL organizers (where.status passthrough
+    // with no organizer scoping) — any STAFF account could enumerate every
+    // competitor's DRAFT/PENDING/REJECTED events. Organizers and staff are now
+    // scoped to their own organizations for non-public statuses; other orgs'
+    // events behave exactly as for the public.
+    let viewerOrganizerIds: string[] = [];
+    if (!isPublicUser && authUser && authUser.role !== 'SUPER_ADMIN') {
+      viewerOrganizerIds = await getViewerOrganizerIds(authUser.id);
+    }
+
     const where: Record<string, unknown> = {};
+
+    // Visibility conditions are composed via where.AND so they never collide
+    // with the search block's where.OR below.
+    const visibilityAnd: Record<string, unknown>[] = [];
 
     // Public users only see publicly visible events (PUBLISHED, CANCELLED, COMPLETED)
     // For listing, only PUBLISHED is shown by default (CANCELLED/COMPLETED shown only via direct link)
     if (isPublicUser) {
       where.status = 'PUBLISHED';
+    } else if (authUser?.role === 'SUPER_ADMIN') {
+      if (status) where.status = status;
     } else if (status) {
-      where.status = status;
+      if (isEventPubliclyVisible(status)) {
+        where.status = status;
+      } else {
+        // Non-public status requested — only the owning organization sees it
+        visibilityAnd.push({ status }, { organizerId: { in: viewerOrganizerIds } });
+      }
+    } else {
+      // No status filter — own org events in any status + publicly listed events
+      visibilityAnd.push({ OR: [{ organizerId: { in: viewerOrganizerIds } }, { status: 'PUBLISHED' }] });
+    }
+    if (visibilityAnd.length > 0) {
+      where.AND = visibilityAnd;
     }
 
     // Phase 4F: Enhanced search — includes venue name and city
@@ -128,9 +160,16 @@ export async function GET(request: NextRequest) {
     ]);
 
     // Phase 4F: Filter private fields for public users
-    const publicEvents = isPublicUser
-      ? events.map(e => filterPublicEventFields(e))
-      : events;
+    // Phase 6D (H-6): non-owner organizers/staff are filtered too — they are
+    // NOT entitled to other organizations' private fields (contact info,
+    // rejection reasons). Own-org rows (and all rows for SUPER_ADMIN) stay full.
+    const publicEvents = events.map((e) => {
+      if (isPublicUser) return filterPublicEventFields(e);
+      if (authUser?.role !== 'SUPER_ADMIN' && !viewerOrganizerIds.includes(e.organizerId)) {
+        return filterPublicEventFields(e);
+      }
+      return e;
+    });
 
     return NextResponse.json({
       events: publicEvents,

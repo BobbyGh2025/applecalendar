@@ -27,6 +27,7 @@ import { validatePaymentTransition, canBeExpired, type PaymentStatus } from './p
 import { releaseReservation } from './inventory';
 import { expireTickets } from './ticket-service';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from './notification-service';
 
 // ─── Types ───
 
@@ -118,6 +119,7 @@ export async function expireSinglePayment(
           status: true,
           userId: true,
           bookingRef: true,
+          event: { select: { id: true } },
           tickets: {
             select: { id: true, ticketTypeId: true, status: true },
           },
@@ -144,7 +146,11 @@ export async function expireSinglePayment(
   const inventoryReleased: string[] = [];
   let ticketsExpired = 0;
 
-  await db.$transaction(async (tx) => {
+  // Phase 6D (M4): the transaction reports whether THIS invocation won the
+  // status transition. Notifications must only fire for the winning
+  // transition — otherwise a user is told their payment expired after a
+  // concurrent webhook just completed it.
+  const transitionWon = await db.$transaction(async (tx): Promise<boolean> => {
     // 4a. Transition Payment → EXPIRED — status guard prevents TOCTOU
     const paymentUpdate = await tx.payment.updateMany({
       where: { id: paymentId, status: payment.status },
@@ -158,7 +164,7 @@ export async function expireSinglePayment(
         paymentId,
         expectedStatus: payment.status,
       });
-      return;
+      return false;
     }
 
     // 4b. Transition Booking → CANCELLED (if PENDING)
@@ -190,18 +196,23 @@ export async function expireSinglePayment(
       const ticketResult = await expireTickets({ bookingId: payment.booking.id, tx });
       ticketsExpired = ticketResult.expired;
     }
+
+    return true;
   });
 
-  // 5. Notification (after transaction commits)
-  if (payment.booking) {
+  // 5. Notification (after transaction commits) — ONLY when this invocation
+  // won the EXPIRED transition (Phase 6D M4).
+  if (payment.booking && transitionWon) {
     try {
-      await db.notification.create({
-        data: {
-          userId: payment.booking.userId,
-          title: 'Payment Expired',
-          message: `Your payment for booking ${payment.booking.bookingRef} has expired. Please try booking again.`,
-          type: 'PAYMENT',
-        },
+      await dispatchNotification({
+        userId: payment.booking.userId,
+        title: 'Payment Expired',
+        message: `Your payment for booking ${payment.booking.bookingRef} has expired. Please try booking again.`,
+        type: NotificationType.PAYMENT,
+        eventId: payment.booking.event?.id,
+        relatedEntityId: paymentId,
+        relatedEntityType: 'Payment',
+        dedupKey: `payment-expired-${paymentId}`,
       });
     } catch (notificationError) {
       logger.error('Failed to create payment expiry notification', {

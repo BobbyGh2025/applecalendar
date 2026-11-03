@@ -11,6 +11,8 @@
 
 import { db } from '@/lib/db';
 import { ApiError } from '@/lib/errors';
+import { dispatchNotification, NotificationType } from './notification-service';
+import { logger } from '@/lib/logger';
 
 // ─── Types ───
 
@@ -358,16 +360,25 @@ export async function executeLifecycleTransition(params: {
     }),
   ]);
 
-  // 6. Create notification for the organizer user
-  const notification = getNotificationForAction(action, profile.organizationName, reason);
-  await db.notification.create({
-    data: {
+  // 6. Create notification for the organizer user — failure does not break lifecycle transition
+  const notifContent = getNotificationForAction(action, profile.organizationName, reason);
+  try {
+    await dispatchNotification({
       userId: profile.userId,
-      title: notification.title,
-      message: notification.message,
-      type: 'SYSTEM',
-    },
-  });
+      title: notifContent.title,
+      message: notifContent.message,
+      type: NotificationType.SYSTEM,
+      relatedEntityId: profile.id,
+      relatedEntityType: 'Organizer',
+      dedupKey: `organizer-${action}-${profile.id}`,
+    });
+  } catch (notificationError) {
+    logger.error('Failed to send organizer lifecycle notification', {
+      action,
+      profileId: profile.id,
+      error: notificationError instanceof Error ? notificationError.message : 'unknown',
+    });
+  }
 
   return {
     profile: updatedProfile as OrganizerProfileResult,

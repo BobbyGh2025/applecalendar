@@ -27,10 +27,12 @@ export type AppView =
   | 'organizer-event-content'
   | 'organizer-venues'
   | 'notifications'
+  | 'notification-settings'
   | 'user-profile'
   | 'change-password'
   | 'forgot-password'
-  | 'reset-password';
+  | 'reset-password'
+  | 'verify-email';
 
 interface User {
   id: string;
@@ -65,6 +67,10 @@ interface AppState {
   setSelectedCategory: (category: string | null) => void;
   selectedDateFilter: string;
   setSelectedDateFilter: (filter: string) => void;
+
+  // Phase 6C: shared unread notification count (header badge + centre)
+  unreadCount: number;
+  setUnreadCount: (count: number) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -105,6 +111,10 @@ export const useAppStore = create<AppState>()(
       setSelectedCategory: (category) => set({ selectedCategory: category }),
       selectedDateFilter: 'all',
       setSelectedDateFilter: (filter) => set({ selectedDateFilter: filter }),
+
+      // Phase 6C: unread badge count (not persisted — refetched on auth)
+      unreadCount: 0,
+      setUnreadCount: (count) => set({ unreadCount: count }),
     }),
     {
       name: 'applecalendar-store',

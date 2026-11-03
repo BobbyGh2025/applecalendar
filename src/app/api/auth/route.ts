@@ -6,6 +6,8 @@ import { rateLimit, RateLimitError } from '@/lib/rate-limit';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { authSchema } from '@/lib/validations';
 import { generateSecureToken, hashToken } from '@/lib/tokens';
+import { logger } from '@/lib/logger';
+import { ensureDefaultPreferences } from '@/lib/services/notification-service';
 
 const loginLimiter = rateLimit({ windowMs: 60_000, maxRequests: 5 });
 const registerLimiter = rateLimit({ windowMs: 60_000, maxRequests: 3 });
@@ -75,8 +77,23 @@ export async function POST(request: NextRequest) {
         },
       }).catch(() => {}); // Non-blocking — don't fail registration if audit log fails
 
+      // Phase 6C: initialize notification preferences for the new user.
+      // Safe defaults: IN_APP enabled, EMAIL/SMS DISABLED until the user
+      // explicitly opts in (consent-safe). Idempotent via upserts. A failure
+      // here must never block registration — dispatch-time fallback now
+      // applies the same defaults for any rows that end up missing.
+      await ensureDefaultPreferences(user.id).catch((error) => {
+        logger.error('Failed to initialize notification preferences for new user', {
+          userId: user.id,
+          error: error instanceof Error ? error.message : 'unknown',
+        });
+      });
+
       // In development, return the verification token for testing
-      const isDev = process.env.NODE_ENV !== 'production';
+      // Phase 6D (F-2): fail-closed — raw tokens are only returned in true development.
+      // The old gate (NODE_ENV !== 'production') leaked reset/verification/invite
+      // tokens on any internet-reachable staging/test deployment.
+      const isDev = process.env.NODE_ENV === 'development';
 
       return NextResponse.json({
         user: {

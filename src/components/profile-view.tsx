@@ -174,7 +174,6 @@ function ProfileTab() {
       if (data.success && data.user) {
         // Update the store user
         const currentToken = useAppStore.getState().token;
-        const currentRefreshToken = useAppStore.getState().refreshToken;
         if (currentToken) {
           setAuth(
             {
@@ -187,7 +186,6 @@ function ProfileTab() {
               phone: data.user.phone,
             },
             currentToken,
-            currentRefreshToken ?? undefined,
           );
         }
         setSaved(true);
@@ -777,12 +775,10 @@ function OrganizationTab() {
         // Upgrade user role in store
         const currentUser = useAppStore.getState().user;
         const currentToken = useAppStore.getState().token;
-        const currentRefreshToken = useAppStore.getState().refreshToken;
         if (currentUser && currentToken) {
           setAuth(
             { ...currentUser, role: 'ORGANIZER' },
             currentToken,
-            currentRefreshToken ?? undefined,
           );
         }
         toast.success('Organizer profile created! Your account has been upgraded.', {

@@ -50,7 +50,10 @@ export async function POST(request: NextRequest) {
     });
 
     // In development, return the token for testing; in production, would send email
-    const isDev = process.env.NODE_ENV !== 'production';
+    // Phase 6D (F-2): fail-closed — raw tokens are only returned in true development.
+      // The old gate (NODE_ENV !== 'production') leaked reset/verification/invite
+      // tokens on any internet-reachable staging/test deployment.
+      const isDev = process.env.NODE_ENV === 'development';
 
     return NextResponse.json({
       success: true,

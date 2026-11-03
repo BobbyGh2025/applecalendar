@@ -29,6 +29,7 @@
 
 import { db } from '@/lib/db';
 import { validatePaymentTransition } from './payment-state-machine';
+import { restoreSoldCount } from './inventory';
 import {
   PaymentNotFound,
   RefundNotFound,
@@ -38,6 +39,7 @@ import {
 } from './payment-domain-errors';
 import { validateRefundMoneyConstraints } from '@/lib/money-constraints';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from './notification-service';
 
 // ─── Types ───
 
@@ -162,6 +164,34 @@ export async function requestRefund(
     requestedBy,
   });
 
+  // Notify user that a refund has been requested
+  try {
+    const payment = await db.payment.findUnique({
+      where: { id: paymentId },
+      select: {
+        booking: { select: { userId: true, bookingRef: true, event: { select: { title: true, id: true } } } },
+      },
+    });
+    if (payment?.booking) {
+      await dispatchNotification({
+        userId: payment.booking.userId,
+        title: 'Refund Requested',
+        message: `A refund has been requested for booking ${payment.booking.bookingRef} on "${payment.booking.event.title}". We will process it shortly.`,
+        type: NotificationType.REFUND,
+        eventId: payment.booking.event.id,
+        relatedEntityId: refund.id,
+        relatedEntityType: 'Refund',
+        dedupKey: `refund-requested-${refund.id}`,
+        link: payment.booking.event.id ? `/events/${payment.booking.event.id}` : undefined,
+      });
+    }
+  } catch (notificationError) {
+    logger.error('Failed to send refund requested notification', {
+      refundId: refund.id,
+      error: notificationError instanceof Error ? notificationError.message : 'unknown',
+    });
+  }
+
   return {
     refundId: refund.id,
     status: refund.status,
@@ -191,7 +221,7 @@ export async function processRefundCompletion(
     where: { id: refundId },
     include: {
       payment: {
-        select: { id: true, amount: true, status: true, refundedAmount: true },
+        select: { id: true, amount: true, status: true, refundedAmount: true, bookingId: true },
       },
     },
   });
@@ -279,6 +309,50 @@ export async function processRefundCompletion(
           status: 'REFUNDED',
         },
       });
+
+      // Phase 6D verification (H-3): a full refund must also invalidate the
+      // booking and its tickets. Previously the ledger closed but the attendee
+      // kept a VALID QR code after their money was returned — free entry via
+      // check-in (check-in only inspects ticket.status), plus resale/transfer
+      // abuse. Mirrors the booking-cancel treatment: cancel non-USED tickets,
+      // restore soldCount for VALID ones (those seats can be resold), and
+      // transition the Booking to its documented REFUNDED terminal state.
+      const tickets = await tx.ticket.findMany({
+        where: { bookingId: refund.payment.bookingId, status: { in: ['PENDING', 'VALID'] } },
+        select: { id: true, ticketTypeId: true, status: true },
+      });
+
+      if (tickets.length > 0) {
+        await tx.ticket.updateMany({
+          where: { id: { in: tickets.map((t) => t.id) }, status: { in: ['PENDING', 'VALID'] } },
+          data: { status: 'CANCELLED' },
+        });
+
+        // Restore soldCount per ticket type for VALID tickets only
+        // (PENDING tickets never incremented soldCount). Uses the same
+        // guarded, idempotent helper as booking cancellation — portable
+        // across SQLite and PostgreSQL (no GREATEST).
+        const validByType = new Map<string, number>();
+        for (const t of tickets) {
+          if (t.status === 'VALID') {
+            validByType.set(t.ticketTypeId, (validByType.get(t.ticketTypeId) ?? 0) + 1);
+          }
+        }
+        for (const [ticketTypeId, count] of validByType) {
+          await restoreSoldCount(ticketTypeId, count, tx);
+        }
+      }
+
+      await tx.booking.updateMany({
+        where: { id: refund.payment.bookingId, status: { in: ['CONFIRMED', 'PENDING'] } },
+        data: { status: 'REFUNDED' },
+      });
+
+      logger.info('Full refund completed — booking and tickets invalidated', {
+        refundId,
+        bookingId: refund.payment.bookingId,
+        cancelledTickets: tickets.length,
+      });
     }
   });
 
@@ -287,6 +361,34 @@ export async function processRefundCompletion(
     paymentId: refund.paymentId,
     amount: refund.amount,
   });
+
+  // Notify user that their refund has been completed
+  try {
+    const payment = await db.payment.findUnique({
+      where: { id: refund.paymentId },
+      select: {
+        booking: { select: { userId: true, bookingRef: true, event: { select: { title: true, id: true } } } },
+      },
+    });
+    if (payment?.booking) {
+      await dispatchNotification({
+        userId: payment.booking.userId,
+        title: 'Refund Completed',
+        message: `Your refund for booking ${payment.booking.bookingRef} on "${payment.booking.event.title}" has been processed. The funds will be returned to your original payment method.`,
+        type: NotificationType.REFUND,
+        eventId: payment.booking.event.id,
+        relatedEntityId: refundId,
+        relatedEntityType: 'Refund',
+        dedupKey: `refund-completed-${refundId}`,
+        link: payment.booking.event.id ? `/events/${payment.booking.event.id}` : undefined,
+      });
+    }
+  } catch (notificationError) {
+    logger.error('Failed to send refund completed notification', {
+      refundId,
+      error: notificationError instanceof Error ? notificationError.message : 'unknown',
+    });
+  }
 
   return { refundId, status: 'COMPLETED', amount: refund.amount, paymentId: refund.paymentId };
 }
@@ -302,12 +404,39 @@ export async function processRefundFailure(
 ): Promise<RefundResult> {
   const { refundId, failureReason } = params;
 
-  const refund = await db.refund.update({
-    where: { id: refundId },
+  // Phase 6D: status-guarded transition — a late/duplicate refund.failed
+  // webhook must NOT clobber a refund that already reached a terminal state
+  // (e.g. COMPLETED by a racing refund.processed delivery).
+  const guarded = await db.refund.updateMany({
+    where: { id: refundId, status: { in: ['REQUESTED', 'PROCESSING'] } },
     data: {
       status: 'FAILED',
       failureReason,
     },
+  });
+
+  if (guarded.count === 0) {
+    const existing = await db.refund.findUnique({
+      where: { id: refundId },
+      select: { id: true, status: true, amount: true, paymentId: true },
+    });
+    if (!existing) {
+      throw new RefundNotFound(refundId);
+    }
+    logger.info('Refund failure ignored — refund already in terminal state (idempotent)', {
+      refundId,
+      status: existing.status,
+    });
+    return {
+      refundId: existing.id,
+      status: existing.status,
+      amount: existing.amount,
+      paymentId: existing.paymentId,
+    };
+  }
+
+  const refund = await db.refund.findUnique({
+    where: { id: refundId },
     select: {
       id: true,
       status: true,
@@ -316,7 +445,39 @@ export async function processRefundFailure(
     },
   });
 
+  if (!refund) {
+    throw new RefundNotFound(refundId);
+  }
+
   logger.info('Refund failed', { refundId, failureReason, paymentId: refund.paymentId });
+
+  // Notify user that their refund failed
+  try {
+    const payment = await db.payment.findUnique({
+      where: { id: refund.paymentId },
+      select: {
+        booking: { select: { userId: true, bookingRef: true, event: { select: { title: true, id: true } } } },
+      },
+    });
+    if (payment?.booking) {
+      await dispatchNotification({
+        userId: payment.booking.userId,
+        title: 'Refund Failed',
+        message: `The refund for booking ${payment.booking.bookingRef} on "${payment.booking.event.title}" could not be processed. Please contact support for assistance.`,
+        type: NotificationType.REFUND,
+        eventId: payment.booking.event.id,
+        relatedEntityId: refundId,
+        relatedEntityType: 'Refund',
+        dedupKey: `refund-failed-${refundId}`,
+        link: payment.booking.event.id ? `/events/${payment.booking.event.id}` : undefined,
+      });
+    }
+  } catch (notificationError) {
+    logger.error('Failed to send refund failure notification', {
+      refundId,
+      error: notificationError instanceof Error ? notificationError.message : 'unknown',
+    });
+  }
 
   return {
     refundId: refund.id,

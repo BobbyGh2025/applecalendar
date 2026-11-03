@@ -19,6 +19,16 @@
  *   - Payment state machine prevents illegal transitions
  *   - Booking confirmation is idempotent
  *
+ * Race condition handling:
+ *   - ConfirmationRaceConflict: A concurrent process transitioned the payment
+ *     to a non-COMPLETED state during confirmation. Non-retriable — mark as
+ *     processed to prevent infinite retry loops.
+ *   - ConfirmationPreconditionFailed: Payment is already in a terminal
+ *     non-COMPLETED state (FAILED/EXPIRED/CANCELLED/REFUNDED). Non-retriable —
+ *     mark as processed to prevent infinite retry loops.
+ *   - Terminal-state guard: If a success webhook arrives for a payment already
+ *     in a terminal state, mark as processed (non-retriable).
+ *
  * Processing order:
  *   - Mark event as received (insert with processed=false)
  *   - Process business logic (transition payment, confirm booking)
@@ -30,14 +40,18 @@ import { db } from '@/lib/db';
 import { validatePaymentTransition, isTerminalStatus, type PaymentStatus } from './payment-state-machine';
 import { confirmBookingOnPaymentSuccess } from './booking-confirmation';
 import { releaseReservation } from './inventory';
+import { processRefundCompletion, processRefundFailure } from './refund-service';
 import {
   WebhookAlreadyProcessed,
   WebhookAmountMismatch,
   WebhookCurrencyMismatch,
   PaymentNotFound,
+  ConfirmationRaceConflict,
+  ConfirmationPreconditionFailed,
 } from './payment-domain-errors';
 import type { NormalizedWebhookEvent } from './payment-provider';
 import { logger } from '@/lib/logger';
+import { dispatchNotification, NotificationType } from './notification-service';
 
 // ─── Types ───
 
@@ -140,6 +154,13 @@ export async function processWebhookEvent(
     }
   }
 
+  // 2b. Phase 6D (C1): refund lifecycle events reference a Refund row (by
+  // refund reference), not the original payment transaction — route them to
+  // the refund handler before the payment lookup.
+  if (event.isRefundEvent) {
+    return processRefundWebhookEvent(event, webhookEventId);
+  }
+
   // 3. Locate the payment by provider reference
   const payment = await db.payment.findFirst({
     where: { providerRef: event.eventReference },
@@ -185,6 +206,43 @@ export async function processWebhookEvent(
     let outcome: string;
 
     if (event.isPaymentSuccess) {
+      // ─── Terminal-state guard for success events ───
+      // If the payment is already in a terminal state, this success event
+      // is either stale (payment already COMPLETED) or conflicting (payment
+      // FAILED/EXPIRED/CANCELLED). In both cases, retrying won't help.
+      if (isTerminalStatus(payment.status as PaymentStatus)) {
+        if (payment.status === 'COMPLETED') {
+          // Payment already completed — idempotent, not an error
+          logger.info('Success webhook for already-COMPLETED payment — idempotent', {
+            paymentId: payment.id,
+            currentStatus: payment.status,
+            eventId: event.eventId,
+          });
+          await markEventProcessed(webhookEventId, true, `Payment already COMPLETED — success event is idempotent`);
+          return {
+            webhookEventId,
+            processed: true,
+            paymentId: payment.id,
+            outcome: `Payment already COMPLETED — success event is idempotent`,
+          };
+        }
+
+        // Payment in terminal non-COMPLETED state (FAILED/EXPIRED/CANCELLED/REFUNDED)
+        // This success event is stale or conflicting. Non-retriable.
+        logger.warn('Success webhook for terminal non-COMPLETED payment — event is stale/conflicting', {
+          paymentId: payment.id,
+          currentStatus: payment.status,
+          eventId: event.eventId,
+        });
+        await markEventProcessed(webhookEventId, true, `Payment in terminal state ${payment.status} — success event cannot be applied`);
+        return {
+          webhookEventId,
+          processed: true,
+          paymentId: payment.id,
+          outcome: `Payment in terminal state ${payment.status} — success event cannot be applied (non-retriable)`,
+        };
+      }
+
       // Payment success → confirm booking
       const result = await confirmBookingOnPaymentSuccess({
         paymentId: payment.id,
@@ -196,9 +254,11 @@ export async function processWebhookEvent(
     } else if (event.isPaymentFailure) {
       // Payment failure → transition payment to FAILED + release inventory
 
-      // If payment is already in a terminal state (COMPLETED, FAILED, EXPIRED, etc.),
+      // If payment is already COMPLETED or in a terminal state (FAILED, EXPIRED, etc.),
       // this failure event is stale — mark as processed to prevent infinite retry.
-      if (isTerminalStatus(payment.status as PaymentStatus)) {
+      // COMPLETED is not a terminal state (it can transition to REFUNDED), but
+      // a failure event for a COMPLETED payment is definitively stale.
+      if (payment.status === 'COMPLETED' || isTerminalStatus(payment.status as PaymentStatus)) {
         logger.info('Failure webhook for terminal payment — event is stale', {
           paymentId: payment.id,
           currentStatus: payment.status,
@@ -216,7 +276,10 @@ export async function processWebhookEvent(
       // Must be transactional: if inventory release fails, payment should not be FAILED
       const transition = validatePaymentTransition(payment.status, 'FAILED');
 
-      await db.$transaction(async (tx) => {
+      // Phase 6D (M4): only the invocation that wins the FAILED transition
+      // may send the "Payment Failed" notification — a loser must stay silent
+      // (the payment may have been COMPLETED by a concurrent webhook).
+      const transitionWon = await db.$transaction(async (tx): Promise<boolean> => {
         // 1. Transition Payment → FAILED — status guard prevents TOCTOU
         const paymentUpdate = await tx.payment.updateMany({
           where: { id: payment.id, status: payment.status },
@@ -233,7 +296,7 @@ export async function processWebhookEvent(
             paymentId: payment.id,
             expectedStatus: payment.status,
           });
-          return;
+          return false;
         }
 
         // 2. Release reserved inventory for each ticket type
@@ -252,9 +315,39 @@ export async function processWebhookEvent(
             await releaseReservation({ ticketTypeId, quantity, tx });
           }
         }
+
+        return true;
       });
 
       outcome = 'Payment failed';
+
+      // Notify user that their payment failed — only if this invocation won
+      // the FAILED transition (Phase 6D M4)
+      if (transitionWon) {
+        try {
+          const booking = await db.booking.findUnique({
+            where: { id: payment.bookingId },
+            select: { userId: true, bookingRef: true, event: { select: { title: true, id: true } } },
+          });
+          await dispatchNotification({
+            userId: booking!.userId,
+            title: 'Payment Failed',
+            message: `Your payment for booking ${booking?.bookingRef ?? payment.bookingId} on "${booking?.event.title ?? 'event'}" has failed. Please try again or contact support.`,
+            type: NotificationType.PAYMENT,
+            eventId: booking?.event.id,
+            relatedEntityId: payment.id,
+            relatedEntityType: 'Payment',
+            dedupKey: `payment-failed-${payment.id}`,
+            link: booking?.event.id ? `/events/${booking.event.id}` : undefined,
+          });
+        } catch (notificationError) {
+          // Notification failure does NOT roll back payment state
+          logger.error('Failed to send payment failure notification', {
+            paymentId: payment.id,
+            error: notificationError instanceof Error ? notificationError.message : 'unknown',
+          });
+        }
+      }
     } else {
       outcome = `Event type "${event.eventType}" not actionable`;
     }
@@ -275,7 +368,44 @@ export async function processWebhookEvent(
       outcome,
     };
   } catch (error) {
-    // Mark event as failed — do NOT mark as processed
+    // ─── Non-retriable conflict errors ───
+    // ConfirmationRaceConflict and ConfirmationPreconditionFailed are non-retriable:
+    // the payment state will not change on retry, so mark as processed=true
+    // to prevent infinite retry loops.
+    if (error instanceof ConfirmationRaceConflict) {
+      logger.warn('Confirmation race conflict — marking webhook as processed (non-retriable)', {
+        eventId: event.eventId,
+        paymentId: payment.id,
+        currentPaymentStatus: error.currentPaymentStatus,
+        currentBookingStatus: error.currentBookingStatus,
+      });
+      await markEventProcessed(webhookEventId, true, `Confirmation race conflict: payment=${error.currentPaymentStatus}, booking=${error.currentBookingStatus}`);
+      return {
+        webhookEventId,
+        processed: true,
+        paymentId: payment.id,
+        outcome: `Confirmation race conflict: payment=${error.currentPaymentStatus}, booking=${error.currentBookingStatus} (non-retriable)`,
+      };
+    }
+
+    if (error instanceof ConfirmationPreconditionFailed) {
+      logger.warn('Confirmation precondition failed — marking webhook as processed (non-retriable)', {
+        eventId: event.eventId,
+        paymentId: payment.id,
+        paymentStatus: error.paymentStatus,
+      });
+      await markEventProcessed(webhookEventId, true, `Payment in terminal state ${error.paymentStatus} — cannot confirm`);
+      return {
+        webhookEventId,
+        processed: true,
+        paymentId: payment.id,
+        outcome: `Payment in terminal state ${error.paymentStatus} — cannot confirm (non-retriable)`,
+      };
+    }
+
+    // ─── Retriable errors ───
+    // Mark event as failed — do NOT mark as processed.
+    // The event will be retried on the next webhook delivery.
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     await markEventProcessed(webhookEventId, false, errorMessage);
 
@@ -316,4 +446,91 @@ async function markEventProcessed(
       ...(error && { processingError: error }),
     },
   });
+}
+
+// ─── Phase 6D (C1): Refund Webhook Completion ───
+
+/**
+ * Process a refund lifecycle webhook (refund.processed / refund.failed).
+ *
+ * Closes the ledger gap where Paystack refunded the attendee while the local
+ * Refund row stayed REQUESTED/PROCESSING forever (tickets stayed VALID after
+ * the attendee got their money back).
+ *
+ * Idempotency:
+ *   - Event-level dedup via PaymentWebhookEvent.eventId (handled upstream).
+ *   - processRefundCompletion is status-guarded and idempotent.
+ *   - Unknown refund references (e.g. refunds initiated from the Paystack
+ *     dashboard) are marked processed and NOT retried — retrying cannot
+ *     materialize a local row that does not exist.
+ */
+async function processRefundWebhookEvent(
+  event: NormalizedWebhookEvent,
+  webhookEventId: string,
+): Promise<ProcessWebhookEventResult> {
+  const refund = await db.refund.findFirst({
+    where: { providerRef: event.eventReference },
+    select: {
+      id: true,
+      status: true,
+      amount: true,
+      paymentId: true,
+    },
+  });
+
+  if (!refund) {
+    await markEventProcessed(webhookEventId, true, 'Refund not found for provider reference');
+    logger.warn('Refund webhook for unknown refund reference — marked processed', {
+      eventId: event.eventId,
+      refundReference: event.eventReference,
+      eventType: event.eventType,
+    });
+    return {
+      webhookEventId,
+      processed: true,
+      paymentId: null,
+      outcome: 'Refund not found for provider reference (non-retriable)',
+    };
+  }
+
+  // Amount consistency: the provider's refund amount must match the local
+  // refund record. Mismatch is a permanent error — mark processed to avoid
+  // infinite retries, then surface the mismatch.
+  if (event.amount !== refund.amount) {
+    await markEventProcessed(webhookEventId, true, 'Refund amount mismatch');
+    logger.error('Refund webhook amount mismatch', {
+      eventId: event.eventId,
+      refundId: refund.id,
+      expected: refund.amount,
+      received: event.amount,
+    });
+    throw new WebhookAmountMismatch(refund.amount, event.amount);
+  }
+
+  if (event.isRefundSuccess) {
+    const result = await processRefundCompletion({
+      refundId: refund.id,
+      providerRef: event.eventReference,
+    });
+    await markEventProcessed(webhookEventId, true, `Refund webhook applied: ${result.status}`);
+    return {
+      webhookEventId,
+      processed: true,
+      paymentId: refund.paymentId,
+      outcome: `Refund completed via webhook (refundedAmount updated, full refund transitions payment to REFUNDED)`,
+    };
+  }
+
+  // Refund failure path
+  const result = await processRefundFailure({
+    refundId: refund.id,
+    failureReason: 'Provider reported refund failure (webhook)',
+  });
+  await markEventProcessed(webhookEventId, true, `Refund webhook applied: ${result.status}`);
+  return {
+    webhookEventId,
+    processed: true,
+    paymentId: refund.paymentId,
+    outcome: `Refund marked FAILED via webhook`,
+  };
 }

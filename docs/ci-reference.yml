@@ -1,0 +1,105 @@
+name: CI — Phase 5G
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, phase5g-confirmation-race-guard]
+
+env:
+  NODE_ENV: test
+  DATABASE_URL: file:./test.db
+
+jobs:
+  # ─── Job 1: SQLite test suite ───
+  test-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run db:generate
+      - run: bun run db:push
+      - run: bun run db:seed
+      - name: Run SQLite test suite
+        run: bun run test
+
+  # ─── Job 2: Paystack sandbox acceptance ───
+  # Runs ALWAYS. If secrets are missing, the step detects this and fails
+  # with a clear BLOCKED message — does NOT silently skip.
+  test-paystack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run db:generate
+      - run: bun run db:push
+      - run: bun run db:seed
+      - name: Check Paystack credential availability
+        env:
+          HAS_SECRET: ${{ secrets.PAYSTACK_SECRET_KEY != '' }}
+        run: |
+          if [ "$HAS_SECRET" != "true" ]; then
+            echo "::error::Paystack sandbox acceptance BLOCKED — PAYSTACK_SECRET_KEY secret is not configured."
+            echo "::notice::Add PAYSTACK_SECRET_KEY, PAYSTACK_PUBLIC_KEY, and PAYSTACK_WEBHOOK_SECRET as repository secrets."
+            exit 1
+          fi
+          echo "Paystack credentials detected — proceeding with sandbox acceptance tests."
+      - name: Run Paystack sandbox acceptance tests
+        if: ${{ secrets.PAYSTACK_SECRET_KEY != '' }}
+        env:
+          PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
+          PAYSTACK_PUBLIC_KEY: ${{ secrets.PAYSTACK_PUBLIC_KEY }}
+          PAYSTACK_WEBHOOK_SECRET: ${{ secrets.PAYSTACK_WEBHOOK_SECRET }}
+        run: bun vitest run src/__tests__/phase5g-sandbox-acceptance.test.ts
+
+  # ─── Job 3: PostgreSQL 17 concurrency suite ───
+  test-postgresql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: applecalendar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run db:generate:postgres
+      - name: Run Prisma migrations against PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/applecalendar_test?schema=public
+        run: bunx prisma migrate deploy --schema=prisma/schema.postgresql.prisma
+      - name: Run PostgreSQL concurrency suite
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/applecalendar_test?schema=public
+          NODE_ENV: test
+        run: bun vitest run src/__tests__/phase5g-postgresql-concurrency.test.ts
+
+  # ─── Job 4: Lint + TypeScript ───
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bunx tsc --noEmit

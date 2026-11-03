@@ -22,7 +22,7 @@ export async function PATCH(
 
     const updatedNotification = await db.notification.update({
       where: { id },
-      data: { isRead: true },
+      data: { isRead: true, readAt: new Date() },
     });
 
     return NextResponse.json({ notification: updatedNotification });

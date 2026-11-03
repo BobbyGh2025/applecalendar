@@ -3,10 +3,14 @@
  * POST /api/payments/:id/refund
  *
  * Get refunds for a payment, or request a refund.
- * - Auth required (booking owner or SUPER_ADMIN for GET; booking owner or SUPER_ADMIN for POST)
+ * - GET auth: booking owner or SUPER_ADMIN
+ * - POST auth: booking owner, event organizer, or SUPER_ADMIN
  * - POST is rate limited: 3 req/min
  * - Refund request validates payment is COMPLETED
- * - For PAYSTACK provider, initiates refund with Paystack API
+ * - Phase 6D (C2): ONLY the event organizer or SUPER_ADMIN can execute a
+ *   provider refund. A booking owner's request is recorded as REQUESTED
+ *   and held for organizer/admin approval — no Paystack call is made.
+ *   Every refund action is written to the AuditLog.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticate } from '@/lib/auth';
@@ -101,7 +105,7 @@ export async function POST(
 
     const { amount, reason } = parsed.data;
 
-    // Load payment for ownership check
+    // Load payment for ownership check (+ event organizer for refund approval)
     const payment = await db.payment.findUnique({
       where: { id: paymentId },
       select: {
@@ -114,6 +118,11 @@ export async function POST(
         booking: {
           select: {
             userId: true,
+            event: {
+              select: {
+                organizerId: true,
+              },
+            },
           },
         },
       },
@@ -123,10 +132,19 @@ export async function POST(
       throw new ApiError(404, 'PAYMENT_NOT_FOUND', 'Payment not found');
     }
 
-    // Ownership check
-    if (payment.booking?.userId !== user.id && user.role !== 'SUPER_ADMIN') {
+    // Authorization (Phase 6D C2):
+    //  - The booking owner may REQUEST a refund (recorded, no provider call).
+    //  - Only the event organizer or SUPER_ADMIN may EXECUTE the refund
+    //    against the provider. This closes the self-refund abuse path where
+    //    any attendee could move real money at any time.
+    const isBookingOwner = payment.booking?.userId === user.id;
+    const isEventOrganizer = payment.booking?.event.organizerId === user.id;
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+
+    if (!isBookingOwner && !isEventOrganizer && !isSuperAdmin) {
       throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to request a refund for this payment');
     }
+    const canExecuteProviderRefund = isEventOrganizer || isSuperAdmin;
 
     // Request refund via domain service
     const refundResult = await requestRefund({
@@ -136,8 +154,10 @@ export async function POST(
       requestedBy: user.id,
     });
 
-    // For PAYSTACK provider, initiate refund with Paystack
-    if (payment.provider === 'PAYSTACK') {
+    // For PAYSTACK provider, initiate refund with Paystack — but ONLY when the
+    // requester is authorized to execute refunds (organizer/admin). A booking
+    // owner's request stays in REQUESTED state pending approval.
+    if (payment.provider === 'PAYSTACK' && canExecuteProviderRefund) {
       const paystackProvider = providerRegistry.require('PAYSTACK');
       const providerRefundResult = await paystackProvider.requestRefund({
         paymentId,
@@ -169,6 +189,32 @@ export async function POST(
       }
     }
 
+    // AuditLog — every refund action is recorded (Phase 6D C2)
+    try {
+      await db.auditLog.create({
+        data: {
+          actorId: user.id,
+          action: canExecuteProviderRefund ? 'APPROVE' : 'CREATE',
+          entityType: 'Refund',
+          entityId: refundResult.refundId,
+          newValue: JSON.stringify({
+            paymentId,
+            amount,
+            status: canExecuteProviderRefund && payment.provider === 'PAYSTACK'
+              ? 'PROCESSING (provider initiated)'
+              : 'REQUESTED (awaiting organizer/admin approval)',
+            executedProviderRefund: canExecuteProviderRefund,
+          }),
+          reason: reason ?? null,
+        },
+      });
+    } catch (auditError) {
+      logger.error('Failed to write refund AuditLog', {
+        refundId: refundResult.refundId,
+        error: auditError instanceof Error ? auditError.message : 'unknown',
+      });
+    }
+
     // Fetch the refund for response
     const refund = await db.refund.findUnique({
       where: { id: refundResult.refundId },
@@ -188,9 +234,22 @@ export async function POST(
       paymentId,
       amount,
       requestedBy: user.id,
+      executedProviderRefund: canExecuteProviderRefund,
     });
 
-    return NextResponse.json({ refund }, { status: 201 });
+    return NextResponse.json(
+      {
+        refund,
+        ...(canExecuteProviderRefund
+          ? {}
+          : {
+              message:
+                'Refund request recorded. It will be processed by the event organizer or an administrator.',
+              pendingApproval: true,
+            }),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     return handleApiError(error);
   }

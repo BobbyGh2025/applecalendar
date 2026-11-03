@@ -19,6 +19,13 @@
  * and release the reserved inventory. Previously, the route only logged
  * this condition without taking action, leaving inventory reserved until
  * the webhook or expiry sweep handled it.
+ *
+ * Phase 6D Hardening (C3): the client-supplied providerReference is now
+ * BOUND to this payment. Previously any valid Paystack reference for a
+ * transaction with the same amount+currency could confirm a different
+ * booking (one charge → multiple confirmed bookings). The reference must
+ * match the payment's own idempotencyKey (sent to Paystack as the
+ * transaction reference) or its stored providerRef.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticate } from '@/lib/auth';
@@ -63,6 +70,7 @@ export async function POST(
         provider: true,
         status: true,
         providerRef: true,
+        idempotencyKey: true,
         booking: {
           select: {
             id: true,
@@ -79,6 +87,28 @@ export async function POST(
     // Ownership check: only the booking owner or SUPER_ADMIN may verify
     if (payment.booking?.userId !== user.id && user.role !== 'SUPER_ADMIN') {
       throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to verify this payment');
+    }
+
+    // Phase 6D (C3): Reference binding — the supplied reference must belong to
+    // THIS payment. Paystack's transaction reference is our idempotencyKey;
+    // providerRef is the reference persisted at initialization time. Without
+    // this check, a reference from a DIFFERENT payment with the same amount
+    // and currency would confirm this booking (double-spend).
+    if (payment.provider === 'PAYSTACK') {
+      const boundReferences = [payment.idempotencyKey, payment.providerRef].filter(
+        (ref): ref is string => typeof ref === 'string' && ref.length > 0
+      );
+      if (boundReferences.length > 0 && !boundReferences.includes(providerReference)) {
+        logger.warn('Payment verify rejected — reference does not belong to payment', {
+          paymentId,
+          suppliedReference: providerReference,
+        });
+        throw new ApiError(
+          403,
+          'REFERENCE_MISMATCH',
+          'The provided reference does not belong to this payment'
+        );
+      }
     }
 
     // Already completed? Return idempotent success

@@ -49,7 +49,9 @@ interface MemoryEntry {
 }
 
 export class MemoryStore implements RateLimitStore {
-  private store = new Map<string, MemoryEntry>();
+  // Phase 6D (F-16): public readonly — the rateLimit() fast path reads the map
+  // directly for synchronous increments; entries are mutated, never replaced.
+  readonly store = new Map<string, MemoryEntry>();
 
   async increment(key: string, windowMs: number): Promise<{ count: number; resetAt: number }> {
     const now = Date.now();
@@ -131,8 +133,19 @@ export function rateLimit(options: { windowMs: number; maxRequests: number }) {
   startCleanup();
 
   return function checkRateLimit(request: Request): RateLimitResult {
+    // Phase 6D (F-14): key on the LAST x-forwarded-for hop, not the first.
+    // The leftmost entry is client-controlled and trivially spoofed — an
+    // attacker rotating a spoofed header could reset their bucket every
+    // request, making the login/register limits advisory. The rightmost
+    // entry is appended by our trusted reverse proxy (Caddy) and reflects
+    // the real connection source. Header-absent clients share the
+    // 'unknown' bucket (fail-closed).
     const forwarded = request.headers.get('x-forwarded-for');
-    const ip = forwarded ? forwarded.split(',')[0].trim() : 'unknown';
+    let ip = 'unknown';
+    if (forwarded) {
+      const hops = forwarded.split(',').map((h) => h.trim()).filter(Boolean);
+      ip = hops.length > 0 ? hops[hops.length - 1] : 'unknown';
+    }
     const key = `rl:${ip}`;
 
     // Synchronous for MemoryStore, but interface supports async for future stores

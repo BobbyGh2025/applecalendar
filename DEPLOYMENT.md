@@ -40,8 +40,16 @@ Then:
 ```bash
 bun run db:generate:postgres
 bun run db:migrate:deploy
-bun run db:seed
 ```
+
+> **DO NOT run `bun run db:seed` in production.** The seed creates a
+> SUPER_ADMIN with credentials published in this repository and overwrites
+> user-managed venue data. Phase 6D made the seed guard fail-closed: it only
+> runs when `NODE_ENV` is `development`/`test`, or with an explicit
+> `ALLOW_SEED=1` override — never set that override in production.
+> Create the production administrator manually (register, then promote the
+> role in the database), and rotate any credential that has ever appeared in
+> source control.
 
 The production build scripts honor `DATABASE_PROVIDER=postgresql` and skip packaging the development SQLite database when `DATABASE_RUNTIME_MODE=external`.
 

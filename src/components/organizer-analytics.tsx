@@ -146,7 +146,7 @@ export function OrganizerAnalytics() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" fontSize={10} tickFormatter={v => v.split('-').slice(1).join('/')} />
                     <YAxis fontSize={12} tickFormatter={(v: number) => formatMoney(v, DEFAULT_CURRENCY)} />
-                    <ChartTooltip content={<ChartTooltipContent formatter={(v: number) => formatMoneyWithSymbol(v, DEFAULT_CURRENCY)} />} />
+                    <ChartTooltip content={<ChartTooltipContent formatter={(v) => formatMoneyWithSymbol(Number(v), DEFAULT_CURRENCY)} />} />
                     <Area type="monotone" dataKey="revenue" stroke="var(--color-revenue)" fill="var(--color-revenue)" fillOpacity={0.2} strokeWidth={2} />
                   </AreaChart>
                 </ChartContainer>

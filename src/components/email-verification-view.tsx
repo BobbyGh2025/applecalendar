@@ -130,7 +130,7 @@ export function EmailVerificationView() {
               You have full access to all features.
             </p>
             <Button
-              onClick={() => navigate('profile')}
+              onClick={() => navigate('user-profile')}
               className="bg-emerald-600 hover:bg-emerald-700"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -234,7 +234,7 @@ export function EmailVerificationView() {
 
       <div className="text-center">
         <button
-          onClick={() => navigate('profile')}
+          onClick={() => navigate('user-profile')}
           className="text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4 inline mr-1" />

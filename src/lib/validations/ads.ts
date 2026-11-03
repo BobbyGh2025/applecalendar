@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   paginationSchema,
   optionalUrlField,
+  urlField,
   dateStringField,
   optionalDateStringField,
   adPositionField,
@@ -35,8 +36,9 @@ export const updateAdSchema = z.object({
     .min(1, 'Title cannot be empty')
     .max(200, 'Title must be 200 characters or fewer')
     .optional(),
-  imageUrl: z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional(),
-  linkUrl: z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional(),
+  // Phase 6D (F-7): safe-scheme validation (blocks javascript:/data: XSS on public pages)
+  imageUrl: z.union([urlField, z.literal('')]).optional(),
+  linkUrl: z.union([urlField, z.literal('')]).optional(),
   position: adPositionField.optional(),
   status: adStatusField.optional(),
   startDate: z.union([dateStringField, z.literal('')]).optional(),

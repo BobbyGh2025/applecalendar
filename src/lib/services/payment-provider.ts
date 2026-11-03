@@ -140,6 +140,14 @@ export interface NormalizedWebhookEvent {
   isPaymentSuccess: boolean;
   /** Whether this event indicates failed payment */
   isPaymentFailure: boolean;
+  /**
+   * Phase 6D (C1): refund lifecycle events (e.g. Paystack refund.processed /
+   * refund.failed). These reference a Refund row (by refund reference), not
+   * the original payment transaction.
+   */
+  isRefundEvent?: boolean;
+  isRefundSuccess?: boolean;
+  isRefundFailure?: boolean;
 }
 
 export interface ProcessWebhookResult {

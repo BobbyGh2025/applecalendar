@@ -1046,3 +1046,110 @@ worktree /home/z/phase6b-work (clean at start), local = remote verified before a
   logs and continues — dispatch-time fallback covers any missing rows.
 
 Commit: (this commit) on branch phase5g-confirmation-race-guard
+
+---
+
+## Task 27 — Phase 6D: Production Readiness and Notification Delivery Preparation (2026-11-03)
+
+Start point: commit 5d1ccca (Phase 6C). Branch phase5g-confirmation-race-guard,
+worktree /home/z/phase6d-work created at 5d1ccca (verified clean), PR #2 confirmed
+open+draft via GitHub API, local main diverged (sandbox commits, never pushed).
+
+### Method
+4 parallel read-only audit agents (auth/payments/notifications/infra) covering the
+WHOLE application, then PERSONAL verification of every CRITICAL claim against the
+code before any implementation. No fix was implemented from an unverified report.
+
+### Stage 1 audit — verified findings (severity → fix status)
+CRITICAL (all fixed this phase):
+- C3 payments/[id]/verify: client-supplied providerReference never compared to
+  payment.providerRef/idempotencyKey → one charge could confirm multiple bookings
+  (double-spend). FIXED: route binds reference to the payment (403
+  REFERENCE_MISMATCH) + provider-level data.reference equality check.
+- C2 payments/[id]/refunds: booking owner could trigger a LIVE Paystack refund
+  with no approval gate. FIXED: attendee requests create REQUESTED refunds (no
+  provider call, pendingApproval flag); only event organizer/SUPER_ADMIN execute
+  provider refunds; every action AuditLog-logged.
+- C1 refund ledger never completed: processRefundCompletion/Failure had NO
+  runtime caller; refund.processed webhooks unhandled → tickets stayed VALID
+  after money returned. FIXED: Paystack normalizer maps refund.processed/failed;
+  payment-webhook routes them; processRefundFailure now status-guarded (late
+  failure cannot clobber COMPLETED).
+- H1 events/[id]/book: reserveInventory/directSoldIncrement ran OUTSIDE the
+  booking transaction — failures permanently leaked inventory. FIXED: both
+  moved inside $transaction (tx param).
+
+HIGH (fixed): N-14 sequential cancellation fan-out (1k bookers ≈ 5-6k serial
+queries awaited in PATCH) → bounded-concurrency chunks of 50; F-2 dev-token leak
+gates (`NODE_ENV !== 'production'` leaked reset/verify/invite tokens on staging)
+→ fail-closed `=== 'development'` on 4 routes (+forgot-password devToken field
+name aligned with UI); F-14 rate-limit keyed on spoofable FIRST x-forwarded-for
+hop → LAST hop (trusted proxy); F-22 security headers on /api/* only → all
+routes incl. CSP (frame-ancestors 'none', object-src 'none'); F-11
+prisma/migrations/migration_lock.toml MISSING → migrate deploy broken on fresh
+clone → committed (postgresql); F-1 seed guard keyed on NODE_ENV=production
+while runbook seeded without NODE_ENV → fail-closed (development/test or
+explicit ALLOW_SEED=1) + DEPLOYMENT.md production seed step removed.
+
+HIGH (fixed via evidence): F-20 type gates OFF — ran tsc --noEmit, found 23
+pre-existing errors, fixed ALL (incl. a REAL runtime bug: admin organizers
+verify route referenced nonexistent verificationStatus/verifiedAt fields —
+every call would 500; now delegates to executeLifecycleTransition), removed
+ignoreBuildErrors, deleted dead input-otp.tsx, excluded examples/. Production
+build now passes WITH type checking.
+
+MEDIUM (fixed): M4 expiry/failed notifications sent on LOST races → gated on
+winning transition; N-8 cursor pagination mixed id-order with createdAt sort →
+composite (createdAt,id) tuple cursor; N-9 NaN limit → 500 → guarded; N-11
+mark-all-read now skips SKIPPED dedup anchors; F-7 javascript:/data: URLs
+accepted by media/ads/identity/callbackUrl schemas (stored XSS) → safe-scheme
+urlField everywhere; F-29 server-keeper.js lint blockers → eslint ignores (ops
+script).
+
+Documented (not implemented — requires operator/next phase): H2 webhook
+reconciliation re-normalization, H3 payment expiry scheduler, N-1 outbox
+sweeper, N-12 providerMessageId column, refresh-token flow (F1-auth), App
+Router URL migration (F-16).
+
+### Stage 2 — notification delivery readiness
+Verified adapter pattern + consent defaults + dedup + failure isolation intact.
+Wrote docs/notification-delivery-architecture.md: go-live checklist (7 items),
+queue options A/B/C with infra requirements, failure modes, operational cost;
+recommendation Option A (in-process outbox sweeper) now, Option B (PG SKIP
+LOCKED) at multi-instance. NO provider activated; NO real email/SMS.
+
+### Stage 3 — blocker reassessment (evidence-based)
+- CI workflow: exists ONLY as commit 21e617a on UNPUSHED local main (PAT lacks
+  workflow scope — pushing files under .github/ is rejected by GitHub for this
+  token). Zero workflow runs have ever executed (API total_count empty).
+- PAYSTACK_SECRET_KEY/PUBLIC_KEY/WEBHOOK_SECRET: still absent — operator only.
+- 4 sandbox-acceptance tests remain BLOCKED (asserted, not faked).
+- PG concurrency: RESOLVED LOCALLY — PG 17.11 installed user-space, migrations
+  applied via `prisma migrate deploy` (also proving the F-11 lock file works),
+  11/11 tests PASS against real PostgreSQL.
+
+### Stage 5 — verification (actual runs)
+- Full suite (47 files, chunked): 1437 PASS / 4 FAIL (all BLOCKED Paystack
+  sandbox-acceptance — pre-existing, asserted) / 0 new failures.
+- PG concurrency (real PG 17.11): 11/11 PASS.
+- tsc --noEmit: 0 errors. ESLint: exit 0. Production build (type-checked): ✓.
+- Browser (agent-browser against production standalone on :3100): page renders
+  under new CSP with ZERO console errors; login journey works; notification
+  centre renders (empty state, mark-all correctly disabled); preferences UI
+  shows consent-safe defaults LIVE (In-app ON, Email OFF, SMS OFF).
+- 36 new Phase 6D tests in src/__tests__/phase6d-production-readiness.test.ts.
+- 3 phase5e-stage4 paystack fixtures updated: mocked responses previously
+  echoed a DIFFERENT reference than queried (unrealistic; the new C3 check
+  correctly rejects that) — fixtures now echo the queried reference; all
+  assertions unchanged. seed-production-guard.test.ts widened window + new
+  FAIL-CLOSED test (7/7).
+
+### Safeguards preserved
+Phase 5G state machine, webhook HMAC+dedup, confirmation race guard untouched.
+No schema changes (migration_lock.toml is a new file, not a schema change).
+No real email/SMS. PR #2 stays draft. No secrets touched. No DB destroyed —
+PG test DB created fresh; worktree SQLite created fresh; main project DB only
+received idempotent seed upserts (update: {}) by accident of shell env, no
+data loss.
+
+Commit: (this commit) on branch phase5g-confirmation-race-guard

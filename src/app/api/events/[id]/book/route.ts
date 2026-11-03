@@ -148,12 +148,16 @@ export async function POST(
     // ─── PAID BOOKING LIFECYCLE ───
     // Booking PENDING → inventory RESERVED → Payment PENDING → Tickets PENDING
     if (!isFree) {
-      // 1. Reserve inventory atomically (reservedCount++)
-      // Uses raw SQL conditional update — two concurrent requests for the last ticket cannot both succeed
-      await reserveInventory({ ticketTypeId, quantity });
-
-      // 2. Create booking as PENDING, payment, and tickets in a transaction
+      // 1-2. Phase 6D (H1): reserve inventory INSIDE the booking transaction.
+      // Previously the reservation ran outside the transaction with no
+      // compensation — a transaction failure (unique violation, timeout,
+      // serialization error) permanently leaked reservedCount. Now any
+      // failure rolls back the reservation atomically with everything else.
       const result = await db.$transaction(async (tx) => {
+        // Reserve inventory atomically (reservedCount++) — conditional raw SQL
+        // update; two concurrent requests for the last ticket cannot both succeed.
+        await reserveInventory({ ticketTypeId, quantity, tx });
+
         // Create booking in PENDING status (NOT CONFIRMED — payment pending)
         const booking = await tx.booking.create({
           data: {
@@ -259,11 +263,12 @@ export async function POST(
     // Free bookings are immediately confirmable — no payment action needed.
     // We use the domain services to ensure consistency with the paid flow.
 
-    // 1. Directly increment soldCount (no reservation needed for free bookings)
-    await directSoldIncrement(ticketTypeId, quantity);
-
-    // 2. Create booking, payment, and tickets in a transaction
+    // 1-2. Phase 6D (H1): increment soldCount INSIDE the booking transaction
+    // (previously ran outside with no compensation — a transaction failure
+    // inflated soldCount with no booking behind it).
     const result = await db.$transaction(async (tx) => {
+      await directSoldIncrement(ticketTypeId, quantity, tx);
+
       // Create booking as CONFIRMED (free event — no payment needed)
       const booking = await tx.booking.create({
         data: {

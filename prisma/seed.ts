@@ -28,11 +28,22 @@ async function main() {
   // Running this script in production would overwrite user-managed venue data (name, description,
   // address, etc.) with seed defaults. The idempotent `update: venue` / `update: orgVenueData`
   // is safe ONLY in dev/staging/CI where the seed is the source of truth for reference data.
-  if (process.env.NODE_ENV === 'production') {
+  // Phase 6D (F-1): fail-closed guard. The previous check
+  // (NODE_ENV === 'production') allowed seeding whenever NODE_ENV was unset —
+  // which is exactly how the production runbook (DEPLOYMENT.md §3) invoked it,
+  // creating a SUPER_ADMIN with repo-published credentials on a fresh
+  // production database. Seeding is now ONLY allowed in development/test or
+  // with an explicit ALLOW_SEED=1 override (documented escape hatch for a
+  // deliberate staging seed; never set it in production).
+  const seedEnv = process.env.NODE_ENV ?? '';
+  const seedAllowed =
+    seedEnv === 'development' || seedEnv === 'test' || process.env.ALLOW_SEED === '1';
+  if (!seedAllowed) {
     throw new Error(
-      '⛔ prisma/seed.ts MUST NOT run in production. ' +
-      'It contains hardcoded dev credentials and idempotent upserts that would overwrite user-managed data. ' +
-      'Set NODE_ENV to "development" or "test" to allow seeding.'
+      '⛔ prisma/seed.ts is BLOCKED: it contains hardcoded dev credentials and ' +
+      'idempotent upserts that would overwrite user-managed data. ' +
+      'Seeding requires NODE_ENV to be "development" or "test", or an explicit ' +
+      'ALLOW_SEED=1 override (never use ALLOW_SEED=1 in production).'
     );
   }
   console.log('🌱 Seeding database...');

@@ -410,27 +410,44 @@ export async function notifyAttendeesEventCancelled(params: {
   let notified = 0;
   let failed = 0;
 
-  for (const userId of bookerUserIds) {
-    try {
-      await dispatchNotification({
-        userId,
-        title: 'Event Cancelled',
-        message: `The event "${eventTitle}" has been cancelled by the organizer. If you purchased tickets, you will be contacted regarding refunds.`,
-        type: NotificationType.EVENT_UPDATE,
-        eventId,
-        relatedEntityId: eventId,
-        relatedEntityType: 'Event',
-        dedupKey: `event-cancelled-${eventId}-${userId}`,
-        link: `/events/${eventId}`,
-      });
-      notified++;
-    } catch (error) {
-      failed++;
-      logger.error('Failed to dispatch event cancellation notification', {
-        eventId,
-        userId,
-        error: error instanceof Error ? error.message : 'unknown',
-      });
+  // Phase 6D (N-14): bounded-concurrency fan-out. The previous sequential
+  // loop awaited each dispatch (≈5 DB round-trips per booker) inside the
+  // event PATCH — a 1,000-booker event meant ~5,000 serial queries (10-30s)
+  // and gateway timeouts. Chunks of 50 keep DB pool pressure bounded while
+  // cutting wall-clock time ~20x. Per-user semantics are unchanged: same
+  // dispatchNotification call, per-user dedupKey, per-user error isolation.
+  const FAN_OUT_CHUNK_SIZE = 50;
+
+  for (let i = 0; i < bookerUserIds.length; i += FAN_OUT_CHUNK_SIZE) {
+    const chunk = bookerUserIds.slice(i, i + FAN_OUT_CHUNK_SIZE);
+    const results = await Promise.all(
+      chunk.map(async (userId) => {
+        try {
+          await dispatchNotification({
+            userId,
+            title: 'Event Cancelled',
+            message: `The event "${eventTitle}" has been cancelled by the organizer. If you purchased tickets, you will be contacted regarding refunds.`,
+            type: NotificationType.EVENT_UPDATE,
+            eventId,
+            relatedEntityId: eventId,
+            relatedEntityType: 'Event',
+            dedupKey: `event-cancelled-${eventId}-${userId}`,
+            link: `/events/${eventId}`,
+          });
+          return true;
+        } catch (error) {
+          logger.error('Failed to dispatch event cancellation notification', {
+            eventId,
+            userId,
+            error: error instanceof Error ? error.message : 'unknown',
+          });
+          return false;
+        }
+      })
+    );
+    for (const ok of results) {
+      if (ok) notified++;
+      else failed++;
     }
   }
 

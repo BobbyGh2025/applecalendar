@@ -152,7 +152,10 @@ const PAYSTACK_FAILED_VERIFY_RESPONSE = {
   data: {
     id: 12346,
     status: 'failed',
-    reference: 'pay-failed-ref',
+    // Phase 6D (C3): Paystack echoes the reference that was queried —
+    // the fixture previously used a different reference, which the new
+    // reference-binding check (correctly) rejects before the status branch.
+    reference: 'pay-1234567890-abcdef',
     amount: 10000,
     currency: 'GHS',
     paid_at: null,
@@ -167,7 +170,8 @@ const PAYSTACK_PENDING_VERIFY_RESPONSE = {
   data: {
     id: 12347,
     status: 'pending',
-    reference: 'pay-pending-ref',
+    // Phase 6D (C3): echoes the queried reference (see failed-response note).
+    reference: 'pay-1234567890-abcdef',
     amount: 10000,
     currency: 'GHS',
     paid_at: null,
@@ -475,7 +479,8 @@ describe('Phase 5E Stage 4: Paystack Provider Integration', () => {
         data: {
           id: 12348,
           status: 'abandoned',
-          reference: 'pay-abandoned-ref',
+          // Phase 6D (C3): echoes the queried reference (see failed-response note).
+          reference: 'pay-1234567890-abcdef',
           amount: 10000,
           currency: 'GHS',
           paid_at: null,

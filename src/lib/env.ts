@@ -105,7 +105,7 @@ function validateEnv(): EnvConfig {
     PAYMENT_EXPIRY_MINUTES: parseInt(process.env.PAYMENT_EXPIRY_MINUTES || '15', 10),
     isProduction: nodeEnv === 'production',
     isDevelopment: nodeEnv === 'development',
-    isTest: nodeEnv === 'test',
+    isTest: (nodeEnv as string) === 'test',
   };
 }
 
@@ -116,7 +116,7 @@ let _env: EnvConfig | null = null;
 export const env = new Proxy({} as EnvConfig, {
   get(_target, prop: string) {
     if (!_env) _env = validateEnv();
-    return (_env as Record<string, unknown>)[prop];
+    return (_env as unknown as Record<string, unknown>)[prop];
   },
 });
 

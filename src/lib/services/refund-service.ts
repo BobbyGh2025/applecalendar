@@ -359,12 +359,39 @@ export async function processRefundFailure(
 ): Promise<RefundResult> {
   const { refundId, failureReason } = params;
 
-  const refund = await db.refund.update({
-    where: { id: refundId },
+  // Phase 6D: status-guarded transition — a late/duplicate refund.failed
+  // webhook must NOT clobber a refund that already reached a terminal state
+  // (e.g. COMPLETED by a racing refund.processed delivery).
+  const guarded = await db.refund.updateMany({
+    where: { id: refundId, status: { in: ['REQUESTED', 'PROCESSING'] } },
     data: {
       status: 'FAILED',
       failureReason,
     },
+  });
+
+  if (guarded.count === 0) {
+    const existing = await db.refund.findUnique({
+      where: { id: refundId },
+      select: { id: true, status: true, amount: true, paymentId: true },
+    });
+    if (!existing) {
+      throw new RefundNotFound(refundId);
+    }
+    logger.info('Refund failure ignored — refund already in terminal state (idempotent)', {
+      refundId,
+      status: existing.status,
+    });
+    return {
+      refundId: existing.id,
+      status: existing.status,
+      amount: existing.amount,
+      paymentId: existing.paymentId,
+    };
+  }
+
+  const refund = await db.refund.findUnique({
+    where: { id: refundId },
     select: {
       id: true,
       status: true,
@@ -372,6 +399,10 @@ export async function processRefundFailure(
       paymentId: true,
     },
   });
+
+  if (!refund) {
+    throw new RefundNotFound(refundId);
+  }
 
   logger.info('Refund failed', { refundId, failureReason, paymentId: refund.paymentId });
 

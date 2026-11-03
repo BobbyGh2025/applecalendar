@@ -31,7 +31,8 @@ export type AppView =
   | 'user-profile'
   | 'change-password'
   | 'forgot-password'
-  | 'reset-password';
+  | 'reset-password'
+  | 'verify-email';
 
 interface User {
   id: string;

@@ -5,13 +5,16 @@
  */
 
 import { z } from 'zod';
+import { urlField } from './common';
 
 // ─── Initialize Payment ───
 
 export const initializePaymentSchema = z.object({
   bookingId: z.string().min(1, 'Booking ID is required'),
   provider: z.enum(['PAYSTACK', 'MANUAL', 'FREE']).optional(),
-  callbackUrl: z.string().url('Must be a valid URL').optional(),
+  // Phase 6D (F-8/F-7): safe-scheme validation — restricts the post-payment
+  // redirect target and blocks javascript:/data: URLs.
+  callbackUrl: urlField.optional(),
 });
 
 export type InitializePaymentInput = z.infer<typeof initializePaymentSchema>;

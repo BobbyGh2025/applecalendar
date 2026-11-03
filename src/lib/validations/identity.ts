@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { emailField, passwordField } from './common';
+import { emailField, passwordField, urlField } from './common';
 
 // ─── Forgot Password ───
 
@@ -53,7 +53,8 @@ export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 
 export const updateProfileSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100, 'Name must be 100 characters or fewer').optional(),
-  avatar: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  // Phase 6D (F-7): safe-scheme validation (blocks javascript:/data: XSS)
+  avatar: z.union([urlField, z.literal('')]).optional(),
   bio: z.string().max(500, 'Bio must be 500 characters or fewer').optional(),
   phone: z.string().max(30, 'Phone must be 30 characters or fewer').optional(),
 });
@@ -65,9 +66,9 @@ export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export const updateOrganizerProfileSchema = z.object({
   organizationName: z.string().min(1, 'Organization name is required').max(200, 'Organization name must be 200 characters or fewer').optional(),
   description: z.string().max(2000, 'Description must be 2000 characters or fewer').optional(),
-  logo: z.string().url('Must be a valid URL').optional().or(z.literal('')),
-  coverImage: z.string().url('Must be a valid URL').optional().or(z.literal('')),
-  website: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  logo: z.union([urlField, z.literal('')]).optional(),
+  coverImage: z.union([urlField, z.literal('')]).optional(),
+  website: z.union([urlField, z.literal('')]).optional(),
   contactEmail: z.string().email('Invalid email format').optional().or(z.literal('')),
   phone: z.string().max(30, 'Phone must be 30 characters or fewer').optional(),
   address: z.string().max(300, 'Address must be 300 characters or fewer').optional(),

@@ -90,7 +90,7 @@ export function AdminDashboard() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" fontSize={12} />
                 <YAxis fontSize={12} tickFormatter={(v: number) => formatMoney(v, DEFAULT_CURRENCY)} />
-                <ChartTooltip content={<ChartTooltipContent formatter={(v: number) => formatMoneyWithSymbol(v, DEFAULT_CURRENCY)} />} />
+                <ChartTooltip content={<ChartTooltipContent formatter={(v) => formatMoneyWithSymbol(Number(v), DEFAULT_CURRENCY)} />} />
                 <Line type="monotone" dataKey="revenue" stroke="var(--color-revenue)" strokeWidth={2} dot={{ r: 4 }} />
               </LineChart>
             </ChartContainer>

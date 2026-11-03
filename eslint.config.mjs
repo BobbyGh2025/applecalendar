@@ -44,7 +44,9 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  // Phase 6D (F-29): server-keeper.js is a CommonJS dev-ops watchdog script,
+  // not application code — `require()` is intentional there.
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "server-keeper.js", "*.sh"]
 }];
 
 export default eslintConfig;

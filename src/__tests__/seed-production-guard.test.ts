@@ -127,10 +127,58 @@ describe('Phase 5G — Seed Production Guard', () => {
     expect(guardPosition).toBeLessThan(firstUpsertPosition);
     expect(guardPosition).toBeLessThan(seedLogPosition);
 
-    // Guard must throw (not just warn or log)
-    const guardBlock = mainBody.slice(guardPosition, guardPosition + 500);
+    // Guard must throw (not just warn or log).
+    // Phase 6D: the guard became fail-closed (NODE_ENV must be development/test,
+    // or ALLOW_SEED=1) — the guard block is now longer, so widen the extraction
+    // window and assert the NEW fail-closed semantics on top of the original ones.
+    const guardBlock = mainBody.slice(guardPosition, guardPosition + 1400);
     expect(guardBlock).toContain('throw new Error');
+    expect(guardBlock).toContain("seedEnv === 'development'");
+    expect(guardBlock).toContain("seedEnv === 'test'");
+    // Explicit override must exist for deliberate staging seeds…
+    expect(guardBlock).toContain("process.env.ALLOW_SEED === '1'");
+    // …and the block must still reference production in its rationale.
     expect(guardBlock).toContain('production');
+  });
+
+  it('guard is FAIL-CLOSED — blocks when NODE_ENV is unset (production runbook path)', () => {
+    // Phase 6D (F-1): DEPLOYMENT.md §3 previously invoked the seed without
+    // NODE_ENV set, bypassing the old `=== 'production'` guard. The new guard
+    // must block that exact path.
+    //
+    // This test evaluates the ACTUAL guard condition extracted from seed.ts
+    // source (not a reimplementation) against a simulated environment.
+    const seedPath = path.join(process.cwd(), 'prisma', 'seed.ts');
+    const source = fs.readFileSync(seedPath, 'utf-8');
+    const mainMatch = source.match(/async function main\(\)\s*\{/);
+    expect(mainMatch).not.toBeNull();
+    const mainBody = source.slice(mainMatch!.index! + mainMatch![0].length);
+    const guardPosition = mainBody.indexOf('NODE_ENV');
+    const guardBlock = mainBody.slice(guardPosition, guardPosition + 1400);
+
+    const seedEnvMatch = guardBlock.match(/const seedEnv = (.+?);/);
+    const seedAllowedMatch = guardBlock.match(/const seedAllowed =([\s\S]*?);/);
+    expect(seedEnvMatch).not.toBeNull();
+    expect(seedAllowedMatch).not.toBeNull();
+
+    // Evaluate the real extracted condition with a synthetic process object.
+    const blocked = (env: string | undefined, allowSeed: string | undefined) => {
+      const fn = new Function(
+        'process',
+        `const seedEnv = ${seedEnvMatch![1]};
+         const seedAllowed = ${seedAllowedMatch![1]};
+         return !seedAllowed;`
+      );
+      return fn({ env: { NODE_ENV: env, ALLOW_SEED: allowSeed } }) as boolean;
+    };
+
+    expect(blocked(undefined, undefined)).toBe(true); // unset NODE_ENV → BLOCKED (the F-1 fix)
+    expect(blocked('production', undefined)).toBe(true); // production → BLOCKED
+    expect(blocked('', undefined)).toBe(true); // empty → BLOCKED
+    expect(blocked('staging', undefined)).toBe(true); // any unknown env → BLOCKED
+    expect(blocked('development', undefined)).toBe(false); // development → allowed
+    expect(blocked('test', undefined)).toBe(false); // test → allowed
+    expect(blocked('production', '1')).toBe(false); // explicit ALLOW_SEED=1 override honored (staging escape hatch)
   });
 
   it('guard checks exact string "production" — no falsy environment matches', () => {

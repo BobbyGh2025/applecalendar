@@ -30,6 +30,7 @@ import { UserProfile } from '@/components/user-profile';
 import { ChangePassword } from '@/components/change-password';
 import { ForgotPassword } from '@/components/forgot-password';
 import { ResetPassword } from '@/components/reset-password';
+import { EmailVerificationView } from '@/components/email-verification-view';
 import { AnimatePresence, motion } from 'framer-motion';
 
 function renderCurrentView() {
@@ -90,6 +91,8 @@ function renderCurrentView() {
       return <ForgotPassword />;
     case 'reset-password':
       return <ResetPassword />;
+    case 'verify-email':
+      return <EmailVerificationView />;
     default:
       return <PublicDiscover />;
   }

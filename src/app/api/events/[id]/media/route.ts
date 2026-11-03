@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authenticate } from '@/lib/auth';
 import { handleApiError, ApiError } from '@/lib/errors';
 import { z } from 'zod';
+import { urlField } from '@/lib/validations/common';
 import { authorizeEventContent, verifyMediaBelongsToEvent } from '@/lib/services/event-content';
 import { getEventUsage, requireWithinLimit, getOperableOrganizerEntitlements } from '@/lib/services/entitlements';
 import { filterPublicMediaFields, isEventPubliclyVisible } from '@/lib/services/event-auth';
@@ -15,7 +16,9 @@ const VALID_MEDIA_CATEGORIES = [
 ] as const;
 
 const createMediaSchema = z.object({
-  url: z.string().url('A valid URL is required'),
+  // Phase 6D (F-7): safe-scheme validation — blocks javascript:/data: URLs
+  // that would execute as stored XSS when rendered as <a href>/<img src>.
+  url: urlField,
   type: z.enum(VALID_MEDIA_TYPES),
   category: z.enum(VALID_MEDIA_CATEGORIES).default('GALLERY'),
   caption: z.string().max(500, 'Caption must be 500 characters or fewer').optional(),
@@ -25,7 +28,7 @@ const createMediaSchema = z.object({
 });
 
 const updateMediaSchema = z.object({
-  url: z.string().url('A valid URL is required').optional(),
+  url: urlField.optional(),
   type: z.enum(VALID_MEDIA_TYPES).optional(),
   category: z.enum(VALID_MEDIA_CATEGORIES).optional(),
   caption: z.string().max(500, 'Caption must be 500 characters or fewer').optional().nullable(),

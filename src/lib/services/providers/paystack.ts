@@ -219,6 +219,23 @@ class PaystackProvider implements IPaymentProvider {
 
       const data = response.data as PaystackVerifyData;
 
+      // Phase 6D (C3): Defense-in-depth — the transaction Paystack describes
+      // must be the transaction we asked about. If Paystack returns a
+      // different reference than the one queried, the response cannot be
+      // trusted for this payment.
+      if (data.reference && data.reference !== providerReference) {
+        logger.warn('Paystack verification: reference mismatch', {
+          paymentId,
+          queriedReference: providerReference,
+          returnedReference: data.reference,
+        });
+        return {
+          success: false,
+          errorCode: 'PAYSTACK_REFERENCE_MISMATCH',
+          errorMessage: 'Verification response does not correspond to the queried reference',
+        };
+      }
+
       // Paystack returns status as lowercase string
       const paystackStatus = data.status?.toLowerCase();
 
@@ -388,6 +405,12 @@ class PaystackProvider implements IPaymentProvider {
 
     const { event, data } = payload;
 
+    // Phase 6D (C1): refund lifecycle events. Paystack refund webhooks carry
+    // refund_reference / transaction_reference instead of data.reference.
+    const isRefundSuccess = event === 'refund.processed';
+    const isRefundFailure = event === 'refund.failed';
+    const isRefundEvent = isRefundSuccess || isRefundFailure;
+
     // Extract and validate required data fields
     if (!data.id) {
       return {
@@ -397,11 +420,24 @@ class PaystackProvider implements IPaymentProvider {
       };
     }
 
-    if (!data.reference) {
+    if (!data.reference && !isRefundEvent) {
       return {
         success: false,
         errorCode: 'PAYSTACK_WEBHOOK_MISSING_REFERENCE',
         errorMessage: 'Paystack webhook data.reference is missing',
+      };
+    }
+
+    // For refund events the actionable reference is the refund reference;
+    // fall back to the transaction reference for older payload shapes.
+    const eventReference: string =
+      data.reference ?? data.refund_reference ?? data.transaction_reference;
+
+    if (!eventReference) {
+      return {
+        success: false,
+        errorCode: 'PAYSTACK_WEBHOOK_MISSING_REFERENCE',
+        errorMessage: 'Paystack webhook is missing an actionable reference',
       };
     }
 
@@ -428,20 +464,24 @@ class PaystackProvider implements IPaymentProvider {
       provider: 'PAYSTACK',
       eventId: `paystack-${data.id}`,
       eventType: event,
-      eventReference: data.reference,
+      eventReference,
       amount: amount as NormalizedWebhookEvent['amount'],
       currency,
       eventAt: data.paid_at ? new Date(data.paid_at) : new Date(),
       isPaymentSuccess,
       isPaymentFailure,
+      isRefundEvent,
+      isRefundSuccess,
+      isRefundFailure,
     };
 
     logger.info('Paystack webhook normalized', {
       eventType: event,
       eventId: normalized.eventId,
-      eventReference: data.reference,
+      eventReference,
       isPaymentSuccess,
       isPaymentFailure,
+      isRefundEvent,
     });
 
     return {
